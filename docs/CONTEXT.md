@@ -154,6 +154,23 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
 
 ### Measured highlights (Linux, directional)
 
+- **Shape-frontier matched table (generated.json, 827,664 B)** — the
+  reference for the next prototype decisions (Linux EPYC, clang, median reps):
+  | codec | bytes | ratio | enc MB/s | dec MB/s |
+  |---|---|---|---|---|
+  | anvil shape-abs (semantic shape book, absolute dist) | 315,221 | 0.1204 | 36.8 | 1099 |
+  | anvil shape-predict (per-shape last-dist delta) | 273,700 | 0.1046 | 36.4 | 957 |
+  | brotli q1 | 354,400 | 0.1354 | 471.7 | 597.6 |
+  | brotli q4 | 327,787 | 0.1252 | 86.6 | 1411.8 |
+  | brotli q6 | 248,087 | 0.0948 | 47.6 | 1218.5 |
+  | brotli q9 | 234,876 | 0.0897 | 22.0 | 1210.9 |
+  Verdict: shape-predict beats brotli q4 ratio at ~1 GB/s decode and ~36
+  MB/s encode; still DOMINATED by q6/q9 on ratio and by q4+ on decode. The
+  ratio/runtime jump vs the earlier generalized stream (320.9 KB @ ~0.37
+  GB/s) came from factoring semantic shape (kind, len, patch topology) from
+  displacement and predicting displacement per shape. **Workflow rule:
+  brotli q11 dropped from inner iteration loops (it dominates runtime); use
+  q1/q4/q6/q9 for prototypes, q11 only for final validation.**
 - generated.log (1,924,280 B): SCM+s6+macro mode 23 → **0.056 ratio, 47.4
   encode, 913 decode** (brotli q9 0.065, 27.6 enc, 1,460 dec). Raw-hot +
   flat-decoder experiment reached 81,208 B (0.042) / 50 enc / 963 dec.
