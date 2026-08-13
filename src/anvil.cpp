@@ -738,11 +738,18 @@ static std::vector<uint8_t> defexc_decode(const uint8_t* p, size_t n, size_t out
 }
 
 // ---- stream-suite selection ------------------------------------------------
-// J = L + lambda * C_decode * L with per-byte decode cost units:
-//   raw 1, rans-4096 4, rans-512 3.5, rans-256 3, huffman 2.2, defexc 2.0
-static double g_stream_lambda = 0.04; // ANVIL_STREAM_LAMBDA overrides (0 = pure length)
+// J = L + lambda*C_decode (+ mu*C_model + nu*W_cache, defaults 0), the
+// pre-registered jcost form. C_decode = per-STREAM decode cost units:
+//   raw 10, rans-4096 40, rans-512 35, rans-256 30, huffman 22, defexc 20
+// lambda pre-registered binding value = 0.01 (Options.stream_lambda /
+// ANVIL_STREAM_LAMBDA / --stream-lambda override; 0 = pure length).
+static double g_stream_lambda = 0.01;
+static double g_stream_mu = 0.0, g_stream_nu = 0.0;
 static bool g_stream_suite = true;   // false = fixed rANS-4096 + raw (pre-suite behavior)
+static bool g_stream_log = false;    // --stream-log: record per-stream selection
 static uint64_t g_j_agree = 0, g_j_total = 0; // J-selection vs pure-L agreement counters
+struct StreamLogEntry { uint32_t chosen, l_winner; size_t chosen_L, min_L; };
+static std::vector<StreamLogEntry> g_stream_log_entries;
 
 static std::vector<uint8_t> rans_stream_bytes(const std::vector<uint8_t>& src, const RansSpec& sp, uint8_t mode) {
     RansModel m=build_rans_model(src,sp.tot); auto rd=rans_encode(src,m,sp);
@@ -801,17 +808,18 @@ static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
     if(src.size()<16) return raw;
     struct Cand { std::vector<uint8_t> bytes; double J; };
     std::vector<Cand> cands;
-    auto add=[&](std::vector<uint8_t> b, double cu){ double L=double(b.size()); cands.push_back({std::move(b), L + g_stream_lambda*cu*L}); };
-    add(rans_stream_bytes(src,kRans4096,1), 4.0);
+    auto add=[&](std::vector<uint8_t> b, double cu){ double L=double(b.size()); cands.push_back({std::move(b), L + g_stream_lambda*cu + g_stream_mu*2.0 + g_stream_nu*cu}); };
+    add(std::move(raw), 10.0); // raw is always a candidate (per-stream fallback)
+    add(rans_stream_bytes(src,kRans4096,1), 40.0);
     if(g_stream_suite) {
-        add(rans_stream_bytes(src,kRans512,2), 3.5);
-        add(rans_stream_bytes(src,kRans256,3), 3.0);
+        add(rans_stream_bytes(src,kRans512,2), 35.0);
+        add(rans_stream_bytes(src,kRans256,3), 30.0);
         auto hlen=huffman_lengths(src);
-        add(huffman_stream_bytes(src,hlen), 2.2);
+        add(huffman_stream_bytes(src,hlen), 22.0);
         {
             std::array<uint32_t,256> cnt{}; for(uint8_t b:src) ++cnt[b];
             uint8_t def=0; for(int i=1;i<256;++i) if(cnt[i]>cnt[def]) def=uint8_t(i);
-            if(cnt[def]>=src.size()/2) add(defexc_stream_bytes(src,def), 2.0);
+            if(cnt[def]>=src.size()/2) add(defexc_stream_bytes(src,def), 20.0);
         }
     }
     const Cand* best=&cands[0];
@@ -822,6 +830,7 @@ static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
         size_t lw=0; for(size_t i=1;i<cands.size();++i) if(cands[i].bytes.size()<cands[lw].bytes.size()) lw=i;
         ++g_j_total;
         if(best->bytes.size() <= cands[lw].bytes.size()*101/100) ++g_j_agree;
+        if(g_stream_log) g_stream_log_entries.push_back({uint32_t(best-&cands[0]+1), uint32_t(lw), best->bytes.size(), cands[lw].bytes.size()});
     }
     return best->bytes;
 }
@@ -1576,6 +1585,8 @@ struct Options {
     bool boundary=false;   // boundary-aligned candidate generation (C5; measured neutral on corpus)
     bool negate=true;      // difference-cover negative gate for incompressible blocks (C5)
     bool stream_suite=true; // stream codec suite (huffman/defexc/256-512 rANS); off = fixed rANS-4096+raw
+    double stream_lambda=0.01; // J-cost decode-weight (pre-registered binding value 0.01)
+    bool stream_log=false; // --stream-log: record per-stream codec selection to stdout
     bool quiet=false;
 };
 struct GlobalStats { uint64_t in=0,out=0,blocks=0,raw_blocks=0,compressed_blocks=0,literals=0,matches=0,matched_bytes=0,tokens=0; };
@@ -1611,7 +1622,9 @@ static bool probe_incompressible(const std::vector<uint8_t>& d) {
 
 static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Options& opt, GlobalStats* gs) {
     g_stream_suite = opt.stream_suite;
-    g_j_agree = 0; g_j_total = 0;
+    g_stream_lambda = opt.stream_lambda;
+    g_stream_log = opt.stream_log;
+    g_j_agree = 0; g_j_total = 0; g_stream_log_entries.clear();
     std::vector<uint8_t> out={'A','N','V','0',1};
     put_uvar(out,opt.block_size); put_uvar(out,input.size());
     GlobalStats st; st.in=input.size();
@@ -1764,9 +1777,9 @@ static void usage() {
 int main(int argc,char**argv) {
     using namespace anvil;
     try {
-        if(const char* env=getenv("ANVIL_STREAM_LAMBDA")) g_stream_lambda=std::atof(env);
         if(argc<3){usage();return 2;}
         std::string cmd=argv[1]; Options opt;
+        if(const char* env=getenv("ANVIL_STREAM_LAMBDA")) opt.stream_lambda=std::atof(env);
         for(int i=(cmd=="verify"?3:4);i<argc;++i) {
             std::string a=argv[i];
             if(a.rfind("--parse=",0)==0)opt.parse=a.substr(8);
@@ -1780,6 +1793,8 @@ int main(int argc,char**argv) {
             else if(a.rfind("--boundary=",0)==0)opt.boundary=(a.substr(11)!="off");
             else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
             else if(a.rfind("--stream-suite=",0)==0)opt.stream_suite=(a.substr(15)!="off");
+            else if(a.rfind("--stream-lambda=",0)==0)opt.stream_lambda=std::stod(a.substr(16));
+            else if(a=="--stream-log")opt.stream_log=true;
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
@@ -1790,6 +1805,7 @@ int main(int argc,char**argv) {
         if(cmd=="c") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
+            if(opt.stream_log) for(auto&e:g_stream_log_entries) std::cout<<"stream_log chosen="<<e.chosen<<" l_winner="<<e.l_winner<<" chosen_L="<<e.chosen_L<<" min_L="<<e.min_L<<"\n";
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<"\n";}
         } else if(cmd=="d") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
