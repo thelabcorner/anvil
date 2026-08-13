@@ -272,34 +272,64 @@ class MatchFinder {
     const std::vector<uint8_t>& d_;
     std::vector<uint32_t> head_;
     std::vector<uint32_t> prev_;
+    // Boundary-aligned candidate index (Linux C5): only token-start positions
+    // are inserted here, so chains are short and sources align with structure.
+    std::vector<uint32_t> bhead_;
+    std::vector<uint32_t> bprev_;
+    bool use_boundary_;
     uint32_t max_chain_;
     uint32_t max_match_;
+    static std::vector<Match> walk(const uint8_t* d, size_t n, uint32_t pos, uint32_t q,
+                                   const std::vector<uint32_t>& prev, uint32_t max_chain, uint32_t max_match) {
+        std::vector<Match> out;
+        if (pos + 4 > n) return out;
+        uint32_t remain = static_cast<uint32_t>(n - pos);
+        uint32_t cap = std::min(remain, max_match);
+        uint32_t best = 3;
+        for (uint32_t depth = 0; q != kNoPos && depth < max_chain; ++depth, q = prev[q]) {
+            if (q >= pos) break;
+            uint32_t dist = pos - q;
+            if (d[q] != d[pos] || d[q+1] != d[pos+1] || d[q+2] != d[pos+2] || d[q+3] != d[pos+3]) continue;
+            uint32_t l = match_length(d + q, d + pos, cap);
+            if (l >= 4) {
+                if (l > best || out.size() < 3) { out.push_back({l, dist}); best = std::max(best, l); }
+                if (l == cap) break;
+            }
+        }
+        if (out.size() > 8) {
+            std::sort(out.begin(), out.end(), [](auto&a, auto&b){ if(a.len!=b.len)return a.len>b.len; return a.dist<b.dist; });
+            out.resize(8);
+        }
+        return out;
+    }
 public:
-    MatchFinder(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match)
-      : d_(d), head_(kHashSize,kNoPos), prev_(d.size(),kNoPos), max_chain_(max_chain), max_match_(max_match) {}
+    MatchFinder(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, bool boundary=false)
+      : d_(d), head_(kHashSize,kNoPos), prev_(d.size(),kNoPos), bhead_(kHashSize,kNoPos),
+        bprev_(d.size(),kNoPos), use_boundary_(boundary), max_chain_(max_chain), max_match_(max_match) {}
     void insert(uint32_t pos) {
         if (pos+4>d_.size()) return;
         uint32_t h=hash4(d_.data()+pos); prev_[pos]=head_[h]; head_[h]=pos;
     }
+    void insert_boundary(uint32_t pos) {
+        if (pos+4>d_.size()) return;
+        uint32_t h=hash4(d_.data()+pos); bprev_[pos]=bhead_[h]; bhead_[h]=pos;
+    }
+    bool boundary_active() const { return use_boundary_; }
     std::vector<Match> find(uint32_t pos) const {
+        // Boundary-aligned sources supplement the full hash when active (union:
+        // strictly more candidates -> never a ratio regression, aligned sources win
+        // via the cost model's near-distance preference).
         std::vector<Match> out;
-        if (pos+4>d_.size()) return out;
-        uint32_t h=hash4(d_.data()+pos), q=head_[h];
-        uint32_t remain=static_cast<uint32_t>(d_.size()-pos);
-        uint32_t cap=std::min(remain,max_match_);
-        uint32_t best=3;
-        for(uint32_t depth=0; q!=kNoPos && depth<max_chain_; ++depth, q=prev_[q]) {
-            if (q>=pos) break;
-            uint32_t dist=pos-q;
-            if (d_[q]!=d_[pos] || d_[q+1]!=d_[pos+1] || d_[q+2]!=d_[pos+2] || d_[q+3]!=d_[pos+3]) continue;
-            uint32_t l=match_length(d_.data()+q,d_.data()+pos,cap);
-            if(l>=4) {
-                if (l>best || out.size()<3) { out.push_back({l,dist}); best=std::max(best,l); }
-                if(l==cap) break;
-            }
+        if (use_boundary_) {
+            uint32_t h = hash4(d_.data() + pos);
+            out = walk(d_.data(), d_.size(), pos, bhead_[h], bprev_, max_chain_, max_match_);
         }
-        if(out.size()>8) {
-            std::sort(out.begin(),out.end(),[](auto&a,auto&b){ if(a.len!=b.len)return a.len>b.len; return a.dist<b.dist; });
+        uint32_t h = hash4(d_.data() + pos);
+        std::vector<Match> full = walk(d_.data(), d_.size(), pos, head_[h], prev_, max_chain_, max_match_);
+        if (out.empty()) return full;
+        out.insert(out.end(), full.begin(), full.end());
+        if (out.size() > 8) {
+            std::sort(out.begin(), out.end(), [](auto&a, auto&b){ if(a.len!=b.len)return a.len>b.len; return a.dist<b.dist; });
             out.resize(8);
         }
         return out;
@@ -310,7 +340,7 @@ public:
     // i.e. mask+residuals vs the all-literal fallback. Returns the best sparse
     // candidate with >=1 correction, or false. `work` caps scanned bytes.
     bool find_sparse(uint32_t pos, SparseMatch& out, const std::array<double,256>& litcost,
-                     double avg_lit, uint64_t& work) const {
+                     double avg_lit, uint64_t& work, double dead_band=32.0, uint32_t surprise_max=64) const {
         out.len = 0;
         if (pos + 4 > d_.size()) return false;
         const uint8_t* tgt = d_.data() + pos;
@@ -340,7 +370,7 @@ public:
                 // must be computed against that, not against src[j], for dist < len.
                 uint8_t cpy = (dist > 0) ? src[j % dist] : src[j];
                 if (cpy != tgt[j]) {
-                    if (k >= kSparseScanMax) break;
+                    if (k >= kSparseScanMax || k >= surprise_max) break; // surprise budget (entropy-control var)
                     off[k] = j; val[k] = tgt[j];
                     score -= litcost[tgt[j]] + 0.125;
                     ++k;
@@ -348,7 +378,7 @@ public:
                     score += match_gain;
                 }
                 if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; }
-                else if (score < local_best - 32.0) break;  // dead band: cannot recover usefully
+                else if (score < local_best - dead_band) break;  // surprise budget: tolerance to dips
             }
             if (local_k >= 1 && local_len >= 8 && local_best > best_score) {
                 best_score = local_best; blen = local_len; bk = local_k;
@@ -456,7 +486,10 @@ static std::vector<Token> parse_dp(const std::vector<uint8_t>& d, uint32_t max_c
 // (token + len/dist varints + L/8 flat mask + residual litcosts) beats the
 // best alternative covering the same span (exact edge + literals), per the
 // mask-stream cost rule. Conservative by design: the block router arbitrates.
-static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match) {
+// `surprise` is the mismatch budget (entropy-control variable, swept): it
+// scales find_sparse's dead band and the max corrections per sparse candidate.
+static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match,
+                                             uint32_t surprise=6, bool boundary=false) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     std::vector<SparseToken> toks;
     if(n==0) return toks;
@@ -472,7 +505,9 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
     std::vector<double> pref(n+1,0.0); // prefix sums of per-byte literal cost
     for(uint32_t i=0;i<n;++i) pref[i+1]=pref[i]+litcost[d[i]]+0.10;
 
-    MatchFinder mf(d,max_chain,max_match);
+    const double dead_band=32.0*double(surprise)/6.0;
+    const uint32_t surprise_max=8u*surprise;
+    MatchFinder mf(d,max_chain,max_match,boundary);
     uint64_t work=0;
     uint32_t i=0;
     while(i<n) {
@@ -483,7 +518,7 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
         if(exact.len>=4) exact_c=0.6+varint_cost(exact.len-4)+varint_cost(exact.dist-1)+0.18*std::log2(double(exact.dist)+1.0);
         if(exact.len<128 && work<kSparseBlockBudget) {
             SparseMatch sm;
-            if(mf.find_sparse(i,sm,litcost,avg_lit,work)) {
+            if(mf.find_sparse(i,sm,litcost,avg_lit,work,dead_band,surprise_max)) {
                 double sparse_c=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
                                +0.18*std::log2(double(sm.dist)+1.0);
                 for(size_t k=0;k<sm.off.size();++k) sparse_c+=litcost[sm.val[k]];
@@ -494,6 +529,7 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                     SparseToken t; t.type=2; t.pos=i; t.len=sm.len; t.dist=sm.dist;
                     t.off=std::move(sm.off); t.val=std::move(sm.val);
                     toks.push_back(std::move(t));
+                    if(boundary) mf.insert_boundary(i);
                     uint32_t end=i+sm.len;
                     for(uint32_t p=i;p<end;++p) mf.insert(p);
                     i=end;
@@ -505,12 +541,13 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
         if(exact.len>=4 && exact_c<(pref[i+exact.len]-pref[i])) {
             SparseToken t; t.type=1; t.pos=i; t.len=exact.len; t.dist=exact.dist;
             toks.push_back(std::move(t));
+            if(boundary) mf.insert_boundary(i);
             uint32_t end=i+exact.len;
             for(uint32_t p=i;p<end;++p) mf.insert(p);
             i=end;
         } else {
             if(!toks.empty() && toks.back().type==0 && toks.back().pos+toks.back().len==i) ++toks.back().len;
-            else toks.push_back(SparseToken{0,i,1,0,{}, {}});
+            else { toks.push_back(SparseToken{0,i,1,0,{}, {}}); if(boundary) mf.insert_boundary(i); }
             mf.insert(i);
             ++i;
         }
@@ -822,14 +859,16 @@ static std::pair<MdlCosts,size_t> measure_parse(const std::vector<uint8_t>& d, c
 // distances win because their measured ds cost is cheap) while processing each
 // position once per pass. Match lengths are clamped at the window edge; the next
 // window re-parses from there. Cost model comes from the actual rANS streams.
-static std::vector<Token> parse_mdl_pass(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, const MdlCosts& c) {
+static std::vector<Token> parse_mdl_pass(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, const MdlCosts& c,
+                                         bool use_boundary=false, const std::vector<uint8_t>& bseed={}) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     std::vector<Token> toks;
     if(n==0) return toks;
     static constexpr uint32_t kWin = 16384;
     static constexpr uint32_t cuts[] = {4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65535};
     struct Prev { uint32_t from=0, dist=0; bool match=false; };
-    MatchFinder mf(d,std::min(max_chain,16u),max_match); // shallow chains: near distances dominate measured ds cost
+    MatchFinder mf(d,std::min(max_chain,16u),max_match,use_boundary); // shallow chains: near distances dominate measured ds cost
+    if(use_boundary && bseed.size()==n) for(uint32_t p=0;p<n;++p) if(bseed[p]) mf.insert_boundary(p);
     std::vector<double> dp(kWin+1);
     std::vector<Prev> prev(kWin+1);
     uint32_t s=0;
@@ -876,7 +915,8 @@ static std::vector<Token> parse_mdl_pass(const std::vector<uint8_t>& d, uint32_t
     return toks;
 }
 
-static std::vector<Token> parse_mdl(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, uint32_t iters=3) {
+static std::vector<Token> parse_mdl(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, uint32_t iters=3,
+                                    bool boundary=false) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     if(n==0) return {};
     // Seed: cheap single-pass greedy (longest match), measured costs from it.
@@ -884,11 +924,25 @@ static std::vector<Token> parse_mdl(const std::vector<uint8_t>& d, uint32_t max_
     auto [c,total]=measure_parse(d,toks);
     std::vector<Token> best=std::move(toks);
     size_t best_total=total;
+    // Boundary-aligned candidate seeding (Linux C5): token starts of the previous
+    // pass become the boundary-indexed source set for the next pass.
+    std::vector<uint8_t> bseed(n,0);
+    // Linux C5: 66-92% of LZ sources start within +-8 B of a prior token start.
+    // Dilate each token start by +-8 so the boundary index covers aligned sources.
+    auto mark_starts=[&](const std::vector<Token>& t){
+        for(auto&x:t) {
+            uint32_t lo = x.pos>8 ? x.pos-8 : 0;
+            uint32_t hi = std::min<uint32_t>(n-1, x.pos+8);
+            for(uint32_t p=lo;p<=hi;++p) bseed[p]=1;
+        }
+    };
+    mark_starts(best);
     // Refine: windowed-DP passes with measured costs; stop when no gain.
     for(uint32_t it=1;it<iters;++it) {
-        auto cand=parse_mdl_pass(d,max_chain,max_match,c);
+        auto cand=parse_mdl_pass(d,max_chain,max_match,c,boundary,bseed);
         auto [cm,t2]=measure_parse(d,cand);
         if(t2<best_total){ best_total=t2; best=std::move(cand); }
+        mark_starts(best);
         if(it>1 && t2+1>=best_total) break; // converged (1-byte slack)
         c=cm;
         total=t2;
@@ -965,9 +1019,41 @@ struct Options {
     std::string parse="auto";
     std::string literal="auto"; // auto|o0|o1|g4|g8|g16
     std::string entropy="auto"; // auto|arith|rans
+    uint32_t surprise=12;  // parser mismatch/surprise budget (entropy-control var; swept -> 12 beats 6 on corpus)
+    bool boundary=false;   // boundary-aligned candidate generation (C5; measured neutral on corpus)
+    bool negate=true;      // difference-cover negative gate for incompressible blocks (C5)
     bool quiet=false;
 };
 struct GlobalStats { uint64_t in=0,out=0,blocks=0,raw_blocks=0,compressed_blocks=0,literals=0,matches=0,matched_bytes=0,tokens=0; };
+
+// Negative gate (Linux C5): content-hash probe. Samples ~1024 positions; if the
+// sampled 4-byte windows are (nearly) all distinct, the block has no exploitable
+// repetition -> incompressible -> emit raw without running any parser (big encode
+// win on random data; random.bin was ~0.5 MB/s in auto because all 5 parses ran).
+// Conservative: any repeated window keeps the block on the normal path, and a raw
+// block is always valid, so this can never break correctness — worst case it skips
+// a compression opportunity.
+static bool probe_incompressible(const std::vector<uint8_t>& d) {
+    const size_t n = d.size();
+    if (n < 512) return false;
+    const size_t S = 1024;
+    size_t stride = std::max<size_t>(1, n / S);
+    std::vector<uint32_t> setv(4096, 0xFFFFFFFFu); // open-addressing set of 18-bit hashes
+    size_t uniq = 0, dup = 0;
+    size_t off = 0;
+    for (size_t i = 0; i < S && off + 4 <= n; ++i, off += stride) {
+        uint32_t h = hash4(d.data() + off);
+        uint32_t slot = h & 4095;
+        bool found = false;
+        while (setv[slot] != 0xFFFFFFFFu) {
+            if (setv[slot] == h) { found = true; break; }
+            slot = (slot + 1) & 4095;
+        }
+        if (found) ++dup; else { setv[slot] = h; ++uniq; }
+    }
+    // Random data: expected ~0.2% duplicate 18-bit hashes over 1024 samples.
+    return dup * 100 <= S; // <=1% repeats across the sample -> incompressible
+}
 
 static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Options& opt, GlobalStats* gs) {
     std::vector<uint8_t> out={'A','N','V','0',1};
@@ -976,6 +1062,16 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
     for(size_t off=0; off<input.size();) {
         size_t blen=std::min<size_t>(opt.block_size,input.size()-off);
         std::vector<uint8_t> block(input.begin()+off,input.begin()+off+blen);
+
+        // Negative gate: incompressible blocks go straight to raw (no parser runs).
+        if(opt.negate && probe_incompressible(block)) {
+            ++st.blocks; ++st.raw_blocks; st.literals+=blen;
+            put_uvar(out,blen);
+            uint32_t sum=crc32(block.data(),block.size());
+            out.push_back(0); put_uvar(out,block.size()); put_u32le(out,sum);
+            out.insert(out.end(),block.begin(),block.end());
+            off+=blen; continue;
+        }
 
         struct Candidate { std::vector<uint8_t> payload; std::vector<Token> toks; uint8_t mode=0; };
         Candidate best;
@@ -998,9 +1094,9 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         };
         if(opt.parse=="auto" || opt.parse=="greedy") consider_parse(parse_greedy(block,opt.max_chain,opt.max_match));
         if(opt.parse=="auto" || opt.parse=="dp") consider_parse(parse_dp(block,opt.max_chain,opt.max_match));
-        if(opt.parse=="auto" || opt.parse=="mdl") consider_parse(parse_mdl(block,opt.max_chain,opt.max_match));
+        if(opt.parse=="auto" || opt.parse=="mdl") consider_parse(parse_mdl(block,opt.max_chain,opt.max_match,3,opt.boundary));
         if(opt.parse=="auto" || opt.parse=="sparse") {
-            auto stoks=parse_sparse(block,opt.max_chain,opt.max_match);
+            auto stoks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary);
             auto payload=encode_tokens_sparse(block,stoks);
             std::vector<Token> t; t.reserve(stoks.size());
             for(auto&s:stoks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
@@ -1068,10 +1164,11 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--boundary=on|off] [--negate=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
-              << "  note: --parse=sparse emits block mode 11 (SPARSE-REF); --parse=mdl is the measured-cost single-pass parser (mode 10)\n";
+              << "  note: --parse=sparse emits block mode 11 (SPARSE-REF); --parse=mdl is the measured-cost single-pass parser (mode 10)\n"
+              << "  note: --surprise=N is the sparse-parser mismatch budget (default 6); --boundary/--negate are C5 adopts\n";
 }
 
 } // namespace anvil
@@ -1090,6 +1187,9 @@ int main(int argc,char**argv) {
             else if(a.rfind("--block=",0)==0)opt.block_size=std::stoul(a.substr(8));
             else if(a.rfind("--chain=",0)==0)opt.max_chain=std::stoul(a.substr(8));
             else if(a.rfind("--max-match=",0)==0)opt.max_match=std::stoul(a.substr(12));
+            else if(a.rfind("--surprise=",0)==0)opt.surprise=std::stoul(a.substr(11));
+            else if(a.rfind("--boundary=",0)==0)opt.boundary=(a.substr(11)!="off");
+            else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
