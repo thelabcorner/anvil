@@ -102,3 +102,76 @@ Aggregate result is computed as total compressed bytes / total input bytes. Aggr
 Interesting result: DP+rANS reaches ratio 0.345777, slightly smaller than Brotli q6's 0.347324 in this smoke aggregate, but it is far slower in both encode and decode throughput. Therefore this is **not a Pareto win**; it only demonstrates that the current representation has enough ratio potential to justify continued systems work.
 
 The raw row-level data is in `tests/benchmark-suite.csv`.
+
+## Experiment E — SPARSE-REF R1 (block mode 11, flat bitmask) — FIRST MEASURED EVIDENCE
+
+**Hypothesis (agenda §1):** a sparse-corrected phrase copy — copy a prior
+phrase, entropy-code a sparse correction mask + residuals — beats exact-LZ on
+record-structured data while staying LZ-fast. R1 ships the minimal form:
+rep A flat 32-bit mask words (4 B per 32 B window), single-pass greedy parser
+over literal/exact/sparse edges, cost rule = mask(L/8 bits) + residuals at
+literal cost vs exact+literals over the same span.
+
+**Mechanism as implemented (by `arch`, t-sparse):** block mode 11,
+`--parse=sparse` (single candidate) + `--parse=auto` (router). Seven
+substreams: token types, lit-len varints, match-len varints, dist varints,
+literals, correction masks, residual bytes. Decoder = copy + sparse stores.
+Existing modes 0-10 untouched. Correctness: round-trip verified on all 9
+corpus files; fuzz 480 variants + ASan/UBSan clean; canonical fuzz.py
+(incl. sparse) 350 variants PASS.
+
+**A/B results (Windows, clang-cl Release, single-rep directional —
+independently re-measured by `research`, agrees with `arch`):**
+
+| File | sparse (m11) | dp-rans | greedy-rans | sparse vs dp |
+|---|---:|---:|---:|---:|
+| generated.jsonl (2.82 MB, stress) | **0.0790** | 0.0874 | 0.1074 | **−9.6% bytes** |
+| generated.repeat.jsonl (control) | 0.00126 (1182 B) | 0.00123 (1157 B) | 0.00123 (1152 B) | **+2.2% bytes** |
+| random.bin (control) | 1.0001 | 1.0 | 1.0 | degrades to raw block |
+| generated.log | 0.0942 | 0.0906 | 0.1182 | +4.0% (dp wins) |
+| generated.json | 0.1635 | 0.1381 | 0.1754 | +18.4% (dp wins) |
+| src.cpp | 0.3239 | 0.2986 | 0.3048 | +8.5% (dp wins) |
+| doc.md | 0.5971 | 0.5775 | 0.5929 | +3.4% (dp wins) |
+
+**Encode speed (the headline):** on generated.jsonl, sparse encodes at
+**~35 MB/s vs ~1.5 MB/s dp-rans (~21x)** while matching/beating its ratio.
+Decode ~222 MB/s (sparse) vs ~211 (dp-rans) — comparable, still far from
+Brotli q9's ~900 MB/s on this file.
+
+**Verdict per the novelty gate (agenda §1.3, FLAG-A/B/C):**
+
+- **RATIO-VALIDATED on its target domain.** On the record-structured stress
+  file, sparse-corrected edges deliver −9.6% bytes vs the best exact-LZ
+  baseline (dp-rans) at ~21x encode speed. This is the falsifiable claim's
+  ratio leg, confirmed.
+- **NOT a Pareto win (FLAG-A binds).** Decode ~222 MB/s is still ~4x slower
+  than Brotli q9's ~900 MB/s on the same file — the decode leg of the
+  falsifiable target (≥3x brotli decode) fails. Ratio-vs-decode plane still
+  dominated. Recorded as a result, not a claim.
+- **No-regression guard — CORRECTION to `arch`'s handoff.** On the
+  identical-record control, standalone mode 11 is **+2.2% larger than
+  dp-rans (1182 vs 1157 B)** — a real, deterministic delta (ratio CV =
+  0.000%), not "no regression". The flat-A mask costs ~L/8 bits even when
+  corrections are zero. The router protects this case: `--parse=auto` picks
+  dp-rans (873 B) on the repeat control and dp on src.cpp — the mechanism
+  never ships worse when routed. But a standalone `--parse=sparse` default
+  would regress identical-record files by ~2%; this is an R2 mask-topology
+  target (a "mask==0 → exact edge" shortcut should recover the delta).
+- **Sparse loses where records are absent** (src.cpp, doc.md, generated.json
+  small-structure): exact-LZ dp wins; the router correctly selects exact
+  blocks there. Expected per agenda §1.2 — SPARSE-REF targets repetitive-but-
+  not-identical data.
+
+**Why it works (overlap nuance, flagged by `arch`, confirmed by re-measure):**
+overlapping sparse copies (len > dist) are periodic — the encoder must
+compute corrections against `src[j % dist]`, and offsets are relative to the
+copy DESTINATION start, not the source. Decoder does copy + sparse stores,
+so the periodic aliasing is where the "structural distance" lives: a record
+period of ~92 B copied with corrections at field offsets is exactly the
+edge type exact LZ cannot express. This is the empirical validation of
+agenda claim 3 (structural-distance propagation), in its R1 minimal form.
+
+**Next (R2 candidates, per agenda):** mask topology coding (flat-A is now
+the measured baseline — 1182 vs 1157 B shows the headroom), mask==0 shortcut,
+structural-distance channel reuse (R5). `bench` will add anvil-sparse-rans
+rows (median 3) to the full-corpus regression before any further claim.
