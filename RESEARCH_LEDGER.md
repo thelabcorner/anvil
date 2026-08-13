@@ -773,6 +773,28 @@ gaps are OPEN items for the binary-lane gate, not blockers on the
 current CONDITIONAL-PASS status. FTO attorney review remains
 recommended.
 
+**Three-pass convergence (coordinator, passes 2+3 in
+docs/priorart-tcopy-external.md, committed):** THREE independent passes
+agree — the single-file self-referential implicit-Δ transformed copy
+remains UNCLAIMED in the searched record. Passes 2+3 add: Red Bend
+US6546552 (two-file pointer normalization, 1998); Microsoft
+US7509636/WO2005071542 (two-file LZ delta, 2003) + EP4154406 (single-file
+LZ4-like, verbatim COPY only) + MS-RDC (chunking + global fixups);
+IBM US6564314 (GLOBAL instruction relocation pre-pass, 1999); Qualcomm
+US9300320 (cache-line dict, no relocation algebra); Apple US10229282
+(dyld pointer-stub, page-level); FaStore US9223794 (symbol-level edit
+distance, character alphabets); US12373439 + US20240211132A1
+(approximate-match with MASKING only — no additive transform, no implicit
+Δ); ZPAQ/PCOMP (global E8/E9); self-referential LZ77-with-edits THEORY
+(Gawrychowski 2011/2021, Kreft & Navarro 2013 — Hamming/Levenshtein
+bounds, no relocation arithmetic). **Cross-reference (SPARSE-REF C1):**
+the masking-only filings US12373439 and US20240211132A1 are closest-art
+touchpoints for the sparse-mask claim too — mask-without-transform exists;
+ANVIL's additive/implicit-transform + self-referential combination is the
+separator. Residual gaps: 18-month publication blackout; paywalled
+corpora; US 6,466,999 full claims. CONDITIONAL-PASS strongly supported by
+three-pass convergence; FTO attorney review still recommended.
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — CORRECTED (v2): FULL PASS at pre-registered λ=0.01
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-

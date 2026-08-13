@@ -649,6 +649,27 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   Espacenet/lens.org not queried; FTO attorney review still recommended.
   **Residual gaps are OPEN items for the binary-lane gate, not blockers
   on the narrowed claim's current status (CONDITIONAL PASS).**
+- **Three-pass convergence (coordinator, docs/priorart-tcopy-external.md
+  passes 2+3, committed):** THREE independent passes now agree — the
+  single-file self-referential implicit-Δ transformed copy remains
+  UNCLAIMED in the searched record. Closest art on all three passes:
+  (a) global once-per-file relocation/branch adjustment (BCJ/E8-E9
+  public-domain, PCOMP, IBM US6564314), or (b) two-file copy-with-edits
+  (Red Bend US6546552, Microsoft US7509636/WO2005071542, MS-RDC,
+  Courgette, Zdelta). Additional close-but-different: Apple US10229282
+  (dyld pointer-stub), Qualcomm US9300320 (cache-line dict), FaStore
+  US9223794 (symbol-level edits), US12373439 + US20240211132A1
+  (approximate-match MASKING only — no additive transform), and
+  self-referential LZ77-with-edits THEORY (Gawrychowski 2011/2021;
+  Kreft & Navarro 2013 — Hamming/Levenshtein bounds, no relocation
+  arithmetic). **Cross-reference for SPARSE-REF (C1):** the masking-only
+  filings (US12373439, US20240211132A1) are closest-art touchpoints for
+  ANVIL's sparse-mask claim too — the mask-without-transform formulation
+  exists; ANVIL's additive/implicit-transform + self-referential
+  combination is what separates C1 from them. Residual gaps recorded:
+  18-month publication blackout, paywalled corpora, US 6,466,999 full
+  claims; FTO attorney review still recommended. **The CONDITIONAL-PASS
+  verdict is now strongly supported by three-pass convergence.**
 
 ## Iteration-2 sequencing (as scheduled)
 
