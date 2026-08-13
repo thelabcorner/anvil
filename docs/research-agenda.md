@@ -169,6 +169,19 @@ mechanism shippable.
 - **Decode-throughput ablation (NEW, from FLAG-A):** decode cycles/byte for
   each representation choice (mask rep, residual backend, macro-ops vs
   separated streams). The gate now requires the decode leg, not just ratio.
+- **No-regression guard (two levels — both required):**
+  - *Mechanism level (t-sparse ablation):* A/B with everything else fixed;
+    on the no-regression controls (generated.repeat.jsonl, random.bin) the
+    mechanism row must not be larger than the exact-LZ baseline row of the
+    SAME build (ratio Δ ≥ 0 = regression). Catches the mechanism itself.
+  - *Release level (t-bench regression table):* every new mode appears in
+    the full-corpus table INCLUDING the repeat/random controls, compared
+    against the same-build exact-LZ baseline. Catches cross-mode interaction
+    and default-enabled regressions (a mode may exist but not be the
+    default if it regresses a control). Pass criterion: compressed bytes on
+    repeat/random controls must be ≤ same-build baseline; on random the
+    ratio is already ~1.0 so the relevant metric is encode speed with the
+    negative gate, with ratio unchanged.
 - Regression guard: full-corpus delta ≥ noise floor (ratio CV = 0.000% per
   bench, so ratio deltas are exact; timing only on usable files ≥ ~100 KB),
   round-trip verified, fuzzed — before any claim.
