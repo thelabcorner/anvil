@@ -176,6 +176,23 @@ the measured baseline — 1182 vs 1157 B shows the headroom), mask==0 shortcut,
 structural-distance channel reuse (R5). `bench` will add anvil-sparse-rans
 rows (median 3) to the full-corpus regression before any further claim.
 
+**Median-3 confirmation (bench, live in tests/benchmark-suite.csv +
+benchmark-summary.csv):** anvil-sparse-rans aggregate **0.141308 /
+22.1 MB/s enc / 195.5 MB/s dec** vs anvil-dp-rans 0.137795 / 1.08 / 209.5
+and brotli-q9 0.111795 / 32.0 / 837.9. Aggregate: +2.5% bytes vs dp-rans at
+**~20x encode speed** with comparable decode — a real trade-off point on the
+ratio-vs-encode plane, but aggregate decode ~195 MB/s is still ~4.3x below
+brotli q9, so **no Pareto claim (FLAG-A binds)**. Per-file (median 3):
+generated.jsonl **0.079** (the −9.6% win holds, dec 215.9 MB/s), repeat
+control 0.001 (1182 B — the +2.2% vs dp 1157 B confirmed at median-3),
+random.bin 1.0 (raw), generated.log 0.094, generated.json 0.163,
+generated.sqlite 0.226, src.cpp 0.324, doc.md 0.597 — sparse wins only the
+record-structured stress file and its encode-speed edge; the router remains
+the guard for the rest. The ratio-vs-encode trade-off (near-dp ratio at 20x
+encode) is the mechanism's honest Pareto contribution so far; the decode leg
+is the binding open problem for R2/R3 (topology coding + macro-op/hot-op
+streams from the Linux line are the candidates to close it).
+
 **Decoder safety (t-format closure, `format`):** FORMAT.md now specs mode 11
 exactly as landed (7 substreams S0-S6, flat 32-bit mask words, strict type-2
 invariants incl. mask-bits-beyond-len rejection, len(residuals)==popcount(mask),
