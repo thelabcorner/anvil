@@ -223,4 +223,125 @@ art is either (a) global once-per-file relocation/branch adjustment, or
 (b) two-file copy-with-edits. The single-file self-referential implicit-Δ
 transformed copy remains unclaimed in the searched record.
 
+---
+
+# External Research Pass 4 — TCOPY (13 Aug 2026, most rigorous scan)
+
+Fourth independent pass. Verdict: NOT-FOUND for the implicit-Δ formulation,
+WITH a material unresolved gap (Intel) and two corrections to earlier passes.
+New findings:
+
+## 1. Single-file LZ / transformed-reference mechanisms
+- **VCDIFF / RFC 3284 (June 2002) — CLOSE-BUT-DIFFERENT, IMPORTANT for C1:**
+  single-file self-reference is NOT novel — a source window may be drawn from
+  the source file OR from already-decoded target data; COPY can reference the
+  target itself; overlapping target copies explicitly supported; ADD/RUN
+  encode unmatched material. So self-reference + exact COPY + corrections
+  was STANDARDIZED long ago. COPY remains verbatim: no arithmetic transform
+  of selected copied fields.
+- **Microsoft US 11,675,768 B2 / EP 4,154,406 B1 (prio 18-May-2020):**
+  LZ4-family single-file COPY including prior/current segments; ordinary
+  copying only, no field mask / additive transform / distance-derived
+  arithmetic / COPY-time immediate rewriting.
+- **Single-file "COPY + arithmetic transform" patent search: NOT-FOUND.**
+
+## 2. Approximate matching / sparse correction
+- **GenCompress (Chen, Kwong & Li, Genome Informatics 1999):**
+  CLOSE-BUT-DIFFERENT — lossless one-pass DNA compressor built on
+  approximate repeats; encodes edits rather than requiring exact matches.
+  Does not disclose one common 32-bit additive Δ on selected fields,
+  executable-relative algebra, or deriving the transform from reference
+  distance.
+- **RLZAP (2016):** CLOSE-BUT-DIFFERENT — relative-LZ with adaptive pointers
+  and mismatch accommodation; the "relative" arithmetic concerns pointer
+  representation, not a transform on COPY-produced bytes; reference-dataset,
+  not self-reference.
+- **zdelta (2002):** two-input delta; no per-match distance-derived transform.
+
+Consequence: self-reference, approximate matching, and sparse
+edit/correction representation EACH have substantial prior art; the narrower
+distinguishing mechanism is the shared phrase-local arithmetic transform and
+its implicit derivation from d.
+
+## 3. Executable / relocation-aware compression
+- **Philips US 5,787,302 A (prio 15-May-1996):** CLOSE-BUT-DIFFERENT —
+  genuine relocation-aware instruction compression prior art: compression
+  coupled with relocation correction is OLD. No per-reference transformed
+  dictionary phrases.
+- **Microsoft US 6,907,516 B2 (prio 30-May-2002):** instruction compression
+  via prediction/statistical coding (PPM/arithmetic/range oriented), not
+  transformed LZ COPY phrases.
+- **Courgette:** old→new disassembly + relocation/symbol normalization +
+  delta — two-file; evidence relocation normalization is useful, not
+  phrase-local self-reference.
+- **Chromium Zucchini — IMPORTANT NEAR HIT:** patch application copies from
+  the old image + bytewise difference info, with dedicated rel32 target
+  corrections — copy + correction + executable-reference handling EXISTS.
+  STILL two-file delta patching; no self-referential backreference whose
+  distance determines the arithmetic correction.
+- **Microsoft US 7,509,636 B2 / WO 2005/071542 (prio 15-Dec-2003):**
+  basis→target delta patching, not target-history reference compression.
+- **Intel US 7,111,148 B1 / US 7,010,665 B1 (prio 27-Jun-2002) — UNRESOLVED
+  ACCESS GAP:** "Method and apparatus for compressing relative addresses"
+  / "...decompressing relative addresses". Titles close enough that the
+  family CANNOT be waved away; full text/claims not retrievable this session.
+  **REQUIRED: manual full-text review before the executable-specific novelty
+  boundary is treated as closed.**
+- **Qualcomm/Apple/IBM targeted searches: NOT-FOUND (qualifying mechanism).**
+
+## 4. BCJ / E8-E9 boundary — QUALIFIED
+- Official xz docs place BCJ BEFORE LZMA in a filter chain (BCJ converts
+  relative machine-code addresses; LZMA is the final filter). 7-Zip calls
+  BCJ an executable CONVERTER separate from LZMA compression.
+- The defensible distinction is NOT "BCJ always transforms an entire file
+  globally" — a BCJ filter may operate within stream/block/filter-chain
+  boundaries. The distinction is: BCJ is a PRE-LZ transformation layer, not
+  an operation attached to an individual dictionary COPY phrase.
+- LZMA SDK is public domain; no Pavlov/7-Zip BCJ patent located in targeted
+  searches — but that search result must not be converted into the stronger
+  assertion that no such patent exists anywhere.
+
+## 5. Corrections to earlier passes
+- **US 12,373,439 REMOVED as compression prior art:** indexed patent
+  concerns OptumSoft approximate matching of conditions/table entries, NOT
+  approximate LZ/string compression.
+- **US 6,564,314 NOT IBM:** surfaced record is an STMicroelectronics/
+  SGS-Thomson computer-instruction compression patent; does not support the
+  previously assigned description.
+
+## Verdict (pass 4)
+NOT-FOUND: no accessible disclosure combines single-file self-referential
+LZ COPY with sparse field-wise additive transformation where Δ is derived
+implicitly from the backreference distance — although Intel US 7,111,148 /
+US 7,010,665 remains a material unresolved full-text gap.
+
+Closest combined prior art: VCDIFF/Microsoft (self-referential COPY),
+GenCompress (reference-plus-edits), BCJ/Philips (executable relocation
+normalization), Zucchini (executable-aware copy-plus-correction, two-file).
+
+Boundary confirmation: SUPPORTED, WITH QUALIFICATION — BCJ is a pre-LZ
+filter-layer transform; Zucchini blurs the broader COPY-with-edits boundary
+but in two-file patching; no accessible source claims the specific
+per-reference implicit Δ=−d mechanism.
+
+## Explicit gaps (pass 4)
+- Intel US 7,111,148 B1 / US 7,010,665 B1 full text/claims: REQUIRED review.
+- Espacenet/Lens not reliably enumerable; Google Patents + linked
+  bibliographic records supplied most coverage.
+- Academic full texts partially restricted (abstracts used where necessary).
+- Non-public/unpublished/inadequately indexed documents out of scope.
+
+## Swarm disposition (pass 4)
+- Record the Intel family full-text review as a REQUIRED item before the
+  executable-specific novelty boundary is treated as closed.
+- Correct the two citations (US 12,373,439 removed; US 6,564,314
+  STMicroelectronics).
+- VCDIFF (RFC 3284) also touches SPARSE-REF C1: self-reference + exact COPY
+  + corrections/literals is standardized prior art — C1's separator must
+  remain the sparse-correction-mask-as-first-class-entropy-stream +
+  implicit-transform combination, not self-reference per se.
+- Zucchini is the strongest executable near-hit; the record should cite it
+  as the two-file boundary reference.
+
+
 
