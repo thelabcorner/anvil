@@ -284,6 +284,16 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   (a) implicit Δ=−d (zero bits), (b) one transmitted 32-bit additive Δ, which
   survives only when multiple fields amortize transmitting Δ. No "arbitrary
   transforms".
+  **Transmitted-Δ submode REJECTED (useful falsification):** despite the
+  anatomy showing repeated 32-bit deltas in .eh_frame/.rodata, actually
+  transmitting a general Δ and letting the greedy parser use it made BOTH
+  sections larger, and discovery became extremely expensive. The
+  sliding-window correlation was real but did not translate into an
+  economical phrase representation. TCOPY is narrowed to the scientifically
+  stronger case: IMPLICIT displacement-derived transformation in executable
+  code only (Δ=−d, zero parameter bits, clear causal interpretation). Next:
+  couple implicit TCOPY to the shape/displacement instruction representation
+  (the crude 10-stream prototype leaves ~100 KB of syntax efficiency vs EAM).
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
