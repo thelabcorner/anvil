@@ -78,6 +78,16 @@ problems are encode speed (DP parser) and structured-data ratio depth.
 Windows host numbers are directional; a shared Linux box gave ~2-3x higher
 throughput.
 
+SPARSE-REF anchor files (added by `bench`, t-setup, per agenda §1.4/§5):
+- `tests/corpus/generated.jsonl` (2.82 MB, ~235 B records, mostly-identical
+  skeleton, ~15% of bytes change per record at consistent positions): the
+  target gap — anvil-dp-rans 0.087 vs brotli q9 0.073 vs zstd-19 0.059.
+- `tests/corpus/generated.repeat.jsonl` (0.94 MB, identical records): the
+  no-regression control — everything ~0.000-0.001; ANVIL exact-LZ 893-1157 B
+  vs brotli 162-670 B, i.e. SPARSE-REF must not make this worse than exact LZ.
+SPARSE-REF's falsifiable target is to attack the generated.jsonl gap at LZ-class
+speed (agenda §1.3).
+
 ## Research history (Linux sessions, prior to this repo)
 
 - Greedy LZ + adaptive arithmetic: correct but slow decode (Fenwick tree).
@@ -101,6 +111,101 @@ throughput.
 Key engineering conclusion carried forward: the 1-2 MB/s global DP parser is
 the bottleneck; a single-pass, cache-resident parser with measured downstream
 rANS costs is the priority, while preserving the strong structured-data ratio.
+
+## Linux continuation (v2) — matured research state, measured Aug 2026
+
+This is the state a parallel Linux codebase (`/mnt/data/anvil`, EPYC, GCC/clang,
+src/anvil.cpp ~3300 lines, format rev 2) reached. The Windows swarm should build
+on these results, not re-derive them. All ratios below are Linux-host numbers
+(directional for Windows).
+
+### Mechanism progression (all pass the novelty gate as implemented)
+
+1. **Patch-phrase representation**: exact-LZ edge + `COPY_PATCH(dist,len,S,res)`
+   — copy a prior phrase then apply k sparse residual ADDs. Decoder = copy +
+   sparse stores. Parser families, cheapest first:
+   - **RCM** (Residual-Continuation Matching): single-pass, 8-entry MRU
+     distance cache; 64-bit XOR word compares; no DP/SA.
+   - **SCM** (Structural-Channel Matching): separates recency cache from a
+     persistent channel bank (12 slots, score decays with bytes elapsed,
+     reinforced by long exact + successful patch phrases). Purely encoder-side
+     state; bitstream unchanged.
+   - **SRR/SSCM** (Synchronized Residual Reference / SCM): variant parsers with
+     synchronized structural distance discovery.
+   - **Negative gate**: cyclic difference-cover probe (mod-64, 10 phases) with
+     content-hash thinning rejects incompressible blocks cheaply —
+     random.bin encode measured 3,341 MB/s (vs 0.66 MB/s brotli q11); repeat
+     copies at awkward mod-64 displacements still detected.
+2. **Clustered residual backend** (mode 19): 16 learned residual classes +
+     fallback; EM-style hard clustering over (patch-mask, slot) contexts with
+     Jeffreys smoothing; class map transmitted once.
+3. **Macro-ops** (mode 23): 16-bit semantic ops (literal class / kind+len-class
+     +distance-code) as one fused command stream; decoder skips separate
+     type/class/distance entropy passes for the common path.
+4. **Compiled hot-op instructions** (modes 26/27/28): encoder synthesizes a
+     decoder instruction book of concrete semantics (kind, len, dist,
+     patch-selector); the hot stream is a small opcode index, rare tokens fall
+     back to macro-ops. Coverage on generated.log: 75-77% of tokens hot.
+     Variants: raw opcode stream (mode 27), raw rare/pmeta (mode 28).
+5. **Stream-codec suite inside blocks** (all evaluated per stream, smallest
+     wins): mode 1-4 rANS (1/4-state × full/compact), mode 5 Huffman,
+     mode 6 default-with-sparse-exceptions, mode 7 pair-rANS. `ANVIL_STREAM_SLACK`
+     env trades a small % of rate for decode speed (0 = strict smallest).
+
+### Measured highlights (Linux, directional)
+
+- generated.log (1,924,280 B): SCM+s6+macro mode 23 → **0.056 ratio, 47.4
+  encode, 913 decode** (brotli q9 0.065, 27.6 enc, 1,460 dec). Raw-hot +
+  flat-decoder experiment reached 81,208 B (0.042) / 50 enc / 963 dec.
+- generated.log stream anatomy: 22 entropy streams, dominated by
+  pair-rANS/Huffman on the big residual streams; distance_code 15,680 B and
+  match_len_class 8,788 B were the largest rANS streams.
+- generated.json: SRR + shape-conditioned displacement (below) → **109,700 B
+  (0.1325) @ ~541 MB/s decode** vs brotli q9 113,284 B (0.137) — ratio beat,
+  decode ~0.5 GB/s vs ~1.0 GB/s (still not Pareto; encode also slower).
+- Slot-default analysis (generated.log): 128 recurring patch masks, 598
+  (mask,slot) contexts, modal residual accuracy 86.5% → a per-slot default
+  residual + exception mask is a strong coding target (R2 topology coding).
+- Distance analysis (generated.json): distance is NOT well predicted by
+  recency (top-16 MRU ≈ 11-20%); shape-conditioned displacement works —
+  top-1020 shapes, ~6.4% exact, 44.6% within 64, log-proxy ≈ 9.4 bits vs ~13
+  bits unconditional. LZ source positions align with prior token boundaries:
+  66-92% of references start within ±8 B of a prior token start.
+
+### Next iteration targets (validated, in priority order)
+
+1. **Shape-conditioned displacement prediction P(d|s)**: hot semantic opcode
+   selects a tiny per-shape displacement state; first occurrence = absolute,
+   later = signed delta from shape's last displacement (zigzag + class/extra).
+   Implemented on Linux: JSON 112,941 → 109,700 B, decode 534 → 541 MB/s.
+   Ablate per-shape vs global recency; keep only if end-to-end bytes improve.
+2. **Precision/work-adaptive entropy**: 4096-state rANS is overkill for small
+   streams; a 256/512-state variant with smaller cache-resident tables plus
+   the stream suite (Huffman/exception/pair/raw) makes rich multi-model coding
+   cheap to initialize/execute. Cost: J = L_stream + λC_decode + μC_model-build
+   + νW_cache. This benefits every stream simultaneously.
+3. **Mutation-template / slot-default residual coding (R2)**: per-(mask,slot)
+   modal residual as decoder-visible default + exception mask; JSON log-proxy
+   indicates ~0.30-0.45 exception fraction → strong ratio, near-zero decode
+   cost.
+4. **Boundary-aligned candidate generation**: since LZ sources align to prior
+   token starts ±8, generate candidates from token-boundary-indexed positions
+   (cheap, raises hit rate).
+5. **Difference-cover negative gate**: adopt the mod-64 cyclic cover to skip
+   expensive search on incompressible blocks (huge encode win; no ratio cost).
+
+### Known traps (do not re-burn time)
+
+- Unconditional order-1 literals: rejected (+3.46%). xor/delta literal
+  transforms: router-only, no novelty claim. Fused on-demand decoder cursors
+  (all-streams-live): failed, single fused decode table per stream is better.
+  `parse=auto` brute-force: research-only, never the production default.
+- MTR (mutational-template backend): compiled but not yet measured cleanly
+  (build fixes pending) — slot-default analysis above is the cheaper path to
+  the same idea.
+- Many Linux experiments were one-off builds (anvil_*.pre-*, bench_*);
+  keep the Windows tree a single evolving anvil.cpp with mode numbers, and
+  record drop reasons in the ledger.
 
 ## Highest-priority mechanism under consideration
 
