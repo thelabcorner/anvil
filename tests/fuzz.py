@@ -34,11 +34,30 @@ def patterns(rng: random.Random, count: int):
         yield data
 
 
+def mutate(rng: random.Random, blob: bytes, n: int):
+    """Yield random single/multi-byte mutations of a valid file. A strict
+    decoder must either reject the mutation (nonzero exit) or reconstruct the
+    exact same bytes (CRC still matches); accepting a different output is a bug."""
+    b = bytearray(blob)
+    for _ in range(n):
+        m = bytearray(b)
+        for __ in range(rng.randrange(1, 4)):
+            op = rng.randrange(3)
+            pos = rng.randrange(len(m))
+            if op == 0:
+                m[pos] ^= 1 << rng.randrange(8)          # bit flip
+            elif op == 1:
+                m[pos] = rng.randrange(256)               # byte overwrite
+            else:
+                del m[pos]                                # byte drop (shifts framing)
+        yield bytes(m)
+
+
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('--exe',default=str(Path(__file__).parents[1]/'anvil')); ap.add_argument('--cases',type=int,default=120); ap.add_argument('--seed',type=int,default=0xA11E); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument('--exe',default=str(Path(__file__).parents[1]/'anvil')); ap.add_argument('--cases',type=int,default=120); ap.add_argument('--seed',type=int,default=0xA11E); ap.add_argument('--mutations',type=int,default=6,help='mutations per valid file (0 to disable)'); args=ap.parse_args()
     exe=Path(args.exe); rng=random.Random(args.seed)
-    combos=[('greedy','arith'),('dp','arith'),('greedy','rans'),('dp','rans')]
-    total=0
+    combos=[('greedy','arith'),('dp','arith'),('greedy','rans'),('dp','rans'),('sparse','rans')]
+    total=0; mutated=0
     with tempfile.TemporaryDirectory(prefix='anvil-fuzz-') as td:
         td=Path(td)
         for idx,data in enumerate(patterns(rng,args.cases)):
@@ -56,7 +75,17 @@ def main():
                     for cut in points:
                         bad=td/'trunc.anv'; bad.write_bytes(blob[:cut]); p=run([exe,'d',bad,dec,'--quiet'],ok=False)
                         if p.returncode==0: raise RuntimeError(f'truncation accepted case={idx} cut={cut}')
+                # Mutation checks. Accepting a mutation with different output is a bug;
+                # rejecting it (or accepting with identical output) is correct.
+                if args.mutations and len(blob)>8:
+                    for m_i,mut in enumerate(mutate(rng,blob,args.mutations)):
+                        bad=td/'mut.anv'; bad.write_bytes(mut)
+                        p=run([exe,'d',bad,dec,'--quiet'],ok=False)
+                        if p.returncode==0:
+                            out=dec.read_bytes()
+                            if out!=data: raise RuntimeError(f'mutation accepted with DIFFERENT output case={idx} {parse}/{entropy} mut={m_i}')
+                        mutated+=1
                 total+=1
-    print(f'PASS seed={args.seed} roundtrip_variants={total}')
+    print(f'PASS seed={args.seed} roundtrip_variants={total} mutations={mutated}')
 
 if __name__=='__main__': main()

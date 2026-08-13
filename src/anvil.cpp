@@ -325,6 +325,7 @@ public:
             if (q >= pos) break;
             const uint8_t* src = d_.data() + q;
             if (src[0] != tgt[0] || src[1] != tgt[1] || src[2] != tgt[2] || src[3] != tgt[3]) continue;
+            const uint32_t dist = pos - q;
             double score = 0.0, local_best = -1e300;
             uint32_t k = 0, local_len = 0, local_k = 0;
             std::array<uint32_t, kSparseScanMax> off{};
@@ -332,7 +333,10 @@ public:
             uint32_t j = 0;
             for (; j < cap; ++j) {
                 if (++work > kSparseBlockBudget) break;
-                if (src[j] != tgt[j]) {
+                // The decoder's overlapping copy produces src[j % dist]; corrections
+                // must be computed against that, not against src[j], for dist < len.
+                uint8_t cpy = (dist > 0) ? src[j % dist] : src[j];
+                if (cpy != tgt[j]) {
                     if (k >= kSparseScanMax) break;
                     off[k] = j; val[k] = tgt[j];
                     score -= litcost[tgt[j]] + 0.125;
@@ -472,7 +476,6 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
         auto ms=mf.find(i);
         Match exact{0,0};
         for(auto&m:ms) if(m.len>exact.len || (m.len==exact.len && m.dist<exact.dist)) exact=m;
-        double lit_c=litcost[d[i]]+0.10;
         double exact_c=std::numeric_limits<double>::infinity();
         if(exact.len>=4) exact_c=0.6+varint_cost(exact.len-4)+varint_cost(exact.dist-1)+0.18*std::log2(double(exact.dist)+1.0);
         if(exact.len<128 && work<kSparseBlockBudget) {
@@ -717,7 +720,6 @@ static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, siz
             uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
             if(dist==0||dist>out.size()||len>out_len-out.size()) throw std::runtime_error("bad sparse match");
             if(len>kSparseMaxLen) throw std::runtime_error("sparse match too long");
-            size_t base=out.size()-dist;
             uint64_t nwords=(len+31)/32;
             if(nwords*4>s[5].size()-ip_mask) throw std::runtime_error("truncated mask stream");
             std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
@@ -732,12 +734,13 @@ static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, siz
                 pc+=std::popcount(m);
             }
             if(pc>s[6].size()-ip_res) throw std::runtime_error("truncated residual stream");
+            size_t start=out.size(); // copy destination start (base+dist)
             for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]); // phrase copy (overlap allowed)
             for(uint64_t w=0;w<nwords;++w) {
                 uint32_t m=words[w];
                 while(m) {
                     uint32_t b=std::countr_zero(m);
-                    out[base+uint32_t(w*32)+b]=s[6][ip_res++];
+                    out[start+uint32_t(w*32)+b]=s[6][ip_res++];
                     m&=m-1;
                 }
             }
@@ -940,7 +943,7 @@ int main(int argc,char**argv) {
         }
         if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse")throw std::runtime_error("parse must be auto, dp, greedy or sparse");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
-        if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans")throw std::runtime_error("entropy must be auto, arith or rans");
+        if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans"&&opt.entropy!="sparse")throw std::runtime_error("entropy must be auto, arith, rans or sparse");
         if(cmd=="c") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);

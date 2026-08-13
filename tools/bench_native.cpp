@@ -57,6 +57,7 @@ int main(int argc,char**argv) {
         rows.push_back(bench_anvil(src,"anvil-dp-arith","dp","o0","arith",reps));
         rows.push_back(bench_anvil(src,"anvil-greedy-rans","greedy","o0","rans",reps));
         rows.push_back(bench_anvil(src,"anvil-dp-rans","dp","o0","rans",reps));
+        rows.push_back(bench_anvil(src,"anvil-sparse-rans","sparse","o0","rans",reps));
         for(int q: {1,4,6,9,11}) rows.push_back(bench_brotli(src,q,reps));
         for(int l: {1,3,9,19}) rows.push_back(bench_zstd(src,l,reps));
         std::cout<<"input_bytes,"<<src.size()<<"\n";
