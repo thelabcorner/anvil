@@ -230,6 +230,18 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   transposition as a generic control and broader executable normalization as
   the deeper follow-up. (Working hypothesis for a future primitive; not yet
   implemented on the Windows line.)
+  **Lane-transpose control REJECTED (decisive):** global lane/field
+  transposition improves byte-lane entropy but destroys the contiguous phrase
+  structure ANVIL references exploit — every tested ELF section grew.
+  Informative conclusion: the transform must live INSIDE the reference, not
+  globally before LZ — preserve local instruction/data layout and let a
+  reference explain only the changing fields (this is precisely the
+  sparse-corrected phrase copy ANVIL already has, applied to binaries).
+  Next: mine ELF approximate-repeat pairs for reusable mismatch structure
+  (aligned 32-bit relocation fields, common additive deltas, recurring field
+  masks) before defining any transformed-copy opcode — candidate residual
+  types for a field-aware patch reference (e.g. additive-delta on aligned
+  32-bit fields as a residual class in the SPARSE-REF family).
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
