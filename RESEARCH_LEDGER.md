@@ -656,3 +656,45 @@ honesty update for the I2-2 gate. Recorded here so the framing is durable:
   the stream suite) + cache-resident-tables decode interaction — and must
   clear the I2 Pareto target (EXTENDS_FRONT), not merely add ratio. Clustered
   rANS alone is recorded as ratio-only.
+
+## Experiment K — TCOPY pre-registration (implicit-parameter transformed copy) — candidate, not yet measured on Windows
+
+**Pre-registered at the novelty gate** (coordinator injection, Linux
+frontier evidence — docs/CONTEXT.md). Status: **candidate for the binary
+lane, queued post-t2-bench** — no Windows measurement yet, no claim made.
+
+**The mechanism-level novelty claim:** *implicit-parameter transformed
+copy* — a generalized match where the transform parameter is derived from
+the reference itself (the copy distance d), not transmitted. Reference
+family **TCOPY(d,L,Δ,M,R)**: copy a prior phrase, add a common 32-bit delta
+Δ at sparse field offsets M, then apply sparse residual bytes R. For
+PC/RIP-relative fields **Δ=−d is IMPLICIT (zero bits for the transform
+parameter)**. Ordinary LZ = special case M=R=∅.
+
+**Supporting evidence (Linux, directional — do not re-derive):** ELF
+mismatch anatomy — among sampled .text approximate-repeat candidates (8-byte
+anchor match, ≤~33% byte mismatch over ≤256 B): ~81% contain ≥2 32-bit
+fields differing from source by exactly −distance (PC/RIP-relative
+relocation algebra when the same instruction template appears at a different
+file position), explaining ~46% of mismatch bytes; a single repeated 32-bit
+additive delta explains ~59% of mismatch bytes (.text), ~49% (.eh_frame),
+~61% (.rodata).
+
+**Prior-art positioning:** binary-patch tooling handles relocations as
+*external* machinery (e.g., Courgette); SPARSE-REF/bsdiff do copy-with-
+corrections but transmit the transform. The self-referential compressor with
+an implicit (reference-derived) transform parameter is the new family.
+
+**Prototype plan (isolated ablation, not premature integration):**
+falsifiable question — can phrase-level transformed self-reference explain
+ELF .text mismatches materially better than exact LZ at decoder cost ≈ copy
++ sparse 32-bit adds + sparse stores? First prototype EXCLUDES overlapping
+refs (dist<len) so semantics stay unambiguous; transform fields and residual
+bytes get SEPARATE statistical domains so the gain is attributable to the
+transformed reference itself, not a better entropy coder. If it gains
+density, overlap/periodic transformed references are the later extension.
+
+**Linked decision (recorded):** the lane-transpose control was REJECTED
+(global lane/field transposition destroys the contiguous phrase structure
+references exploit — every tested ELF section grew). TCOPY respects that
+lesson: the transform lives INSIDE the reference, not globally before LZ.

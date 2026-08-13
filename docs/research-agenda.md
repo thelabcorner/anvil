@@ -546,10 +546,60 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
 - **Falsifiable ablation:** flat-A baseline vs slot-default vs order-1 mask
   model on the same sparse tokens; Δratio and Δdecode. The flat-A mask
   overhead (repeat control +2.2%) is the headroom it must recover.
+  *(Windows I2-4 verdict, Experiment I: NOT ADOPTED — modal accuracy 17-23%
+  on this corpus, masks ~90% unique; blocked on structural-distance
+  propagation R4. Contract stands for revisit.)*
+
+## I2-5. TCOPY — implicit-parameter transformed copy (PRE-REGISTERED, post-t2-bench candidate)
+
+- **Status:** PRE-REGISTERED at the novelty gate (coordinator injection,
+  Linux frontier evidence, docs/CONTEXT.md). Candidate for the binary lane
+  AFTER t2-bench — do not schedule before the I2 regression completes.
+- **Prior-art lineage:** SPARSE-REF/bsdiff copy-with-corrections; delta
+  encoding; binary-patch machinery (relocation-aware patching exists as
+  *external* tooling, e.g. Courgette). What is NOT established: a
+  *self-referential* (single-file) lossless compressor whose transformed
+  copy derives the transform parameter from the reference itself, with the
+  transform implicit at zero bits for executable-relative fields.
+- **What is NEW (mechanism-level claim):** **implicit-parameter transformed
+  copy** — a generalized match where the transform parameter is derived
+  from the reference (the copy distance d), not transmitted. Reference
+  family TCOPY(d,L,Δ,M,R): copy a prior phrase, add a common 32-bit delta Δ
+  at sparse field offsets M, then apply sparse residual bytes R. For
+  PC/RIP-relative fields Δ=−d is IMPLICIT (zero bits for the transform
+  parameter). Ordinary LZ = special case M=R=∅.
+- **Evidence (Linux, directional — do not re-derive):** ELF mismatch
+  anatomy: ~81% of sampled .text approximate-repeat candidates contain ≥2
+  32-bit fields differing by exactly −distance (the algebra of PC/RIP-
+  relative relocation when the same instruction template appears at a
+  different file position), explaining ~46% of mismatch bytes; a single
+  repeated 32-bit additive delta explains ~59% of mismatch bytes (.text),
+  ~49% (.eh_frame), ~61% (.rodata).
+- **Why Pareto:** position-dependent code is the dominant reason exact-LZ
+  fails on ELF — TCOPY turns the largest mismatch class into copy +
+  sparse 32-bit adds + sparse stores, decoder cost ≈ the existing
+  sparse-corrected path.
+- **Falsifiable ablation (prototype plan, isolated — not premature
+  integration):** can phrase-level transformed self-reference explain ELF
+  .text mismatches materially better than exact LZ at decoder cost ≈ copy +
+  sparse 32-bit adds + sparse stores? First prototype EXCLUDES overlapping
+  refs (dist<len) so semantics stay unambiguous; transform fields and
+  residual bytes get SEPARATE statistical domains so the gain is
+  attributable to the transformed reference itself, not a better entropy
+  coder. If it gains density, overlap/periodic transformed references are
+  the later extension.
+- **Gate verdict:** pre-registered PASS-as-candidate pending isolated
+  ablation; the novelty claim (implicit-parameter transformed copy) is
+  mechanism-level and distinct from context clustering (I2-2) and
+  structural-distance propagation (R4) — it is a new *transform-in-reference*
+  family. Tied to the rejected lane-transpose control (global
+  lane/field transposition destroyed contiguous phrase structure): the
+  transform must live INSIDE the reference, not globally before LZ.
 
 ## Iteration-2 sequencing (as scheduled)
 
 t2-shape → t2-entropy, t2-topology → t2-bench (full regression, both planes)
 → t2-ledger (claims written only against Windows A/B; failures recorded).
 t2-gates (cheap adopts) runs in parallel. All claims pre-registered above;
-the gate stays the arbiter.
+the gate stays the arbiter. TCOPY (I2-5) is queued post-t2-bench as the
+binary-lane candidate.
