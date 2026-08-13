@@ -1,4 +1,6 @@
-# ANVIL corpus manifest (SHA-256) -- generated 2026-08-12
+# ANVIL corpus manifest (SHA-256) -- generated 2026-08-13
+e5a0f8a7c415bed17058320a8a54b7623d61aa03e6d8407a8af04fd81c9aa72c     1866752  anvil_bench.exe
+09b9b0cc15d96c2b0c4cb371a69b61e617de95d28c00c115b4bd9a252c45fe4c      268800  anvil.exe
 091961daf263e0ad7b0fba178d59dd91499fb4602733f63312a9920f38bab705        2724  doc.md
 c114c83ab50084d1d34a2165a085564f6f2b144fce7a267ab906fd24968a89b3      827664  generated.json
 260a17f2a8166cd53b29d95a4a26dfb9a00208db431fc43fd5b824d33b58ac6c     2815267  generated.jsonl

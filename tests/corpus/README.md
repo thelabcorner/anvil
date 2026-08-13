@@ -15,6 +15,8 @@ this corpus are directional; throughput is host-specific (see
 | `random.bin` | 262,144 | pseudo-random | `make_smoke_corpus.py`, deterministic (seed 12345) |
 | `generated.jsonl` | 2,815,267 | JSON-lines, record-structured (SPARSE-REF stress) | `make_smoke_corpus.py`, deterministic |
 | `generated.repeat.jsonl` | 940,000 | JSON-lines, identical records (no-regression control) | `make_smoke_corpus.py`, deterministic |
+| `anvil.exe` | 268,800 | PE executable (x64) — TCOPY binary-lane target | snapshot of `build/anvil.exe`, 2026-08-13 |
+| `anvil_bench.exe` | 1,866,752 | PE executable (x64) — TCOPY binary-lane target | snapshot of `build/anvil_bench.exe`, 2026-08-13 |
 
 `generated.jsonl` is the record-structured stress file requested in
 `docs/research-agenda.md` §5: ~235 B records, mostly-identical skeleton, a few
@@ -23,6 +25,13 @@ session), changed content never repeated, and one structural-drift record
 (extra field) every 200 records so correction masks shift. `generated.repeat.
 jsonl` is the pure-repetition control from agenda §1.4: SPARSE-REF must equal
 exact-LZ there (no regression).
+
+`anvil.exe` / `anvil_bench.exe` are **snapshots** of the codec's own binaries
+(TCOPY's target domain — real PE executables with relocation fields). They are
+copied from `build/` and pinned here so suite rows stay stable; re-snapshot
+deliberately (and update `CHECKSUMS.txt`) when the binaries change, since a
+rebuild of `src/anvil.cpp` changes them. Do NOT re-derive them from `build/`
+on every run.
 
 ## Regeneration (fully deterministic)
 

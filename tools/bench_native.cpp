@@ -21,8 +21,9 @@ static double median_speed(size_t input_bytes, int reps, F&& fn) {
     std::sort(samples.begin(),samples.end()); return samples[samples.size()/2];
 }
 
-static Row bench_anvil(const std::vector<uint8_t>& src, std::string name, std::string parse, std::string lit, std::string entropy, int reps, uint32_t shape_states=28, double stream_lambda=0.04) {
+static Row bench_anvil(const std::vector<uint8_t>& src, std::string name, std::string parse, std::string lit, std::string entropy, int reps, uint32_t shape_states=28, double stream_lambda=0.04, bool channels=false) {
     anvil::Options o; o.parse=parse; o.literal=lit; o.entropy=entropy; o.quiet=true; o.shape_states=shape_states;
+    o.channels = channels; // R4 structural-distance channels (research row)
     anvil::g_stream_lambda = stream_lambda; // stream-suite J weight (ANVIL_STREAM_LAMBDA in CLI main; set directly here)
     anvil::GlobalStats st; auto packed=anvil::compress(src,o,&st); auto unpacked=anvil::decompress(packed);
     double enc=median_speed(src.size(),reps,[&]{ anvil::GlobalStats x; auto y=anvil::compress(src,o,&x); volatile size_t sink=y.size(); (void)sink; });
@@ -60,12 +61,15 @@ int main(int argc,char**argv) {
         rows.push_back(bench_anvil(src,"anvil-dp-rans","dp","o0","rans",reps));
         rows.push_back(bench_anvil(src,"anvil-sparse-rans","sparse","o0","rans",reps));
         rows.push_back(bench_anvil(src,"anvil-sparse-rans-l0","sparse","o0","rans",reps,28,0.0));
+        rows.push_back(bench_anvil(src,"anvil-sparse-channels-rans","sparse","o0","rans",reps,28,0.04,true));
+        rows.push_back(bench_anvil(src,"anvil-tcopy-rans","tcopy","o0","rans",reps));
         rows.push_back(bench_anvil(src,"anvil-mdl-rans","mdl","o0","rans",reps));
         rows.push_back(bench_anvil(src,"anvil-mdl-rans-l0","mdl","o0","rans",reps,28,0.0));
         rows.push_back(bench_anvil(src,"anvil-mdl-rans-l001","mdl","o0","rans",reps,28,0.01));
         rows.push_back(bench_anvil(src,"anvil-shape-rans","shape","o0","rans",reps,28));
         rows.push_back(bench_anvil(src,"anvil-shape-rans-l0","shape","o0","rans",reps,28,0.0));
         rows.push_back(bench_anvil(src,"anvil-shape-ctxmap-rans","shape","o0","rans",reps,1));
+        rows.push_back(bench_anvil(src,"anvil-tcopy-rans","tcopy","o0","rans",reps));
         for(int q: {1,4,6,9,11}) rows.push_back(bench_brotli(src,q,reps));
         for(int l: {1,3,9,19}) rows.push_back(bench_zstd(src,l,reps));
         std::cout<<"input_bytes,"<<src.size()<<"\n";
