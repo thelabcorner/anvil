@@ -577,3 +577,47 @@ confirmed.** Regression context: anvil-shape-rans aggregate 0.131428
 still aggregate champion; log 0.0756 = new anvil per-file best. Pareto: ALL
 anvil rows still DOMINATED on both planes — no Pareto win; the gap is the
 entropy machinery (t2-entropy), not shape/displacement.
+
+## Experiment I — R2 correction-topology coding (I2-4, mode 13) — NOT ADOPTED (honest negative)
+
+**Gate pre-registration:** agenda PART II I2-4 — per-(mask,slot) modal
+residual as decoder-visible default + exception mask; the falsifiable target
+was to RECOVER the flat-A mask overhead (repeat control +2.2% headroom) and
+beat flat residuals on record-structured files. Linux evidence was strong
+(86.5% modal accuracy); Windows ablation was the open item.
+
+**Mechanism (arch, mode 13):** mode-12 dist coding + per-(k,slot) modal
+residual + exception mask. Round-trip verified; fuzzed 490 variants.
+
+**Result (independently re-measured by research — agrees with arch):**
+
+| file | topology (m13) | flat-A (m11) | Δ |
+|---|---:|---:|---:|
+| generated.log | 0.1099 (213,433 B) | 0.0921 (178,824 B) | **+19.3% (loses)** |
+| generated.json | 0.1840 | 0.1521 | +21.0% (loses) |
+| generated.jsonl | 0.0897 (252,453 B) | 0.0790 (222,409 B) | +13.5% (loses) |
+| repeat control | 0.0013 | 0.0013 | flat-A parity (headroom NOT recovered) |
+
+**Verdict: NOT ADOPTED.** Topology coding loses to flat-A on EVERY file.
+The pre-registered I2-4 falsifiable target (recover the +2.2% headroom, beat
+flat residuals) is FAILED — recorded as a result, not a failure.
+
+**Why (measured, not assumed — arch's diagnosis, confirmed by the numbers):**
+1. **Modal accuracy is ~20%, not 86.5%.** (k,slot) context modal accuracy on
+   this corpus: log 23.5%, json 17.0%, jsonl 22.5%. At ~20% accuracy the
+   exception coding costs MORE than flat residuals — the modal-default model
+   only wins above ~50-60%.
+2. **No recurring topology to exploit.** Correction masks are ~90% unique
+   (top-32 masks cover only 7-12% of tokens) — there is no reusable
+   correction pattern.
+3. **Root cause is an ARCHITECTURE dependency, not math.** Linux's 86.5% came
+   from their structural-channel parser (SRR/SSCM), which aligns corrections
+   to a record frame (a discovered structural distance). ANVIL's greedy
+   sparse parser lets correction positions drift with varying field lengths,
+   so the (k,slot) context never stabilizes.
+
+**Gate implication:** R2 topology coding is **BLOCKED on structural-distance
+propagation (R4/R5 in agenda v1 — persistent channels)**. Revisit after R4
+lands; the pre-registered contract stays valid, and the target is unchanged.
+Flat-A remains the measured baseline (repeat control 0.0013). The router
+recovers the control (auto = 0.0009), so no shipped-config regression.
