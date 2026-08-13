@@ -47,15 +47,13 @@ def analyze(rows: list[dict], label: str, mbps_key: str, out) -> None:
     if not refs:
         return
     front = reference_front(refs, mbps_key)
-    out.append(["## " + label + " (" + mbps_key + ")"])
-    out.append(["plane", "codec", "ratio", "MBps", "status", "dominated_by"])
     for a in anvil:
         d = dominated(a, refs, mbps_key)
         status = "DOMINATED" if d else "EXTENDS_FRONT"
-        out.append([label, a["codec"], a["ratio"], a[mbps_key], status,
+        out.append([label, mbps_key, a["codec"], a["ratio"], a[mbps_key], status,
                     d["codec"] if d else ""])
     for r in front:
-        out.append([label + " (ref front)", r["codec"], r["ratio"], r[mbps_key], "FRONT", ""])
+        out.append([label, mbps_key, r["codec"], r["ratio"], r[mbps_key], "FRONT", ""])
 
 
 def main():

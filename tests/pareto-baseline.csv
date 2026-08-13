@@ -1,186 +1,164 @@
 label,plane,codec,ratio,MBps,status,dominated_by
-## tests\corpus\doc.md (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\doc.md,anvil-greedy-arith,0.537,6.421,DOMINATED,brotli-q1
-tests\corpus\doc.md,anvil-dp-arith,0.53,4.331,DOMINATED,brotli-q1
-tests\corpus\doc.md,anvil-greedy-rans,0.593,7.923,DOMINATED,brotli-q1
-tests\corpus\doc.md,anvil-dp-rans,0.577,5.223,DOMINATED,brotli-q1
-tests\corpus\doc.md (ref front),brotli-q4,0.47,10.011,FRONT,
-tests\corpus\doc.md (ref front),brotli-q6,0.442,2.698,FRONT,
-tests\corpus\doc.md (ref front),brotli-q11,0.384,0.932,FRONT,
-tests\corpus\doc.md (ref front),zstd-1,0.497,195.971,FRONT,
-tests\corpus\doc.md (ref front),zstd-3,0.492,191.831,FRONT,
-tests\corpus\doc.md (ref front),zstd-9,0.486,73.821,FRONT,
-## tests\corpus\doc.md (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\doc.md,anvil-greedy-arith,0.537,18.028,DOMINATED,brotli-q1
-tests\corpus\doc.md,anvil-dp-arith,0.53,19.768,DOMINATED,brotli-q1
-tests\corpus\doc.md,anvil-greedy-rans,0.593,112.099,DOMINATED,brotli-q1
-tests\corpus\doc.md,anvil-dp-rans,0.577,116.91,DOMINATED,brotli-q1
-tests\corpus\doc.md (ref front),brotli-q11,0.384,153.034,FRONT,
-tests\corpus\doc.md (ref front),zstd-9,0.486,469.655,FRONT,
-tests\corpus\doc.md (ref front),zstd-19,0.481,439.355,FRONT,
-## tests\corpus\generated.json (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.json,anvil-greedy-arith,0.175,22.302,DOMINATED,brotli-q1
-tests\corpus\generated.json,anvil-dp-arith,0.138,1.98,DOMINATED,brotli-q9
-tests\corpus\generated.json,anvil-greedy-rans,0.175,34.114,DOMINATED,brotli-q1
-tests\corpus\generated.json,anvil-dp-rans,0.138,2.058,DOMINATED,brotli-q9
-tests\corpus\generated.json (ref front),brotli-q6,0.143,50.434,FRONT,
-tests\corpus\generated.json (ref front),brotli-q9,0.137,22.139,FRONT,
-tests\corpus\generated.json (ref front),brotli-q11,0.096,0.803,FRONT,
-tests\corpus\generated.json (ref front),zstd-1,0.157,586.04,FRONT,
-tests\corpus\generated.json (ref front),zstd-9,0.145,63.542,FRONT,
-tests\corpus\generated.json (ref front),zstd-19,0.113,2.662,FRONT,
-## tests\corpus\generated.json (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.json,anvil-greedy-arith,0.175,48.603,DOMINATED,brotli-q1
-tests\corpus\generated.json,anvil-dp-arith,0.138,52.773,DOMINATED,brotli-q9
-tests\corpus\generated.json,anvil-greedy-rans,0.175,182.53,DOMINATED,brotli-q1
-tests\corpus\generated.json,anvil-dp-rans,0.138,182.615,DOMINATED,brotli-q9
-tests\corpus\generated.json (ref front),brotli-q11,0.096,531.986,FRONT,
-tests\corpus\generated.json (ref front),zstd-3,0.159,1824.254,FRONT,
-tests\corpus\generated.json (ref front),zstd-19,0.113,1672.386,FRONT,
-## tests\corpus\generated.jsonl (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.jsonl,anvil-greedy-arith,0.107,35.15,DOMINATED,brotli-q1
-tests\corpus\generated.jsonl,anvil-dp-arith,0.087,1.703,DOMINATED,brotli-q4
-tests\corpus\generated.jsonl,anvil-greedy-rans,0.107,49.554,DOMINATED,brotli-q1
-tests\corpus\generated.jsonl,anvil-dp-rans,0.087,1.682,DOMINATED,brotli-q4
-tests\corpus\generated.jsonl (ref front),brotli-q4,0.081,189.176,FRONT,
-tests\corpus\generated.jsonl (ref front),brotli-q6,0.073,82.305,FRONT,
-tests\corpus\generated.jsonl (ref front),brotli-q11,0.054,0.656,FRONT,
-tests\corpus\generated.jsonl (ref front),zstd-1,0.083,915.802,FRONT,
-tests\corpus\generated.jsonl (ref front),zstd-9,0.078,103.303,FRONT,
-tests\corpus\generated.jsonl (ref front),zstd-19,0.059,2.217,FRONT,
-## tests\corpus\generated.jsonl (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.jsonl,anvil-greedy-arith,0.107,71.208,DOMINATED,brotli-q1
-tests\corpus\generated.jsonl,anvil-dp-arith,0.087,79.425,DOMINATED,brotli-q4
-tests\corpus\generated.jsonl,anvil-greedy-rans,0.107,223.057,DOMINATED,brotli-q1
-tests\corpus\generated.jsonl,anvil-dp-rans,0.087,228.338,DOMINATED,brotli-q4
-tests\corpus\generated.jsonl (ref front),brotli-q11,0.054,976.879,FRONT,
-tests\corpus\generated.jsonl (ref front),zstd-1,0.083,2137.474,FRONT,
-tests\corpus\generated.jsonl (ref front),zstd-3,0.087,2186.955,FRONT,
-tests\corpus\generated.jsonl (ref front),zstd-9,0.078,2126.977,FRONT,
-tests\corpus\generated.jsonl (ref front),zstd-19,0.059,1393.076,FRONT,
-## tests\corpus\generated.log (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.log,anvil-greedy-arith,0.118,31.93,DOMINATED,brotli-q1
-tests\corpus\generated.log,anvil-dp-arith,0.091,1.882,DOMINATED,brotli-q6
-tests\corpus\generated.log,anvil-greedy-rans,0.118,42.661,DOMINATED,brotli-q1
-tests\corpus\generated.log,anvil-dp-rans,0.091,1.87,DOMINATED,brotli-q6
-tests\corpus\generated.log (ref front),brotli-q6,0.072,76.017,FRONT,
-tests\corpus\generated.log (ref front),brotli-q9,0.064,32.2,FRONT,
-tests\corpus\generated.log (ref front),brotli-q11,0.042,0.693,FRONT,
-tests\corpus\generated.log (ref front),zstd-1,0.094,760.843,FRONT,
-tests\corpus\generated.log (ref front),zstd-9,0.075,91.644,FRONT,
-tests\corpus\generated.log (ref front),zstd-19,0.055,1.855,FRONT,
-## tests\corpus\generated.log (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.log,anvil-greedy-arith,0.118,66.602,DOMINATED,brotli-q1
-tests\corpus\generated.log,anvil-dp-arith,0.091,72.602,DOMINATED,brotli-q6
-tests\corpus\generated.log,anvil-greedy-rans,0.118,213.653,DOMINATED,brotli-q1
-tests\corpus\generated.log,anvil-dp-rans,0.091,213.644,DOMINATED,brotli-q6
-tests\corpus\generated.log (ref front),brotli-q11,0.042,963.576,FRONT,
-tests\corpus\generated.log (ref front),zstd-19,0.055,2055.323,FRONT,
-## tests\corpus\generated.repeat.jsonl (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.repeat.jsonl,anvil-greedy-arith,0.001,146.694,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl,anvil-dp-arith,0.001,0.264,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl,anvil-greedy-rans,0.001,132.415,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl,anvil-dp-rans,0.001,0.264,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl (ref front),zstd-3,0.0,3575.504,FRONT,
-## tests\corpus\generated.repeat.jsonl (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.repeat.jsonl,anvil-greedy-arith,0.001,257.485,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl,anvil-dp-arith,0.001,271.841,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl,anvil-greedy-rans,0.001,286.036,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl,anvil-dp-rans,0.001,300.608,DOMINATED,brotli-q1
-tests\corpus\generated.repeat.jsonl (ref front),zstd-19,0.0,13623.188,FRONT,
-## tests\corpus\generated.sqlite (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.sqlite,anvil-greedy-arith,0.238,18.596,DOMINATED,brotli-q1
-tests\corpus\generated.sqlite,anvil-dp-arith,0.209,1.878,DOMINATED,brotli-q4
-tests\corpus\generated.sqlite,anvil-greedy-rans,0.241,28.989,DOMINATED,brotli-q1
-tests\corpus\generated.sqlite,anvil-dp-rans,0.212,1.987,DOMINATED,brotli-q4
-tests\corpus\generated.sqlite (ref front),brotli-q4,0.161,123.855,FRONT,
-tests\corpus\generated.sqlite (ref front),brotli-q6,0.145,58.468,FRONT,
-tests\corpus\generated.sqlite (ref front),brotli-q9,0.139,25.124,FRONT,
-tests\corpus\generated.sqlite (ref front),brotli-q11,0.107,0.628,FRONT,
-tests\corpus\generated.sqlite (ref front),zstd-1,0.216,509.856,FRONT,
-tests\corpus\generated.sqlite (ref front),zstd-3,0.173,436.51,FRONT,
-tests\corpus\generated.sqlite (ref front),zstd-9,0.156,72.005,FRONT,
-tests\corpus\generated.sqlite (ref front),zstd-19,0.124,2.487,FRONT,
-## tests\corpus\generated.sqlite (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\generated.sqlite,anvil-greedy-arith,0.238,39.478,DOMINATED,brotli-q1
-tests\corpus\generated.sqlite,anvil-dp-arith,0.209,42.638,DOMINATED,brotli-q4
-tests\corpus\generated.sqlite,anvil-greedy-rans,0.241,169.993,DOMINATED,brotli-q1
-tests\corpus\generated.sqlite,anvil-dp-rans,0.212,180.392,DOMINATED,brotli-q4
-tests\corpus\generated.sqlite (ref front),brotli-q11,0.107,622.114,FRONT,
-tests\corpus\generated.sqlite (ref front),zstd-3,0.173,1376.671,FRONT,
-tests\corpus\generated.sqlite (ref front),zstd-9,0.156,1310.153,FRONT,
-tests\corpus\generated.sqlite (ref front),zstd-19,0.124,1142.932,FRONT,
-## tests\corpus\random.bin (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\random.bin,anvil-greedy-arith,1.0,8.407,DOMINATED,brotli-q1
-tests\corpus\random.bin,anvil-dp-arith,1.0,8.344,DOMINATED,brotli-q1
-tests\corpus\random.bin,anvil-greedy-rans,1.0,25.766,DOMINATED,brotli-q1
-tests\corpus\random.bin,anvil-dp-rans,1.0,21.709,DOMINATED,brotli-q1
-tests\corpus\random.bin (ref front),zstd-1,1.0,8594.885,FRONT,
-## tests\corpus\random.bin (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\random.bin,anvil-greedy-arith,1.0,393.905,DOMINATED,brotli-q1
-tests\corpus\random.bin,anvil-dp-arith,1.0,403.671,DOMINATED,brotli-q1
-tests\corpus\random.bin,anvil-greedy-rans,1.0,402.803,DOMINATED,brotli-q1
-tests\corpus\random.bin,anvil-dp-rans,1.0,367.148,DOMINATED,brotli-q1
-tests\corpus\random.bin (ref front),zstd-9,1.0,30481.86,FRONT,
-## tests\corpus\src.cpp (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\src.cpp,anvil-greedy-arith,0.295,16.205,DOMINATED,brotli-q4
-tests\corpus\src.cpp,anvil-dp-arith,0.292,2.969,DOMINATED,brotli-q4
-tests\corpus\src.cpp,anvil-greedy-rans,0.305,23.006,DOMINATED,brotli-q4
-tests\corpus\src.cpp,anvil-dp-rans,0.299,3.194,DOMINATED,brotli-q4
-tests\corpus\src.cpp (ref front),brotli-q6,0.262,18.415,FRONT,
-tests\corpus\src.cpp (ref front),brotli-q9,0.26,5.069,FRONT,
-tests\corpus\src.cpp (ref front),brotli-q11,0.246,1.137,FRONT,
-tests\corpus\src.cpp (ref front),zstd-1,0.313,303.85,FRONT,
-tests\corpus\src.cpp (ref front),zstd-3,0.294,232.229,FRONT,
-tests\corpus\src.cpp (ref front),zstd-9,0.268,67.438,FRONT,
-tests\corpus\src.cpp (ref front),zstd-19,0.256,4.205,FRONT,
-## tests\corpus\src.cpp (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-tests\corpus\src.cpp,anvil-greedy-arith,0.295,32.847,DOMINATED,brotli-q4
-tests\corpus\src.cpp,anvil-dp-arith,0.292,33.145,DOMINATED,brotli-q4
-tests\corpus\src.cpp,anvil-greedy-rans,0.305,151.5,DOMINATED,brotli-q4
-tests\corpus\src.cpp,anvil-dp-rans,0.299,154.967,DOMINATED,brotli-q4
-tests\corpus\src.cpp (ref front),brotli-q11,0.246,300.203,FRONT,
-tests\corpus\src.cpp (ref front),zstd-1,0.313,1032.127,FRONT,
-tests\corpus\src.cpp (ref front),zstd-3,0.294,866.987,FRONT,
-tests\corpus\src.cpp (ref front),zstd-9,0.268,829.388,FRONT,
-tests\corpus\src.cpp (ref front),zstd-19,0.256,740.592,FRONT,
-## AGGREGATE (encode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-AGGREGATE,anvil-greedy-arith,0.159011,27.476,DOMINATED,brotli-q1
-AGGREGATE,anvil-dp-arith,0.137103,1.122,DOMINATED,brotli-q4
-AGGREGATE,anvil-greedy-rans,0.160084,41.634,DOMINATED,brotli-q1
-AGGREGATE,anvil-dp-rans,0.137795,1.131,DOMINATED,brotli-q4
-AGGREGATE (ref front),brotli-q4,0.133216,161.678,FRONT,
-AGGREGATE (ref front),brotli-q6,0.115596,75.902,FRONT,
-AGGREGATE (ref front),brotli-q9,0.111795,34.838,FRONT,
-AGGREGATE (ref front),brotli-q11,0.089776,0.779,FRONT,
-AGGREGATE (ref front),zstd-1,0.139743,783.139,FRONT,
-AGGREGATE (ref front),zstd-3,0.136323,608.330,FRONT,
-AGGREGATE (ref front),zstd-9,0.120332,95.864,FRONT,
-AGGREGATE (ref front),zstd-19,0.099710,2.553,FRONT,
-## AGGREGATE (decode_MBps)
-plane,codec,ratio,MBps,status,dominated_by
-AGGREGATE,anvil-greedy-arith,0.159011,63.301,DOMINATED,brotli-q1
-AGGREGATE,anvil-dp-arith,0.137103,69.096,DOMINATED,brotli-q4
-AGGREGATE,anvil-greedy-rans,0.160084,210.595,DOMINATED,brotli-q1
-AGGREGATE,anvil-dp-rans,0.137795,215.827,DOMINATED,brotli-q4
-AGGREGATE (ref front),brotli-q11,0.089776,808.012,FRONT,
-AGGREGATE (ref front),zstd-3,0.136323,1884.881,FRONT,
-AGGREGATE (ref front),zstd-9,0.120332,1834.370,FRONT,
-AGGREGATE (ref front),zstd-19,0.099710,1670.808,FRONT,
+tests\corpus\doc.md,encode_MBps,anvil-greedy-arith,0.537,6.759,DOMINATED,brotli-q1
+tests\corpus\doc.md,encode_MBps,anvil-dp-arith,0.53,4.443,DOMINATED,brotli-q1
+tests\corpus\doc.md,encode_MBps,anvil-greedy-rans,0.593,6.173,DOMINATED,brotli-q1
+tests\corpus\doc.md,encode_MBps,anvil-dp-rans,0.577,4.38,DOMINATED,brotli-q1
+tests\corpus\doc.md,encode_MBps,anvil-sparse-rans,0.597,5.489,DOMINATED,brotli-q1
+tests\corpus\doc.md,encode_MBps,brotli-q4,0.47,9.784,FRONT,
+tests\corpus\doc.md,encode_MBps,brotli-q6,0.442,3.621,FRONT,
+tests\corpus\doc.md,encode_MBps,brotli-q11,0.384,0.915,FRONT,
+tests\corpus\doc.md,encode_MBps,zstd-1,0.497,167.117,FRONT,
+tests\corpus\doc.md,encode_MBps,zstd-3,0.492,120.0,FRONT,
+tests\corpus\doc.md,encode_MBps,zstd-9,0.486,60.94,FRONT,
+tests\corpus\doc.md,decode_MBps,anvil-greedy-arith,0.537,19.898,DOMINATED,brotli-q1
+tests\corpus\doc.md,decode_MBps,anvil-dp-arith,0.53,20.074,DOMINATED,brotli-q1
+tests\corpus\doc.md,decode_MBps,anvil-greedy-rans,0.593,123.818,DOMINATED,brotli-q1
+tests\corpus\doc.md,decode_MBps,anvil-dp-rans,0.577,134.851,DOMINATED,brotli-q1
+tests\corpus\doc.md,decode_MBps,anvil-sparse-rans,0.597,139.692,DOMINATED,brotli-q1
+tests\corpus\doc.md,decode_MBps,brotli-q6,0.442,156.552,FRONT,
+tests\corpus\doc.md,decode_MBps,brotli-q11,0.384,124.954,FRONT,
+tests\corpus\doc.md,decode_MBps,zstd-3,0.492,469.655,FRONT,
+tests\corpus\doc.md,decode_MBps,zstd-9,0.486,439.355,FRONT,
+tests\corpus\doc.md,decode_MBps,zstd-19,0.481,277.959,FRONT,
+tests\corpus\generated.json,encode_MBps,anvil-greedy-arith,0.175,18.652,DOMINATED,brotli-q1
+tests\corpus\generated.json,encode_MBps,anvil-dp-arith,0.138,1.812,DOMINATED,brotli-q9
+tests\corpus\generated.json,encode_MBps,anvil-greedy-rans,0.175,30.966,DOMINATED,brotli-q1
+tests\corpus\generated.json,encode_MBps,anvil-dp-rans,0.138,1.883,DOMINATED,brotli-q9
+tests\corpus\generated.json,encode_MBps,anvil-sparse-rans,0.163,18.2,DOMINATED,brotli-q1
+tests\corpus\generated.json,encode_MBps,brotli-q6,0.143,61.239,FRONT,
+tests\corpus\generated.json,encode_MBps,brotli-q9,0.137,24.131,FRONT,
+tests\corpus\generated.json,encode_MBps,brotli-q11,0.096,0.801,FRONT,
+tests\corpus\generated.json,encode_MBps,zstd-1,0.157,716.22,FRONT,
+tests\corpus\generated.json,encode_MBps,zstd-9,0.145,65.182,FRONT,
+tests\corpus\generated.json,encode_MBps,zstd-19,0.113,2.521,FRONT,
+tests\corpus\generated.json,decode_MBps,anvil-greedy-arith,0.175,48.022,DOMINATED,brotli-q1
+tests\corpus\generated.json,decode_MBps,anvil-dp-arith,0.138,52.849,DOMINATED,brotli-q9
+tests\corpus\generated.json,decode_MBps,anvil-greedy-rans,0.175,184.578,DOMINATED,brotli-q1
+tests\corpus\generated.json,decode_MBps,anvil-dp-rans,0.138,190.276,DOMINATED,brotli-q9
+tests\corpus\generated.json,decode_MBps,anvil-sparse-rans,0.163,165.381,DOMINATED,brotli-q1
+tests\corpus\generated.json,decode_MBps,brotli-q11,0.096,523.209,FRONT,
+tests\corpus\generated.json,decode_MBps,zstd-9,0.145,2021.651,FRONT,
+tests\corpus\generated.json,decode_MBps,zstd-19,0.113,1624.144,FRONT,
+tests\corpus\generated.jsonl,encode_MBps,anvil-greedy-arith,0.107,29.636,DOMINATED,brotli-q1
+tests\corpus\generated.jsonl,encode_MBps,anvil-dp-arith,0.087,1.517,DOMINATED,brotli-q4
+tests\corpus\generated.jsonl,encode_MBps,anvil-greedy-rans,0.107,39.68,DOMINATED,brotli-q1
+tests\corpus\generated.jsonl,encode_MBps,anvil-dp-rans,0.087,1.512,DOMINATED,brotli-q4
+tests\corpus\generated.jsonl,encode_MBps,anvil-sparse-rans,0.079,32.099,DOMINATED,brotli-q6
+tests\corpus\generated.jsonl,encode_MBps,brotli-q4,0.081,141.528,FRONT,
+tests\corpus\generated.jsonl,encode_MBps,brotli-q6,0.073,90.563,FRONT,
+tests\corpus\generated.jsonl,encode_MBps,brotli-q11,0.054,0.591,FRONT,
+tests\corpus\generated.jsonl,encode_MBps,zstd-1,0.083,876.566,FRONT,
+tests\corpus\generated.jsonl,encode_MBps,zstd-19,0.059,1.894,FRONT,
+tests\corpus\generated.jsonl,decode_MBps,anvil-greedy-arith,0.107,69.273,DOMINATED,brotli-q1
+tests\corpus\generated.jsonl,decode_MBps,anvil-dp-arith,0.087,75.237,DOMINATED,brotli-q4
+tests\corpus\generated.jsonl,decode_MBps,anvil-greedy-rans,0.107,205.803,DOMINATED,brotli-q1
+tests\corpus\generated.jsonl,decode_MBps,anvil-dp-rans,0.087,215.628,DOMINATED,brotli-q4
+tests\corpus\generated.jsonl,decode_MBps,anvil-sparse-rans,0.079,215.9,DOMINATED,brotli-q6
+tests\corpus\generated.jsonl,decode_MBps,brotli-q11,0.054,629.518,FRONT,
+tests\corpus\generated.jsonl,decode_MBps,zstd-19,0.059,2029.168,FRONT,
+tests\corpus\generated.log,encode_MBps,anvil-greedy-arith,0.118,29.445,DOMINATED,brotli-q1
+tests\corpus\generated.log,encode_MBps,anvil-dp-arith,0.091,1.819,DOMINATED,brotli-q6
+tests\corpus\generated.log,encode_MBps,anvil-greedy-rans,0.118,42.291,DOMINATED,brotli-q1
+tests\corpus\generated.log,encode_MBps,anvil-dp-rans,0.091,1.699,DOMINATED,brotli-q6
+tests\corpus\generated.log,encode_MBps,anvil-sparse-rans,0.094,28.027,DOMINATED,brotli-q6
+tests\corpus\generated.log,encode_MBps,brotli-q6,0.072,64.383,FRONT,
+tests\corpus\generated.log,encode_MBps,brotli-q9,0.064,29.537,FRONT,
+tests\corpus\generated.log,encode_MBps,brotli-q11,0.042,0.573,FRONT,
+tests\corpus\generated.log,encode_MBps,zstd-1,0.094,783.272,FRONT,
+tests\corpus\generated.log,encode_MBps,zstd-9,0.075,69.739,FRONT,
+tests\corpus\generated.log,encode_MBps,zstd-19,0.055,1.316,FRONT,
+tests\corpus\generated.log,decode_MBps,anvil-greedy-arith,0.118,66.779,DOMINATED,brotli-q1
+tests\corpus\generated.log,decode_MBps,anvil-dp-arith,0.091,70.869,DOMINATED,brotli-q6
+tests\corpus\generated.log,decode_MBps,anvil-greedy-rans,0.118,208.468,DOMINATED,brotli-q1
+tests\corpus\generated.log,decode_MBps,anvil-dp-rans,0.091,208.214,DOMINATED,brotli-q6
+tests\corpus\generated.log,decode_MBps,anvil-sparse-rans,0.094,208.67,DOMINATED,brotli-q6
+tests\corpus\generated.log,decode_MBps,brotli-q11,0.042,753.932,FRONT,
+tests\corpus\generated.log,decode_MBps,zstd-9,0.075,1837.193,FRONT,
+tests\corpus\generated.log,decode_MBps,zstd-19,0.055,1800.909,FRONT,
+tests\corpus\generated.repeat.jsonl,encode_MBps,anvil-greedy-arith,0.001,130.732,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,encode_MBps,anvil-dp-arith,0.001,0.264,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,encode_MBps,anvil-greedy-rans,0.001,130.212,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,encode_MBps,anvil-dp-rans,0.001,0.264,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,encode_MBps,anvil-sparse-rans,0.001,104.204,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,encode_MBps,zstd-1,0.0,2637.486,FRONT,
+tests\corpus\generated.repeat.jsonl,decode_MBps,anvil-greedy-arith,0.001,275.127,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,decode_MBps,anvil-dp-arith,0.001,249.754,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,decode_MBps,anvil-greedy-rans,0.001,265.005,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,decode_MBps,anvil-dp-rans,0.001,316.957,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,decode_MBps,anvil-sparse-rans,0.001,312.438,DOMINATED,brotli-q1
+tests\corpus\generated.repeat.jsonl,decode_MBps,zstd-19,0.0,11190.476,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,anvil-greedy-arith,0.238,17.947,DOMINATED,brotli-q1
+tests\corpus\generated.sqlite,encode_MBps,anvil-dp-arith,0.209,1.867,DOMINATED,brotli-q4
+tests\corpus\generated.sqlite,encode_MBps,anvil-greedy-rans,0.241,29.805,DOMINATED,brotli-q1
+tests\corpus\generated.sqlite,encode_MBps,anvil-dp-rans,0.212,1.98,DOMINATED,brotli-q4
+tests\corpus\generated.sqlite,encode_MBps,anvil-sparse-rans,0.226,13.43,DOMINATED,brotli-q4
+tests\corpus\generated.sqlite,encode_MBps,brotli-q4,0.161,105.215,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,brotli-q6,0.145,52.725,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,brotli-q9,0.139,22.325,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,brotli-q11,0.107,0.541,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,zstd-1,0.216,565.011,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,zstd-3,0.173,345.76,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,zstd-9,0.156,55.254,FRONT,
+tests\corpus\generated.sqlite,encode_MBps,zstd-19,0.124,2.131,FRONT,
+tests\corpus\generated.sqlite,decode_MBps,anvil-greedy-arith,0.238,39.406,DOMINATED,brotli-q1
+tests\corpus\generated.sqlite,decode_MBps,anvil-dp-arith,0.209,43.242,DOMINATED,brotli-q4
+tests\corpus\generated.sqlite,decode_MBps,anvil-greedy-rans,0.241,169.335,DOMINATED,brotli-q1
+tests\corpus\generated.sqlite,decode_MBps,anvil-dp-rans,0.212,170.506,DOMINATED,brotli-q4
+tests\corpus\generated.sqlite,decode_MBps,anvil-sparse-rans,0.226,139.638,DOMINATED,brotli-q4
+tests\corpus\generated.sqlite,decode_MBps,brotli-q11,0.107,562.238,FRONT,
+tests\corpus\generated.sqlite,decode_MBps,zstd-1,0.216,1089.089,FRONT,
+tests\corpus\generated.sqlite,decode_MBps,zstd-19,0.124,1046.217,FRONT,
+tests\corpus\random.bin,encode_MBps,anvil-greedy-arith,1.0,8.008,DOMINATED,brotli-q1
+tests\corpus\random.bin,encode_MBps,anvil-dp-arith,1.0,7.433,DOMINATED,brotli-q1
+tests\corpus\random.bin,encode_MBps,anvil-greedy-rans,1.0,22.504,DOMINATED,brotli-q1
+tests\corpus\random.bin,encode_MBps,anvil-dp-rans,1.0,20.378,DOMINATED,brotli-q1
+tests\corpus\random.bin,encode_MBps,anvil-sparse-rans,1.0,6.63,DOMINATED,brotli-q1
+tests\corpus\random.bin,encode_MBps,zstd-1,1.0,1559.453,FRONT,
+tests\corpus\random.bin,decode_MBps,anvil-greedy-arith,1.0,390.91,DOMINATED,brotli-q1
+tests\corpus\random.bin,decode_MBps,anvil-dp-arith,1.0,392.372,DOMINATED,brotli-q1
+tests\corpus\random.bin,decode_MBps,anvil-greedy-rans,1.0,382.469,DOMINATED,brotli-q1
+tests\corpus\random.bin,decode_MBps,anvil-dp-rans,1.0,363.584,DOMINATED,brotli-q1
+tests\corpus\random.bin,decode_MBps,anvil-sparse-rans,1.0,391.845,DOMINATED,brotli-q1
+tests\corpus\random.bin,decode_MBps,zstd-3,1.0,3143.213,FRONT,
+tests\corpus\src.cpp,encode_MBps,anvil-greedy-arith,0.295,15.133,DOMINATED,brotli-q4
+tests\corpus\src.cpp,encode_MBps,anvil-dp-arith,0.292,2.847,DOMINATED,brotli-q4
+tests\corpus\src.cpp,encode_MBps,anvil-greedy-rans,0.305,20.818,DOMINATED,brotli-q4
+tests\corpus\src.cpp,encode_MBps,anvil-dp-rans,0.299,2.792,DOMINATED,brotli-q4
+tests\corpus\src.cpp,encode_MBps,anvil-sparse-rans,0.324,5.858,DOMINATED,brotli-q4
+tests\corpus\src.cpp,encode_MBps,brotli-q4,0.286,55.805,FRONT,
+tests\corpus\src.cpp,encode_MBps,brotli-q6,0.262,18.651,FRONT,
+tests\corpus\src.cpp,encode_MBps,brotli-q9,0.26,4.504,FRONT,
+tests\corpus\src.cpp,encode_MBps,brotli-q11,0.246,1.093,FRONT,
+tests\corpus\src.cpp,encode_MBps,zstd-1,0.313,288.739,FRONT,
+tests\corpus\src.cpp,encode_MBps,zstd-3,0.294,228.315,FRONT,
+tests\corpus\src.cpp,encode_MBps,zstd-9,0.268,50.297,FRONT,
+tests\corpus\src.cpp,encode_MBps,zstd-19,0.256,4.016,FRONT,
+tests\corpus\src.cpp,decode_MBps,anvil-greedy-arith,0.295,32.957,DOMINATED,brotli-q4
+tests\corpus\src.cpp,decode_MBps,anvil-dp-arith,0.292,33.125,DOMINATED,brotli-q4
+tests\corpus\src.cpp,decode_MBps,anvil-greedy-rans,0.305,149.069,DOMINATED,brotli-q4
+tests\corpus\src.cpp,decode_MBps,anvil-dp-rans,0.299,150.519,DOMINATED,brotli-q4
+tests\corpus\src.cpp,decode_MBps,anvil-sparse-rans,0.324,111.725,DOMINATED,brotli-q4
+tests\corpus\src.cpp,decode_MBps,brotli-q11,0.246,296.913,FRONT,
+tests\corpus\src.cpp,decode_MBps,zstd-3,0.294,1006.563,FRONT,
+tests\corpus\src.cpp,decode_MBps,zstd-9,0.268,988.207,FRONT,
+tests\corpus\src.cpp,decode_MBps,zstd-19,0.256,796.863,FRONT,
+AGGREGATE,encode_MBps,anvil-greedy-arith,0.159011,24.835,DOMINATED,brotli-q1
+AGGREGATE,encode_MBps,anvil-dp-arith,0.137103,1.081,DOMINATED,brotli-q4
+AGGREGATE,encode_MBps,anvil-greedy-rans,0.160084,38.421,DOMINATED,brotli-q1
+AGGREGATE,encode_MBps,anvil-dp-rans,0.137795,1.083,DOMINATED,brotli-q4
+AGGREGATE,encode_MBps,anvil-sparse-rans,0.141308,22.144,DOMINATED,brotli-q4
+AGGREGATE,encode_MBps,brotli-q4,0.133216,146.046,FRONT,
+AGGREGATE,encode_MBps,brotli-q6,0.115596,74.613,FRONT,
+AGGREGATE,encode_MBps,brotli-q9,0.111795,32.008,FRONT,
+AGGREGATE,encode_MBps,brotli-q11,0.089776,0.685,FRONT,
+AGGREGATE,encode_MBps,zstd-1,0.139743,809.287,FRONT,
+AGGREGATE,encode_MBps,zstd-3,0.136323,436.792,FRONT,
+AGGREGATE,encode_MBps,zstd-9,0.120332,75.870,FRONT,
+AGGREGATE,encode_MBps,zstd-19,0.099710,2.070,FRONT,
+AGGREGATE,decode_MBps,anvil-greedy-arith,0.159011,62.806,DOMINATED,brotli-q1
+AGGREGATE,decode_MBps,anvil-dp-arith,0.137103,67.806,DOMINATED,brotli-q4
+AGGREGATE,decode_MBps,anvil-greedy-rans,0.160084,202.764,DOMINATED,brotli-q1
+AGGREGATE,decode_MBps,anvil-dp-rans,0.137795,209.544,DOMINATED,brotli-q4
+AGGREGATE,decode_MBps,anvil-sparse-rans,0.141308,195.481,DOMINATED,brotli-q4
+AGGREGATE,decode_MBps,brotli-q11,0.089776,653.699,FRONT,
+AGGREGATE,decode_MBps,zstd-19,0.099710,1755.477,FRONT,

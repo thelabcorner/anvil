@@ -9,15 +9,15 @@ during this task).
 
 ## Summary
 
-The mode-11 decoder's per-token checks are correct and strict. The two
-confirmed robustness gaps lived in the **shared** machinery and predated mode
-11, but mode 11 made them reachable with a 7-substream payload. Both were
-allocation/amplification guards, not memory-safety bugs (no OOB observed; the
-decoder rejects cleanly in every probe). **Both were remediated and landed by
-`arch` during this task and re-verified here: the 1 GiB substream probe now
-fails in 11 ms with "stream too large" (was ~1 GiB alloc / 188 ms), and a
-declared `total = 2^40` is rejected with "declared size exceeds amplification
-bound".**
+The mode-11 decoder's per-token checks are correct and strict. The three
+confirmed robustness gaps lived in the **shared** machinery (two) and the
+arithmetic backend (one, F1, found by bench); none were memory-safety bugs (no
+OOB observed; the decoder rejects cleanly in every probe). **All three were
+remediated and landed by `arch` during this task and re-verified here: the
+1 GiB substream probe now fails in 11 ms with "stream too large" (was ~1 GiB
+alloc / 188 ms), a declared `total = 2^40` is rejected with "declared size
+exceeds amplification bound", and arithmetic trailing-byte splices are
+rejected with "trailing arithmetic bytes".**
 
 ## Audit method
 
@@ -90,36 +90,50 @@ bound".**
   match distance, match exceeds block — all rejected. Decoder pads with zero
   bits past stream end; garbage that *changes decoded bits* is caught by
   CRC-32.
-- `[OPEN]` **F1 — in-payload trailing garbage is accepted.** The arithmetic
-  coder is self-terminating (decoder stops at the declared block length) and
-  never verifies full payload consumption; the block CRC covers only the
-  *reconstructed* bytes. Trailing full bytes spliced inside a mode-1..5
-  payload are therefore silently accepted (decoder exit 0, output correct).
+- `[CLOSED]` **F1 — in-payload trailing garbage was accepted** (found by
+  `bench`, independently confirmed by `format`; remediation landed by `arch`).
+  The arithmetic coder is self-terminating (decoder stops at the declared
+  block length) and did not verify full payload consumption; the block CRC
+  covers only the *reconstructed* bytes. Trailing full bytes spliced inside a
+  mode-1..5 payload were silently accepted (decoder exit 0, output correct).
   Repro: compress `tests/corpus/doc.md` with `--parse=greedy
   --literal=o0 --entropy=arith`, splice 14 bytes of garbage into the mode-1
-  payload (extending `plen`, CRC unchanged) -> decoder exits 0. Same splice on
-  modes 10/11 -> exit 1 ("payload trailing bytes"); the gap is arithmetic-only
-  because rANS/sparse substreams are length-prefixed with full-consumption
-  checks. Severity: LOW — no memory unsafety, no incorrect output (CRC still
-  binds the reconstructed bytes), but it violates the documented "strict
-  decoder" contract and can mask encoder bugs that write extra bytes.
-  Suggested remediation (arch lane; no wire-format change, valid files
-  unaffected): track the arithmetic `BitReader` byte position after
-  `decode_tokens` returns and reject when a *full* trailing byte was never
-  consumed (allow only the final partial byte's zero padding). Status:
-  reported to arch; not yet remediated.
+  payload (extending `plen`, CRC unchanged) -> decoder exited 0 with
+  byte-identical output. Same splice on modes 10/11 -> exit 1 ("payload
+  trailing bytes"); the gap was arithmetic-only because rANS/sparse substreams
+  are length-prefixed with full-consumption checks.
+  Confirmation detail (`format`, t-format): a first splice harness was buggy
+  (duplicated the block header in the rebuild — a no-op control failed), which
+  produced false "rejected" results; with a verified harness (no-op rebuild
+  control passes) appending `zeros`, `0xAA` and `deadbeef` tails all decoded
+  exit 0 with identical SHA-256. Mechanism: `ArithmeticDecoder`'s
+  `BitReader::bit()` returns 0 past the stream end without advancing, so once
+  the declared block length is reached the decoder never reads (nor validates)
+  the remaining payload bytes.
+  Remediation landed by `arch` in `decode_tokens`:
+  `if (n >= ad.consumed_bytes() + 2) throw "trailing arithmetic bytes"` where
+  `consumed_bytes() = br_.byte + (br_.bitpos ? 1 : 0)` — rejects when a *full*
+  trailing byte was never consumed, allowing only the final partial byte's
+  zero padding. No wire-format change; valid files unaffected. Verified:
+  all three splice patterns now exit 1; fuzz re-run clean (800 roundtrip
+  variants + 6400 mutations PASS). Severity was LOW (no memory unsafety, no
+  incorrect output) but it violated the strict-decoder contract and could mask
+  encoder bugs that write extra bytes.
 
 ## Follow-up status
 
-Both `[OPEN]` findings from this audit were remediated by `arch` in
+All `[OPEN]`/`[CLOSED]` findings from this audit were remediated and landed in
 `src/anvil.cpp` (confirmed in tree, re-verified with fuzz):
 
 1. `decompress`: `total` bounded by `(in.size()/7 + 2) * 2^26` —
    "declared size exceeds amplification bound".
 2. `decode_stream(q, qe, max_n)` with `max_sub = 16*out_len + 64` from both
    `decode_tokens_rans` and `decode_tokens_sparse` — "stream too large".
+3. F1 (arithmetic trailing bytes): `consumed_bytes()` tracked on
+   `ArithmeticDecoder`; `decode_tokens` rejects `n >= consumed_bytes() + 2` —
+   "trailing arithmetic bytes".
 
-Both keep the existing clean-reject behavior and are documented in FORMAT.md
+All keep the existing clean-reject behavior and are documented in FORMAT.md
 ("Integrity and malformed input" section) as required decoder invariants.
 
 ## Fuzz harness changes (this task)

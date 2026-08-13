@@ -97,6 +97,9 @@ public:
     ArithmeticDecoder(const uint8_t* p, size_t n) : br_{p,n} {
         for (int i=0;i<32;++i) code_ = (code_ << 1) | br_.bit();
     }
+    // Number of payload bytes touched by the bit reader (final partial byte
+    // counts as one). Used to reject in-payload trailing garbage (F1).
+    size_t consumed_bytes() const { return br_.byte + (br_.bitpos ? 1u : 0u); }
     uint32_t scaled(uint32_t total) const {
         uint64_t range = static_cast<uint64_t>(high_) - low_ + 1;
         return static_cast<uint32_t>(((static_cast<uint64_t>(code_ - low_) + 1) * total - 1) / range);
@@ -792,8 +795,8 @@ static void measure_stream_costs(const std::vector<uint8_t>& v, std::array<doubl
 }
 
 // Build the five mode-10 streams from a token sequence; return the measured
-// per-stream costs plus the raw stream byte total (a faithful MDL proxy for the
-// eventual rANS payload size).
+// per-stream costs plus the total ENCODED size (encode_stream picks raw-or-rANS
+// per stream — the true downstream rANS cost, the MDL objective).
 static std::pair<MdlCosts,size_t> measure_parse(const std::vector<uint8_t>& d, const std::vector<Token>& toks) {
     std::vector<uint8_t> types,ll,ml,ds,lits;
     types.reserve(toks.size());
@@ -808,47 +811,67 @@ static std::pair<MdlCosts,size_t> measure_parse(const std::vector<uint8_t>& d, c
     measure_stream_costs(ml,c.ml);
     measure_stream_costs(ds,c.ds);
     measure_stream_costs(lits,c.lit);
-    size_t total=types.size()+ll.size()+ml.size()+ds.size()+lits.size();
+    size_t total=0;
+    for(const auto* v:{&types,&ll,&ml,&ds,&lits}) total+=encode_stream(*v).size();
     return {c,total};
 }
 
+// One pass: windowed forward DP with measured costs. Each cache-resident window
+// (16 KiB) is a full DP over literal edges and sampled match-length edges, so
+// the parser makes the same GLOBAL edge choices as the old whole-block DP (near
+// distances win because their measured ds cost is cheap) while processing each
+// position once per pass. Match lengths are clamped at the window edge; the next
+// window re-parses from there. Cost model comes from the actual rANS streams.
 static std::vector<Token> parse_mdl_pass(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, const MdlCosts& c) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     std::vector<Token> toks;
     if(n==0) return toks;
-    std::vector<double> pref(n+1,0.0); // prefix sums of measured literal cost
-    for(uint32_t i=0;i<n;++i) pref[i+1]=pref[i]+c.lit[d[i]];
-    MatchFinder mf(d,max_chain,max_match);
-    static constexpr uint32_t cuts[] = {4,5,6,8,12,16,24,32,48,64,96,128,192,256,384,512,768,1024,1536,2048,3072,4096,6144,8192,12288,16384,24576,32768,49152,65535};
-    uint32_t i=0;
-    while(i<n) {
-        auto ms=mf.find(i);
-        // Greedy edge choice: pick the (candidate,length) with max savings over
-        // coding the same span as one literal run, using measured costs.
-        double best_save=0.0; uint32_t blen=0,bdist=0;
-        for(const auto&m:ms) {
-            std::array<uint32_t,32> lens{}; size_t nl=0;
-            for(uint32_t ct:cuts) if(ct<=m.len) lens[nl++]=ct;
-            if(nl==0||lens[nl-1]!=m.len) lens[nl++]=m.len;
-            for(size_t k=0;k<nl;++k) {
-                uint32_t L=lens[k];
-                double run_lit=(pref[i+L]-pref[i])+c.ttype[0]+varint_cost_ms(L-1,c.ll);
-                double mc=c.ttype[1]+varint_cost_ms(L-4,c.ml)+varint_cost_ms(m.dist-1,c.ds);
-                double save=run_lit-mc;
-                if(save>best_save){best_save=save;blen=L;bdist=m.dist;}
+    static constexpr uint32_t kWin = 16384;
+    static constexpr uint32_t cuts[] = {4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65535};
+    struct Prev { uint32_t from=0, dist=0; bool match=false; };
+    MatchFinder mf(d,std::min(max_chain,16u),max_match); // shallow chains: near distances dominate measured ds cost
+    std::vector<double> dp(kWin+1);
+    std::vector<Prev> prev(kWin+1);
+    uint32_t s=0;
+    while(s<n) {
+        uint32_t e=std::min(n,s+kWin);
+        uint32_t wlen=e-s+1;
+        std::fill(dp.begin(),dp.begin()+wlen,std::numeric_limits<double>::infinity());
+        std::fill(prev.begin(),prev.begin()+wlen,Prev{});
+        dp[0]=0.0;
+        for(uint32_t i=s;i<e;++i) {
+            uint32_t w=i-s;
+            double lc=dp[w]+c.lit[d[i]]+0.10;
+            if(lc<dp[w+1]){ dp[w+1]=lc; prev[w+1]={i,0,false}; }
+            auto ms=mf.find(i);
+            uint32_t win_remain=e-i;
+            size_t ncand=std::min<size_t>(ms.size(),4);
+            for(size_t ci=0;ci<ncand;++ci) {
+                const auto&m=ms[ci];
+                uint32_t cap=std::min(m.len,win_remain);
+                std::array<uint32_t,16> lens{}; size_t nl=0;
+                for(uint32_t ct:cuts) if(ct<=cap) lens[nl++]=ct;
+                if(nl==0||lens[nl-1]!=cap) lens[nl++]=cap;
+                double mcost=varint_cost_ms(m.dist-1,c.ds);
+                for(size_t k=0;k<nl;++k) {
+                    uint32_t l=lens[k];
+                    double mc=dp[w]+c.ttype[1]+varint_cost_ms(l-4,c.ml)+mcost;
+                    uint32_t wj=w+l;
+                    if(mc<dp[wj]){ dp[wj]=mc; prev[wj]={i,m.dist,true}; }
+                }
             }
-        }
-        if(best_save>0 && blen>=4) {
-            toks.push_back({true,i,blen,bdist});
-            uint32_t end=i+blen;
-            for(uint32_t p=i;p<end;++p) mf.insert(p);
-            i=end;
-        } else {
-            if(!toks.empty() && !toks.back().match && toks.back().pos+toks.back().len==i) ++toks.back().len;
-            else toks.push_back({false,i,1,0});
             mf.insert(i);
-            ++i;
         }
+        std::vector<Token> rev;
+        uint32_t cur=e;
+        while(cur>s) {
+            Prev p=prev[cur-s];
+            if(p.from>=cur) throw std::runtime_error("window DP reconstruction failed");
+            rev.push_back({p.match,p.from,cur-p.from,p.dist});
+            cur=p.from;
+        }
+        for(auto it=rev.rbegin();it!=rev.rend();++it) toks.push_back(*it);
+        s=e;
     }
     return toks;
 }
@@ -856,17 +879,19 @@ static std::vector<Token> parse_mdl_pass(const std::vector<uint8_t>& d, uint32_t
 static std::vector<Token> parse_mdl(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, uint32_t iters=3) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     if(n==0) return {};
-    MdlCosts c;
-    std::array<uint32_t,256> hist{}; for(auto b:d) ++hist[b];
-    for(int b=0;b<256;++b) { double p=(hist[b]+0.5)/(double(n)+128.0); c.lit[b]=std::clamp(-std::log2(p),1.0,9.5); }
-    std::fill(c.ttype.begin(),c.ttype.end(),1.0);
-    for(int i=0;i<256;++i){ c.ll[i]=5.25; c.ml[i]=5.25; c.ds[i]=5.25; }
-    std::vector<Token> best; size_t best_total=SIZE_MAX;
-    for(uint32_t it=0;it<iters;++it) {
-        auto toks=parse_mdl_pass(d,max_chain,max_match,c);
-        auto [cm,total]=measure_parse(d,toks);
-        if(total<best_total){ best_total=total; best=std::move(toks); }
-        if(it+1<iters) c=cm; // re-parse with measured costs next pass
+    // Seed: cheap single-pass greedy (longest match), measured costs from it.
+    auto toks=parse_greedy(d,max_chain,max_match);
+    auto [c,total]=measure_parse(d,toks);
+    std::vector<Token> best=std::move(toks);
+    size_t best_total=total;
+    // Refine: windowed-DP passes with measured costs; stop when no gain.
+    for(uint32_t it=1;it<iters;++it) {
+        auto cand=parse_mdl_pass(d,max_chain,max_match,c);
+        auto [cm,t2]=measure_parse(d,cand);
+        if(t2<best_total){ best_total=t2; best=std::move(cand); }
+        if(it>1 && t2+1>=best_total) break; // converged (1-byte slack)
+        c=cm;
+        total=t2;
     }
     return best;
 }
@@ -926,6 +951,10 @@ static std::vector<uint8_t> decode_tokens(const uint8_t* p, size_t n, size_t out
             for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]);
         }
     }
+    // F1 strictness: the arithmetic coder is self-terminating; reject if a full
+    // trailing payload byte was never consumed (only the final partial byte's
+    // zero padding is allowed). Modes 10/11 already enforce full consumption.
+    if (n >= ad.consumed_bytes() + 2) throw std::runtime_error("trailing arithmetic bytes");
     return out;
 }
 
@@ -1084,3 +1113,4 @@ int main(int argc,char**argv) {
 }
 
 #endif // ANVIL_NO_MAIN
+
