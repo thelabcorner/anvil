@@ -988,6 +988,51 @@ executables, narrowed-claim test INCOMPLETE.** Recorded honestly:
 - FORMAT.md carries the mode-14 spec (arch-documented). No Pareto claim;
   no EXTENDS_FRONT expected at this prototype status.
 
+## Experiment P — PNRA pre-registration (transformation-invariant temporal anchoring) — candidate, not yet measured on Windows
+
+**Pre-registered at the novelty gate** (coordinator sync, Linux .text
+advance — docs/CONTEXT.md + prototypes/pnra/ in this repo). Status:
+**candidate, queued as the binary-lane follow-on** — no Windows
+measurement yet, no claim made.
+
+**The mechanism-level novelty claim (new search formulation):**
+**transformation-invariant indexing** — derive I(x,p) such that
+I(T(x,θ), p') = I(x,p) for the relevant transform, and build the temporal
+dictionary over I, not raw bytes. For TCOPY's relocation fields,
+v + absolute field position is INVARIANT under the Δ=−d transform
+(two-anchor invariant (K1, K2, Δf), K_i = v_i + position(v_i), Δf = field
+spacing). Changes discovery from "candidate generation → expensive
+approximate verification → discover transformation" into "transformation
+invariant → exact hash lookup → cheap verification". **Ordinary LZ =
+identity-transform special case.**
+
+**Supporting evidence (Linux, directional — do not re-derive):**
+single-anchor PNRA 1,766,167 → 1,741,092 B → combined 1,730,689 B vs
+brotli q4 1,781,130 B (~50 KB below q4); two-anchor pair-index 1,755,244 B
+@ ~29.5 MB/s parser / ~279 MB/s decoder (2,862/4,583 transformed phrases
+contain ≥2 E8/E9 fields); event-driven PNRA 1,794,886 B @ ~39.3 MB/s
+encode / ~270 MB/s decode (13,752 matching pair signatures, candidate
+generation ~474 MB/s) — transformed search is no longer the dominant
+encoder bottleneck; ordinary exact-match history/parsing is now the
+expensive component.
+
+**Prior-art positioning:** approximate-match candidate generation +
+expensive verification (LZ with mismatches, Zdelta, bsdiff, TCOPY field
+detection) all discover the transform AFTER candidate generation.
+Invariant-based indexing (hash in the invariant representation) is the
+inversion — not found in the surveyed record. C1/TCOPY separators now
+include "transformation-invariant anchoring" as an enabling primitive.
+
+**Pre-registered falsifiable ablation (isolated):** (a) PNRA-on vs
+PNRA-off for the SAME transform family (TCOPY) on ELF/PE .text — gain must
+come from the invariant indexing, not the transform; (b) invariant-based
+indexing vs raw-byte indexing at equal candidate counts (isolates the
+formulation); (c) LZ = identity-transform special case (PNRA with identity
+invariant must reproduce the exact-match baseline); (d) Windows A/B is
+the arbiter (FLAG-B); round-trip + fuzz; no-regression controls. The q6
+re-target is the favorable comparison (q6-class density at ~300 MB/s
+decode), not q4-class encode.
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — CORRECTED (v2): FULL PASS at pre-registered λ=0.01
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-

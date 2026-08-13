@@ -701,3 +701,88 @@ t2-shape → t2-entropy, t2-topology → t2-bench (full regression, both planes)
 t2-gates (cheap adopts) runs in parallel. All claims pre-registered above;
 the gate stays the arbiter. TCOPY (I2-5) is queued post-t2-bench as the
 binary-lane candidate.
+
+---
+
+# PART III — Iteration-3 gate criteria (Pareto frontier push)
+
+*Mission (coordinator, I3): PUSH THE PARETO FRONTIER — EXTENDS_FRONT on at
+least one plane on at least one file class. Two iterations delivered
+validated enabling infrastructure but zero Pareto wins; decode ~4x behind
+brotli q9; the 22-stream/fused architecture + SRR synchronized probe are
+the binding levers. Pre-registered below; round-trip + fuzz before any
+claim; every failure recorded with reason.*
+
+## I3-1. Fused shape-stream decode (t3-fuse) — PARTIAL PASS (recorded Experiment M)
+Fusion gain real and attributable (~1.2x record files, 1.76x repeat) at
+preserved ratio; the 2x pre-registered target NOT MET — per-field entropy
+pulls are the decode floor in both paths; the 2x+ regime needs the
+compiled hot-op instruction book (Linux modes 26-28), recorded as the
+remaining lever. Contract: fusion-vs-separated on the same wire A/B.
+
+## I3-2. R4 structural-distance propagation (t3-r4) — NOT ADOPTED (recorded Experiment N)
+Reinforcement-of-taken channels cannot discover the record period (69% of
+greedy sparse matches are far-distance). The missing mechanism is the
+SRR/SSCM *synchronized structural-distance probe* — recorded as the
+genuine R4 remainder. R2 topology stays BLOCKED on alignment.
+
+## I3-3. TCOPY implicit-Δ (t3-tcopy, mode 14) — mechanism VALIDATED, claim UNDECIDABLE (recorded Experiment O)
+Transform fields fire on real PE (519 in anvil.exe block 0); small gains
+at same greedy parse; headline density NOT reproduced (greedy parse
+limiting factor). **Narrowed-claim test INCOMPLETE**: explicit-Δ control
+unbuilt — required follow-ups before any novelty claim: (1) explicit-Δ
+control ablation (implicit-vs-transmitted separation), (2) Intel
+US 7,111,148 / US 7,010,665 full-text review (binding closeout item).
+FTO attorney review recommended. See four-pass record
+(research/patent-tcopy) + ablation contract (research/tcopy-ablation-
+contract).
+
+## I3-4. PNRA — transformation-invariant temporal anchoring (PRE-REGISTERED, Linux advance)
+
+- **Status:** PRE-REGISTERED at the novelty gate (coordinator sync, Linux
+  .text evidence — docs/CONTEXT.md + prototypes/pnra/). Mechanism-level
+  novelty candidate: a NEW SEARCH FORMULATION.
+- **Prior-art lineage:** approximate-match candidate generation +
+  expensive verification (LZ with mismatches, Zdelta, bsdiff add-arrays,
+  TCOPY's own field detection); indexing over raw bytes. The prior art
+  discovers the transform AFTER candidate generation.
+- **What is NEW:** **transformation-invariant indexing** — derive I(x,p)
+  such that I(T(x,θ), p') = I(x,p) for the relevant transform, and build
+  the temporal dictionary over I, not raw bytes. For TCOPY's relocation
+  fields, v + absolute field position is invariant under the Δ=−d
+  transform (two-anchor invariant (K1, K2, Δf) with K_i = v_i +
+  position(v_i)). Changes discovery from "candidate → expensive
+  approximate verification → discover transformation" into
+  "transformation invariant → exact hash lookup → cheap verification".
+  **Ordinary LZ = identity-transform special case.**
+- **Evidence (Linux, directional — do not re-derive):** single-anchor PNRA
+  1,766,167 → 1,741,092 B → combined 1,730,689 B vs brotli q4 1,781,130 B
+  (~50 KB below q4); two-anchor pair-index 1,755,244 B @ ~29.5 MB/s
+  parser / ~279 MB/s decoder (2,862/4,583 transformed phrases contain ≥2
+  E8/E9 fields); event-driven PNRA 1,794,886 B @ ~39.3 MB/s encode / ~270
+  MB/s decode (13,752 matching pair signatures, candidate generation ~474
+  MB/s — transformed search no longer the dominant encoder bottleneck).
+- **Why Pareto:** transformed-search is now the expensive component's
+  removal — it converts the binary lane from approximate-match cost to
+  exact-hash cost; combined with the q6 re-target (~300 MB/s decode at
+  q6-class density is the favorable comparison, not q4-class encode).
+- **Falsifiable ablation (pre-registered):** (a) PNRA-on vs PNRA-off for
+  the SAME transform family (TCOPY) on ELF/PE .text — the gain must be
+  from the invariant indexing, not the transform; (b) invariant-based
+  indexing vs raw-byte indexing at equal candidate counts (isolates the
+  formulation); (c) LZ = identity-transform special case (PNRA with the
+  identity invariant must reproduce the exact-match baseline); (d)
+  Windows A/B is the arbiter (FLAG-B); round-trip + fuzz; no-regression
+  controls.
+- **Gate verdict:** pre-registered PASS-as-candidate pending isolated
+  Windows ablation; the C1/TCOPY separators now include
+  "transformation-invariant anchoring" as an enabling primitive.
+
+## Iteration-3 sequencing
+
+t3-fuse → t3-r4 (→ R2 retest) → t3-tcopy (patent gate: four-pass record +
+Intel review) → t3-bench (both planes, pareto_front.py; inner loop vs
+q1/q4/q6/q9, q11 final-only) → t3-ledger (claims written only against
+Windows A/B; failures recorded). PNRA (I3-4) pre-registered as the binary-
+lane follow-on; hot-op instruction book (I3-1 remainder) queued for the
+decode leg. All claims pre-registered above; the gate stays the arbiter.
