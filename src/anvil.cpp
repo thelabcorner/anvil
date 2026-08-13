@@ -658,11 +658,12 @@ static std::vector<uint8_t> huffman_encode(const std::vector<uint8_t>& src, cons
 struct HuffModel {
     std::array<uint8_t,256> len{};
     // canonical decode state
-    std::array<uint16_t,256> first_code{}; // first code of each length (as a bit-reversed? no: canonical, read MSB-first)
+    std::array<uint16_t,256> first_code{}; // first code of each length (canonical, read MSB-first)
     std::array<uint16_t,256> first_sym{};  // first symbol index of each length
     std::array<uint16_t,256> n_codes{};
     std::array<uint8_t,256> order{};
     uint8_t max_len=0, n_ord=0;
+    std::array<uint16_t,4096> tbl{}; // 12-bit decode table: (sym<<4)|len; 0xFFFF = long-code marker
 };
 
 static HuffModel build_huff_model(const std::array<uint8_t,256>& len) {
@@ -680,6 +681,16 @@ static HuffModel build_huff_model(const std::array<uint8_t,256>& len) {
         while(cur<cnt && len[syms[cur]]<l) ++cur;
         if(cur<cnt && len[syms[cur]]==l){ h.first_code[l]=uint16_t(code[syms[cur]]); h.first_sym[l]=uint16_t(cur); uint32_t k=cur; while(k<cnt && len[syms[k]]==l) ++k; h.n_codes[l]=uint16_t(k-cur); }
     }
+    // 12-bit decode table
+    h.tbl.fill(0xFFFFu);
+    if (h.max_len <= 12) {
+        for (uint32_t i = 0; i < cnt; ++i) {
+            uint8_t s = syms[i]; uint8_t l = len[s];
+            uint32_t base = code[s] << (12 - l);
+            uint16_t entry = uint16_t((s << 4) | l);
+            for (uint32_t k = 0; k < (1u << (12 - l)); ++k) h.tbl[base + k] = entry;
+        }
+    }
     return h;
 }
 
@@ -688,33 +699,33 @@ static std::vector<uint8_t> huffman_decode(const uint8_t* p, size_t n, size_t ou
     const uint8_t* e=p+n;
     uint64_t acc=0; int have=0;
     auto refill=[&](int need){ while(have<need && p<e){ acc=(acc<<8)|*p++; have+=8; } };
-    for(size_t i=0;i<out_n;++i){
-        if (h.max_len <= 12) {
+    if (h.max_len <= 12) {
+        // table-driven: one lookup per symbol
+        for(size_t i=0;i<out_n;++i){
             refill(12);
             int win = have; if (win > 12) win = 12;
             uint32_t code=(uint32_t)((acc>>(have-win)) & ((1u<<win)-1));
-            uint8_t sym=0; int used=-1;
-            for(int l=1;l<=win;++l){
-                if(h.n_codes[l]){
-                    uint32_t sh=win-l;
-                    uint32_t cand=(code>>sh);
-                    if(cand>=h.first_code[l] && cand<h.first_code[l]+h.n_codes[l]){ sym=h.order[h.first_sym[l]+(cand-h.first_code[l])]; used=l; break; }
-                }
-            }
-            if(used<0) throw std::runtime_error("invalid huffman code");
-            have-=used; out[i]=sym;
-        } else {
-            refill(1);
-            uint32_t code=0; uint8_t sym=0; bool found=false;
-            for(int l=1;l<=24;++l){
-                if(have<1) throw std::runtime_error("truncated huffman bits");
-                code=(code<<1)|((uint32_t)((acc>>(have-1))&1));
-                --have; refill(1);
-                if(h.n_codes[l] && code>=h.first_code[l] && code<h.first_code[l]+h.n_codes[l]){ sym=h.order[h.first_sym[l]+(code-h.first_code[l])]; found=true; break; }
-            }
-            if(!found) throw std::runtime_error("invalid huffman code");
-            out[i]=sym;
+            uint32_t idx = code << (12 - win); // align the win-bit code to the table's top bits
+            uint16_t entry = h.tbl[idx];
+            if (entry == 0xFFFFu) throw std::runtime_error("invalid huffman code");
+            int used = entry & 0xF;
+            if (used > win) throw std::runtime_error("invalid huffman code");
+            out[i] = uint8_t(entry >> 4);
+            have -= used;
         }
+        return out;
+    }
+    for(size_t i=0;i<out_n;++i){
+        refill(1);
+        uint32_t code=0; uint8_t sym=0; bool found=false;
+        for(int l=1;l<=24;++l){
+            if(have<1) throw std::runtime_error("truncated huffman bits");
+            code=(code<<1)|((uint32_t)((acc>>(have-1))&1));
+            --have; refill(1);
+            if(h.n_codes[l] && code>=h.first_code[l] && code<h.first_code[l]+h.n_codes[l]){ sym=h.order[h.first_sym[l]+(code-h.first_code[l])]; found=true; break; }
+        }
+        if(!found) throw std::runtime_error("invalid huffman code");
+        out[i]=sym;
     }
     return out;
 }
@@ -747,6 +758,7 @@ static double g_stream_lambda = 0.01;
 static double g_stream_mu = 0.0, g_stream_nu = 0.0;
 static bool g_stream_suite = true;   // false = fixed rANS-4096 + raw (pre-suite behavior)
 static bool g_stream_log = false;    // --stream-log: record per-stream selection
+static bool g_fused_decode = true;   // mode-12 fused single-path decode (t3-fuse); false = separated-stream A/B
 static uint64_t g_j_agree = 0, g_j_total = 0; // J-selection vs pure-L agreement counters
 struct StreamLogEntry { uint32_t chosen, l_winner; size_t chosen_L, min_L; };
 static std::vector<StreamLogEntry> g_stream_log_entries;
@@ -865,6 +877,198 @@ static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size
         p=e; return out;
     }
     throw std::runtime_error("unknown stream codec");
+}
+
+// ---- Fused stream pull (t3-fuse) --------------------------------------------
+// Pull-based substream reader: parses a serialized substream header and decodes
+// the next byte ON DEMAND (raw / rANS-256/512/4096 / Huffman / defexc). This
+// lets the mode-12 token loop fuse entropy decode and reconstruction into one
+// pass without materializing full stream vectors (single-path decode, Linux
+// stream economics). Same wire as decode_stream; ratio preserved by construction.
+struct StreamPull {
+    uint8_t codec = 0;
+    uint64_t remaining = 0;        // output bytes left to decode
+    uint64_t total = 0;            // total output bytes (raw_n)
+    const uint8_t* p = nullptr;    // parse/byte cursor
+    const uint8_t* e = nullptr;    // substream end
+    // rANS state
+    RansSpec spec{};
+    RansModel m{};
+    std::vector<uint8_t> symtab;
+    uint32_t x = 0;
+    const uint8_t* rend = nullptr; // end of the rANS renorm region
+    // huffman state
+    HuffModel huff;
+    uint64_t acc = 0; int have = 0;
+    const uint8_t* hp = nullptr; const uint8_t* hend = nullptr;
+    // defexc state
+    uint8_t def = 0;
+    uint64_t nexc = 0;
+    uint64_t bits_done = 0;        // mask bits consumed (forward)
+    const uint8_t* maskp = nullptr;
+    const uint8_t* exc = nullptr; const uint8_t* exc_end = nullptr;
+
+    // Parse the substream header starting at q; on success q advances past the
+    // whole substream (q == qe). Throws on malformed input.
+    void parse(const uint8_t*& q, const uint8_t* qe, size_t max_n) {
+        p = q; e = qe;
+        if (p >= e) throw std::runtime_error("truncated stream header");
+        codec = *p++;
+        uint64_t raw_n = get_uvar(p, e);
+        if (raw_n > max_n) throw std::runtime_error("stream too large");
+        remaining = raw_n;
+        total = raw_n;
+        if (codec == 0) {
+            if (raw_n > uint64_t(e - p)) throw std::runtime_error("truncated raw stream");
+        } else if (codec >= 1 && codec <= 3) {
+            spec = codec == 1 ? kRans4096 : codec == 2 ? kRans512 : kRans256;
+            uint64_t nz = get_uvar(p, e); if (nz > 256) throw std::runtime_error("bad rANS model");
+            uint32_t sum = 0;
+            for (uint64_t k = 0; k < nz; ++k) {
+                if (p >= e) throw std::runtime_error("truncated rANS model");
+                uint8_t sym = *p++; uint64_t f = get_uvar(p, e);
+                if (f == 0 || f > spec.tot || m.freq[sym]) throw std::runtime_error("bad rANS frequency");
+                m.freq[sym] = static_cast<uint16_t>(f); sum += static_cast<uint32_t>(f);
+            }
+            if (sum != spec.tot) throw std::runtime_error("bad rANS total");
+            uint32_t st = 0; for (int i = 0; i < 256; ++i) { m.start[i] = static_cast<uint16_t>(st); st += m.freq[i]; }
+            uint64_t dn = get_uvar(p, e); if (dn > uint64_t(e - p)) throw std::runtime_error("truncated rANS stream");
+            if (dn < 4) throw std::runtime_error("truncated rANS state");
+            x = uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+            p += 4;
+            rend = p + (dn - 4); // renorm bytes follow the 4-byte state
+            symtab.assign(spec.tot, 0);
+            for (int s = 0; s < 256; ++s) if (m.freq[s]) for (uint32_t j = 0; j < m.freq[s]; ++j) symtab[m.start[s] + j] = static_cast<uint8_t>(s);
+            // p now points at the renorm bytes; the dn-4 renorm bytes follow
+        } else if (codec == 4) {
+            if (uint64_t(e - p) < 256) throw std::runtime_error("truncated huffman lengths");
+            std::array<uint8_t, 256> len{};
+            for (int i = 0; i < 256; ++i) len[i] = *p++;
+            uint64_t kraft = 0;
+            for (int i = 0; i < 256; ++i) if (len[i]) { if (len[i] > 24) throw std::runtime_error("bad huffman length"); kraft += 1ull << (24 - len[i]); }
+            if (kraft > (1ull << 24)) throw std::runtime_error("huffman overfull");
+            huff = build_huff_model(len);
+            uint64_t dn = get_uvar(p, e); if (dn > uint64_t(e - p)) throw std::runtime_error("truncated huffman stream");
+            hp = p; hend = p + dn; p = hend;
+        } else if (codec == 5) {
+            if (p >= e) throw std::runtime_error("truncated defexc default");
+            def = *p++;
+            nexc = get_uvar(p, e);
+            uint64_t mask_bytes = (raw_n + 7) / 8;
+            if (mask_bytes > uint64_t(e - p)) throw std::runtime_error("truncated defexc mask");
+            if (nexc > uint64_t(e - p) - mask_bytes) throw std::runtime_error("truncated defexc values");
+            maskp = p; p += mask_bytes;
+            exc = p; exc_end = p + nexc; p = exc_end;
+            bits_done = 0;
+        } else throw std::runtime_error("unknown stream codec");
+        q = e; // whole substream consumed by the parser (headers + data region accounted)
+    }
+
+    bool next_byte(uint8_t& b) {
+        if (remaining == 0) return false;
+        if (codec == 0) {
+            if (p >= e) throw std::runtime_error("truncated raw stream");
+            b = *p++; --remaining; return true;
+        }
+        if (codec >= 1 && codec <= 3) {
+            uint32_t slot = x & (spec.tot - 1);
+            uint8_t sym = symtab[slot];
+            x = uint32_t(m.freq[sym]) * (x >> spec.scale_bits) + slot - m.start[sym];
+            while (x < spec.L) {
+                if (p >= rend) throw std::runtime_error("truncated rANS renorm");
+                x = (x << 8) | *p++;
+            }
+            b = sym; --remaining; return true;
+        }
+        if (codec == 4) {
+            if (huff.max_len <= 12) {
+                while (have < 12 && hp < hend) { acc = (acc << 8) | *hp++; have += 8; }
+                int win = have; if (win > 12) win = 12;
+                uint32_t code = (uint32_t)((acc >> (have - win)) & ((1u << win) - 1));
+                uint32_t idx = code << (12 - win);
+                uint16_t entry = huff.tbl[idx];
+                if (entry == 0xFFFFu) throw std::runtime_error("invalid huffman code");
+                int used = entry & 0xF;
+                if (used > win) throw std::runtime_error("invalid huffman code");
+                have -= used; b = uint8_t(entry >> 4); --remaining; return true;
+            }
+            // slow path
+            while (have < 1 && hp < hend) { acc = (acc << 8) | *hp++; have += 8; }
+            if (have < 1) throw std::runtime_error("truncated huffman bits");
+            uint32_t c2 = 0; bool found = false; uint8_t sym = 0;
+            for (int l = 1; l <= 24; ++l) {
+                if (have < 1) { if (hp >= hend) throw std::runtime_error("truncated huffman bits"); acc = (acc << 8) | *hp++; have += 8; }
+                c2 = (c2 << 1) | (uint32_t)((acc >> (have - 1)) & 1);
+                --have;
+                if (huff.n_codes[l] && c2 >= huff.first_code[l] && c2 < huff.first_code[l] + huff.n_codes[l]) { sym = huff.order[huff.first_sym[l] + (c2 - huff.first_code[l])]; found = true; break; }
+            }
+            if (!found) throw std::runtime_error("invalid huffman code");
+            b = sym; --remaining; return true;
+        }
+        // defexc
+        if (remaining == 0) return false;
+        if ((maskp[bits_done >> 3] >> (bits_done & 7)) & 1) {
+            if (exc >= exc_end) throw std::runtime_error("truncated defexc values");
+            b = *exc++;
+        } else b = def;
+        ++bits_done;
+        --remaining; return true;
+    }
+
+    bool pull_bytes(uint8_t* dst, size_t n) {
+        if (n > remaining) return false;
+        if (codec == 0) {
+            if (n > size_t(e - p)) throw std::runtime_error("truncated raw stream");
+            std::memcpy(dst, p, n); p += n; remaining -= n; return true;
+        }
+        if (codec >= 1 && codec <= 3) {
+            // tight rANS bulk decode (no per-byte dispatch)
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t slot = x & (spec.tot - 1);
+                uint8_t sym = symtab[slot];
+                x = uint32_t(m.freq[sym]) * (x >> spec.scale_bits) + slot - m.start[sym];
+                while (x < spec.L) { if (p >= rend) throw std::runtime_error("truncated rANS renorm"); x = (x << 8) | *p++; }
+                dst[i] = sym;
+            }
+            remaining -= n; return true;
+        }
+        if (codec == 4 && huff.max_len <= 12) {
+            for (size_t i = 0; i < n; ++i) {
+                while (have < 12 && hp < hend) { acc = (acc << 8) | *hp++; have += 8; }
+                int win = have; if (win > 12) win = 12;
+                uint32_t code = (uint32_t)((acc >> (have - win)) & ((1u << win) - 1));
+                uint32_t idx = code << (12 - win);
+                uint16_t entry = huff.tbl[idx];
+                if (entry == 0xFFFFu) throw std::runtime_error("invalid huffman code");
+                int used = entry & 0xF;
+                if (used > win) throw std::runtime_error("invalid huffman code");
+                have -= used; dst[i] = uint8_t(entry >> 4);
+            }
+            remaining -= n; return true;
+        }
+        for (size_t i = 0; i < n; ++i) if (!next_byte(dst[i])) return false;
+        return true;
+    }
+
+    bool at_end() const {
+        if (remaining != 0) return false;
+        if (codec == 0) return p == e;
+        if (codec >= 1 && codec <= 3) return p == rend;
+        if (codec == 4) return hp == hend;
+        return bits_done == total && exc == exc_end;
+    }
+};
+
+static uint64_t read_varint_pull(StreamPull& sp) {
+    uint64_t x = 0; int shift = 0;
+    for (int i = 0; i < 10; ++i) {
+        uint8_t b;
+        if (!sp.next_byte(b)) throw std::runtime_error("stream varint truncated");
+        x |= uint64_t(b & 0x7f) << shift;
+        if (!(b & 0x80)) return x;
+        shift += 7;
+    }
+    throw std::runtime_error("stream varint overflow");
 }
 
 static void append_varint_bytes(std::vector<uint8_t>& out,uint64_t x){do{uint8_t b=static_cast<uint8_t>(x&0x7f);x>>=7;if(x)b|=0x80;out.push_back(b);}while(x);}
@@ -1167,6 +1371,105 @@ static std::vector<uint8_t> decode_tokens_shape(const uint8_t* p, size_t n, size
     if (out.size() != out_len || ip_ll != s[1].size() || ip_ml != s[2].size() || ip_df != s[3].size()
        || ip_dv != s[4].size() || ip_lit != s[5].size() || ip_mask != s[6].size() || ip_res != s[7].size())
         throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
+// Fused single-path decode for mode 12 (t3-fuse): identical wire to
+// decode_tokens_shape, but the entropy decode and the reconstruction run in ONE
+// pass — each stream field is pulled on demand (no full substream vectors, no
+// second pass) into a pos-based output buffer with bulk memcpy for literals and
+// non-overlapping matches (Linux stream economics: one LZ-class instruction path).
+static std::vector<uint8_t> decode_tokens_shape_fused(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e = p + n;
+    if (p >= e) throw std::runtime_error("truncated shape header");
+    uint32_t num_states = *p++;
+    if (num_states != 1 && num_states != 2 * kShapeClasses) throw std::runtime_error("bad shape state count");
+    const size_t max_sub = 16 * out_len + 64;
+    std::array<StreamPull, 8> s;
+    for (int i = 0; i < 8; ++i) {
+        uint64_t zn = get_uvar(p, e);
+        if (zn > uint64_t(e - p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q = p; const uint8_t* qe = p + zn;
+        s[i].parse(q, qe, max_sub);
+        if (q != qe) throw std::runtime_error("substream trailing bytes");
+        p += zn;
+    }
+    if (p != e) throw std::runtime_error("payload trailing bytes");
+    std::array<uint32_t, 2 * kShapeClasses> last{};
+    std::vector<uint8_t> out(out_len);
+    size_t pos = 0;
+    uint8_t type;
+    while (s[0].next_byte(type)) {
+        if (pos >= out_len) throw std::runtime_error("too many tokens");
+        if (type == 0) {
+            uint64_t len = read_varint_pull(s[1]) + 1;
+            if (len > out_len - pos) throw std::runtime_error("bad literal run");
+            if (!s[5].pull_bytes(out.data() + pos, static_cast<size_t>(len))) throw std::runtime_error("truncated literals");
+            pos += static_cast<size_t>(len);
+        } else if (type == 1 || type == 2) {
+            uint64_t len = read_varint_pull(s[2]) + 4;
+            if (len > kSparseMaxLen || len > out_len - pos) throw std::runtime_error("bad shape match");
+            uint8_t flag;
+            if (!s[3].next_byte(flag)) throw std::runtime_error("truncated dist flags");
+            uint32_t shape = shape_index(type, static_cast<uint32_t>(len), num_states);
+            uint32_t& lastd = last[shape];
+            uint32_t dist;
+            if (flag == 0) {
+                uint64_t dv = read_varint_pull(s[4]);
+                if (dv >= 0xFFFFFFFFull) throw std::runtime_error("bad absolute distance");
+                dist = static_cast<uint32_t>(dv) + 1;
+            } else if (flag == 1) {
+                if (lastd == 0) throw std::runtime_error("dist reuse before first absolute");
+                dist = lastd;
+            } else if (flag == 2) {
+                if (lastd == 0) throw std::runtime_error("dist delta before first absolute");
+                uint64_t zz = read_varint_pull(s[4]);
+                int64_t dlt = (zz & 1) ? -int64_t((zz + 1) >> 1) : int64_t(zz >> 1);
+                int64_t dd = int64_t(lastd) + dlt;
+                if (dd <= 0 || dd > 0xFFFFFFFFll) throw std::runtime_error("bad distance delta");
+                dist = static_cast<uint32_t>(dd);
+            } else throw std::runtime_error("bad dist flag");
+            if (dist == 0 || dist > pos) throw std::runtime_error("invalid shape distance");
+            lastd = dist;
+            uint8_t* o = out.data();
+            if (dist >= len) {
+                std::memcpy(o + pos, o + pos - dist, static_cast<size_t>(len)); // non-overlap bulk copy
+            } else {
+                for (uint64_t k = 0; k < len; ++k) o[pos + k] = o[pos + k - dist]; // overlap (RLE)
+            }
+            pos += static_cast<size_t>(len);
+            if (type == 2) {
+                uint64_t nwords = (len + 31) / 32;
+                std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+                uint32_t pc = 0;
+                for (uint64_t w = 0; w < nwords; ++w) {
+                    uint8_t mb[4];
+                    if (!s[6].pull_bytes(mb, 4)) throw std::runtime_error("truncated mask stream");
+                    uint32_t m = uint32_t(mb[0]) | (uint32_t(mb[1]) << 8) | (uint32_t(mb[2]) << 16) | (uint32_t(mb[3]) << 24);
+                    uint32_t first = uint32_t(w * 32);
+                    if (first + 32 > len) { uint32_t over = first + 32 - len; if ((m >> (32 - over)) != 0) throw std::runtime_error("mask bits beyond copy length"); }
+                    words[w] = m;
+                    pc += std::popcount(m);
+                }
+                if (pc > s[7].remaining) throw std::runtime_error("truncated residual stream");
+                size_t start = pos - static_cast<size_t>(len); // copy destination start
+                // bulk-pull the residual values, then apply at mask-set offsets
+                std::vector<uint8_t> res(pc);
+                if (!s[7].pull_bytes(res.data(), pc)) throw std::runtime_error("truncated residual");
+                size_t ri = 0;
+                for (uint64_t w = 0; w < nwords; ++w) {
+                    uint32_t m = words[w];
+                    while (m) {
+                        uint32_t b = std::countr_zero(m);
+                        out[start + uint32_t(w * 32) + b] = res[ri++];
+                        m &= m - 1;
+                    }
+                }
+            }
+        } else throw std::runtime_error("unknown shape token type");
+    }
+    for (auto& sp : s) if (!sp.at_end()) throw std::runtime_error("substream consumption mismatch");
+    if (pos != out_len) throw std::runtime_error("size mismatch");
     return out;
 }
 
@@ -1741,7 +2044,8 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
         } else if(mode==11) {
             b=decode_tokens_sparse(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else if(mode==12) {
-            b=decode_tokens_shape(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
+            b = g_fused_decode ? decode_tokens_shape_fused(p,static_cast<size_t>(plen),static_cast<size_t>(blen))
+                               : decode_tokens_shape(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else if(mode==13) {
             b=decode_tokens_topology(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else throw std::runtime_error("unknown block mode");
@@ -1793,6 +2097,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--boundary=",0)==0)opt.boundary=(a.substr(11)!="off");
             else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
             else if(a.rfind("--stream-suite=",0)==0)opt.stream_suite=(a.substr(15)!="off");
+            else if(a.rfind("--fused-decode=",0)==0)g_fused_decode=(a.substr(15)!="off");
             else if(a.rfind("--stream-lambda=",0)==0)opt.stream_lambda=std::stod(a.substr(16));
             else if(a=="--stream-log")opt.stream_log=true;
             else if(a=="--quiet")opt.quiet=true;
