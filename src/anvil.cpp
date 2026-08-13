@@ -222,6 +222,32 @@ static uint32_t get_u32le(const uint8_t*& p,const uint8_t* e){ if(e-p<4)throw st
 
 struct Match { uint32_t len, dist; };
 
+// ---- SPARSE-REF (block mode 11) ------------------------------------------
+// Approximate self-reference: copy a prior phrase (no byte-identity required)
+// and entropy-code a sparse correction mask (flat 32-bit words, 4 B per 32 B of
+// phrase, LSB = byte at the window start) plus the residual bytes in mask order.
+// Decoder stays copy + sparse stores. The mask is a first-class entropy-coded
+// stream; len(residuals) == popcount(mask) is a strict decoder invariant.
+static constexpr uint32_t kSparseScanMax = 2048;    // max phrase length considered
+static constexpr uint32_t kSparseChainMax = 32;     // chain depth for sparse candidates
+static constexpr uint32_t kSparsePosBudget = 16384; // per-position scanned-byte cap
+static constexpr uint64_t kSparseBlockBudget = 64ull * 1024 * 1024; // per-block scanned-byte cap
+static constexpr uint32_t kSparseMaxLen = 65536;    // hard decoder bound per sparse token
+
+struct SparseMatch {
+    uint32_t len = 0;
+    uint32_t dist = 0;
+    std::vector<uint32_t> off;  // correction offsets, strictly increasing, < len
+    std::vector<uint8_t> val;   // replacement bytes in mask order
+};
+
+struct SparseToken {
+    uint8_t type = 0;  // 0 literal run, 1 exact match, 2 sparse-corrected match
+    uint32_t pos = 0, len = 0, dist = 0;
+    std::vector<uint32_t> off;
+    std::vector<uint8_t> val;
+};
+
 static inline uint32_t hash4(const uint8_t* p) {
     uint32_t x; std::memcpy(&x,p,4);
     return (x * 0x9E3779B1u) >> (32-kHashBits);
@@ -274,6 +300,63 @@ public:
             out.resize(8);
         }
         return out;
+    }
+    // Approximate candidate: same first-4-byte hash bucket, then scan forward
+    // allowing mismatches. Tracks the best prefix by an MDL-ish score
+    //   score(prefix) = len*avg_lit - len/8 - sum(litcost[correction])
+    // i.e. mask+residuals vs the all-literal fallback. Returns the best sparse
+    // candidate with >=1 correction, or false. `work` caps scanned bytes.
+    bool find_sparse(uint32_t pos, SparseMatch& out, const std::array<double,256>& litcost,
+                     double avg_lit, uint64_t& work) const {
+        out.len = 0;
+        if (pos + 4 > d_.size()) return false;
+        const uint8_t* tgt = d_.data() + pos;
+        uint32_t h = hash4(tgt);
+        uint32_t q = head_[h];
+        uint32_t remain = static_cast<uint32_t>(d_.size() - pos);
+        uint32_t cap = std::min({remain, max_match_, kSparseScanMax});
+        if (cap < 8) return false;
+        const double match_gain = avg_lit - 0.125;   // saved literal minus mask bit
+        std::array<uint32_t, kSparseScanMax> boff{};
+        std::array<uint8_t, kSparseScanMax> bval{};
+        uint32_t blen = 0, bk = 0;
+        double best_score = -1e300;
+        for (uint32_t depth = 0; q != kNoPos && depth < kSparseChainMax; ++depth, q = prev_[q]) {
+            if (q >= pos) break;
+            const uint8_t* src = d_.data() + q;
+            if (src[0] != tgt[0] || src[1] != tgt[1] || src[2] != tgt[2] || src[3] != tgt[3]) continue;
+            double score = 0.0, local_best = -1e300;
+            uint32_t k = 0, local_len = 0, local_k = 0;
+            std::array<uint32_t, kSparseScanMax> off{};
+            std::array<uint8_t, kSparseScanMax> val{};
+            uint32_t j = 0;
+            for (; j < cap; ++j) {
+                if (++work > kSparseBlockBudget) break;
+                if (src[j] != tgt[j]) {
+                    if (k >= kSparseScanMax) break;
+                    off[k] = j; val[k] = tgt[j];
+                    score -= litcost[tgt[j]] + 0.125;
+                    ++k;
+                } else {
+                    score += match_gain;
+                }
+                if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; }
+                else if (score < local_best - 32.0) break;  // dead band: cannot recover usefully
+            }
+            if (local_k >= 1 && local_len >= 8 && local_best > best_score) {
+                best_score = local_best; blen = local_len; bk = local_k;
+                for (uint32_t i = 0; i < local_k; ++i) { boff[i] = off[i]; bval[i] = val[i]; }
+                out.dist = pos - q;
+            }
+            if (work >= kSparseBlockBudget) break;
+        }
+        if (bk >= 1 && blen >= 8) {
+            out.len = blen;
+            out.off.assign(boff.begin(), boff.begin() + bk);
+            out.val.assign(bval.begin(), bval.begin() + bk);
+            return true;
+        }
+        return false;
     }
 };
 
@@ -359,6 +442,74 @@ static std::vector<Token> parse_dp(const std::vector<uint8_t>& d, uint32_t max_c
     }
     std::reverse(rev.begin(),rev.end());
     return merge_literals(std::move(rev));
+}
+
+// Single-pass greedy parse over literal / exact-match / sparse-corrected edges.
+// At each position the sparse edge is accepted only if its estimated cost
+// (token + len/dist varints + L/8 flat mask + residual litcosts) beats the
+// best alternative covering the same span (exact edge + literals), per the
+// mask-stream cost rule. Conservative by design: the block router arbitrates.
+static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match) {
+    const uint32_t n=static_cast<uint32_t>(d.size());
+    std::vector<SparseToken> toks;
+    if(n==0) return toks;
+    std::array<uint32_t,256> hist{}; for(auto b:d) ++hist[b];
+    std::array<double,256> litcost{};
+    double avg_lit=0.0;
+    for(int b=0;b<256;++b) {
+        double p=(hist[b]+0.5)/(double(n)+128.0);
+        litcost[b]=std::clamp(-std::log2(p),1.0,9.5);
+        avg_lit+=litcost[b]*hist[b];
+    }
+    avg_lit/=double(n);
+    std::vector<double> pref(n+1,0.0); // prefix sums of per-byte literal cost
+    for(uint32_t i=0;i<n;++i) pref[i+1]=pref[i]+litcost[d[i]]+0.10;
+
+    MatchFinder mf(d,max_chain,max_match);
+    uint64_t work=0;
+    uint32_t i=0;
+    while(i<n) {
+        auto ms=mf.find(i);
+        Match exact{0,0};
+        for(auto&m:ms) if(m.len>exact.len || (m.len==exact.len && m.dist<exact.dist)) exact=m;
+        double lit_c=litcost[d[i]]+0.10;
+        double exact_c=std::numeric_limits<double>::infinity();
+        if(exact.len>=4) exact_c=0.6+varint_cost(exact.len-4)+varint_cost(exact.dist-1)+0.18*std::log2(double(exact.dist)+1.0);
+        if(exact.len<128 && work<kSparseBlockBudget) {
+            SparseMatch sm;
+            if(mf.find_sparse(i,sm,litcost,avg_lit,work)) {
+                double sparse_c=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
+                               +0.18*std::log2(double(sm.dist)+1.0);
+                for(size_t k=0;k<sm.off.size();++k) sparse_c+=litcost[sm.val[k]];
+                double alt_c=std::numeric_limits<double>::infinity();
+                if(exact.len>=4) alt_c=exact_c+(pref[i+sm.len]-pref[i+std::min<uint32_t>(exact.len,sm.len)]);
+                else alt_c=pref[i+sm.len]-pref[i];
+                if(sparse_c<alt_c) {
+                    SparseToken t; t.type=2; t.pos=i; t.len=sm.len; t.dist=sm.dist;
+                    t.off=std::move(sm.off); t.val=std::move(sm.val);
+                    toks.push_back(std::move(t));
+                    uint32_t end=i+sm.len;
+                    for(uint32_t p=i;p<end;++p) mf.insert(p);
+                    i=end;
+                    continue;
+                }
+            }
+        }
+        // A match must beat the literal cost of the SAME span it covers, not one byte.
+        if(exact.len>=4 && exact_c<(pref[i+exact.len]-pref[i])) {
+            SparseToken t; t.type=1; t.pos=i; t.len=exact.len; t.dist=exact.dist;
+            toks.push_back(std::move(t));
+            uint32_t end=i+exact.len;
+            for(uint32_t p=i;p<end;++p) mf.insert(p);
+            i=end;
+        } else {
+            if(!toks.empty() && toks.back().type==0 && toks.back().pos+toks.back().len==i) ++toks.back().len;
+            else toks.push_back(SparseToken{0,i,1,0,{}, {}});
+            mf.insert(i);
+            ++i;
+        }
+    }
+    return toks;
 }
 
 static ParseStats token_stats(const std::vector<Token>& t) {
@@ -481,6 +632,123 @@ static std::vector<uint8_t> decode_tokens_rans(const uint8_t*p,size_t n,size_t o
     return out;
 }
 
+// ---- SPARSE-REF backend (mode 11) -----------------------------------------
+// Seven separated streams, each serialized via encode_stream (raw or static
+// order-0 rANS, chosen per stream):
+//   S0 token types: 0 literal run, 1 exact match, 2 sparse-corrected match
+//   S1 literal-run length, uvarint(len-1)
+//   S2 match length, uvarint(len-4)         [types 1,2]
+//   S3 match distance, uvarint(dist-1)      [types 1,2]
+//   S4 literal bytes
+//   S5 correction masks: per sparse token, ceil(len/32) little-endian 32-bit
+//      words (bit j of word w covers byte 32w+j of the phrase)
+//   S6 residual bytes, popcount(mask) per sparse token, in mask order
+// Decode of a sparse token: base = out.size()-dist; copy len bytes from base
+// (overlap allowed) THEN apply residual bytes at base+offset for each set mask
+// bit. len(residuals) == popcount(mask) is enforced strictly.
+
+static std::vector<uint8_t> encode_tokens_sparse(const std::vector<uint8_t>& d, const std::vector<SparseToken>& toks) {
+    std::vector<uint8_t> types, ll, ml, ds, lits, masks, resid;
+    types.reserve(toks.size());
+    std::array<uint32_t,(kSparseScanMax+31)/32> words{};
+    for(auto&t:toks) {
+        types.push_back(t.type);
+        if(t.type==0) {
+            append_varint_bytes(ll,t.len-1);
+            lits.insert(lits.end(),d.begin()+t.pos,d.begin()+t.pos+t.len);
+        } else if(t.type==1) {
+            append_varint_bytes(ml,t.len-4);
+            append_varint_bytes(ds,t.dist-1);
+        } else {
+            append_varint_bytes(ml,t.len-4);
+            append_varint_bytes(ds,t.dist-1);
+            std::fill(words.begin(),words.end(),0u);
+            for(size_t k=0;k<t.off.size();++k) {
+                words[t.off[k]/32]|=(1u<<(t.off[k]%32));
+                resid.push_back(t.val[k]);
+            }
+            uint32_t nwords=(t.len+31)/32;
+            for(uint32_t w=0;w<nwords;++w) {
+                uint32_t m=words[w];
+                masks.push_back(static_cast<uint8_t>(m));
+                masks.push_back(static_cast<uint8_t>(m>>8));
+                masks.push_back(static_cast<uint8_t>(m>>16));
+                masks.push_back(static_cast<uint8_t>(m>>24));
+            }
+        }
+    }
+    std::vector<uint8_t> out;
+    for(const auto* v:{&types,&ll,&ml,&ds,&lits,&masks,&resid}) {
+        auto z=encode_stream(*v);
+        put_uvar(out,z.size());
+        out.insert(out.end(),z.begin(),z.end());
+    }
+    return out;
+}
+
+static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e=p+n;
+    std::array<std::vector<uint8_t>,7> s;
+    for(int i=0;i<7;++i) {
+        uint64_t zn=get_uvar(p,e);
+        if(zn>uint64_t(e-p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q=p; const uint8_t* qe=p+zn;
+        s[i]=decode_stream(q,qe);
+        if(q!=qe) throw std::runtime_error("substream trailing bytes");
+        p+=zn;
+    }
+    if(p!=e) throw std::runtime_error("payload trailing bytes");
+    size_t ip_ll=0,ip_ml=0,ip_ds=0,ip_lit=0,ip_mask=0,ip_res=0;
+    std::vector<uint8_t> out; out.reserve(out_len);
+    for(uint8_t type:s[0]) {
+        if(out.size()>=out_len) throw std::runtime_error("too many tokens");
+        if(type==0) {
+            uint64_t len=read_varint_bytes(s[1],ip_ll)+1;
+            if(len>out_len-out.size()||len>s[4].size()-ip_lit) throw std::runtime_error("bad literal run");
+            out.insert(out.end(),s[4].begin()+ip_lit,s[4].begin()+ip_lit+len);
+            ip_lit+=len;
+        } else if(type==1) {
+            uint64_t len=read_varint_bytes(s[2],ip_ml)+4;
+            uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
+            if(dist==0||dist>out.size()||len>out_len-out.size()) throw std::runtime_error("bad exact match");
+            for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]);
+        } else if(type==2) {
+            uint64_t len=read_varint_bytes(s[2],ip_ml)+4;
+            uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
+            if(dist==0||dist>out.size()||len>out_len-out.size()) throw std::runtime_error("bad sparse match");
+            if(len>kSparseMaxLen) throw std::runtime_error("sparse match too long");
+            size_t base=out.size()-dist;
+            uint64_t nwords=(len+31)/32;
+            if(nwords*4>s[5].size()-ip_mask) throw std::runtime_error("truncated mask stream");
+            std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+            uint32_t pc=0;
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=uint32_t(s[5][ip_mask])|(uint32_t(s[5][ip_mask+1])<<8)
+                          |(uint32_t(s[5][ip_mask+2])<<16)|(uint32_t(s[5][ip_mask+3])<<24);
+                ip_mask+=4;
+                uint32_t first=uint32_t(w*32);
+                if(first+32>len) { uint32_t over=first+32-len; if((m>>(32-over))!=0) throw std::runtime_error("mask bits beyond copy length"); }
+                words[w]=m;
+                pc+=std::popcount(m);
+            }
+            if(pc>s[6].size()-ip_res) throw std::runtime_error("truncated residual stream");
+            for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]); // phrase copy (overlap allowed)
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=words[w];
+                while(m) {
+                    uint32_t b=std::countr_zero(m);
+                    out[base+uint32_t(w*32)+b]=s[6][ip_res++];
+                    m&=m-1;
+                }
+            }
+        } else throw std::runtime_error("unknown sparse token type");
+    }
+    if(out.size()!=out_len||ip_ll!=s[1].size()||ip_ml!=s[2].size()||ip_ds!=s[3].size()
+       ||ip_lit!=s[4].size()||ip_mask!=s[5].size()||ip_res!=s[6].size())
+        throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
 static uint32_t gate_threshold(uint8_t lit_mode) {
     if(lit_mode==3) return 4;
     if(lit_mode==4) return 8;
@@ -579,6 +847,13 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         };
         if(opt.parse=="auto" || opt.parse=="greedy") consider_parse(parse_greedy(block,opt.max_chain,opt.max_match));
         if(opt.parse=="auto" || opt.parse=="dp") consider_parse(parse_dp(block,opt.max_chain,opt.max_match));
+        if(opt.parse=="auto" || opt.parse=="sparse") {
+            auto stoks=parse_sparse(block,opt.max_chain,opt.max_match);
+            auto payload=encode_tokens_sparse(block,stoks);
+            std::vector<Token> t; t.reserve(stoks.size());
+            for(auto&s:stoks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+            if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),11};
+        }
         if(best.mode==0) throw std::runtime_error("no encoder candidate");
 
         auto ps=token_stats(best.toks);
@@ -616,6 +891,8 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
             b=decode_tokens(p,static_cast<size_t>(plen),static_cast<size_t>(blen),mode);
         } else if(mode==10) {
             b=decode_tokens_rans(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
+        } else if(mode==11) {
+            b=decode_tokens_sparse(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else throw std::runtime_error("unknown block mode");
         if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
         out.insert(out.end(),b.begin(),b.end()); p+=plen;
@@ -636,9 +913,10 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans] [--block=N] [--chain=N] [--max-match=N] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans] [--block=N] [--chain=N] [--max-match=N] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
-              << "  anvil verify <input> [--parse=auto|dp|greedy] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans]\n";
+              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans]\n"
+              << "  note: --parse=sparse emits block mode 11 (SPARSE-REF); --literal/--entropy do not apply to it\n";
 }
 
 } // namespace anvil
@@ -660,7 +938,7 @@ int main(int argc,char**argv) {
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
-        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy")throw std::runtime_error("parse must be auto, dp or greedy");
+        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse")throw std::runtime_error("parse must be auto, dp, greedy or sparse");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
         if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans")throw std::runtime_error("entropy must be auto, arith or rans");
         if(cmd=="c") {

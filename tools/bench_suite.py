@@ -21,10 +21,16 @@ def main():
         w=csv.DictWriter(fp,fieldnames=fields);w.writeheader();w.writerows(rows)
     by={}
     for r in rows: by.setdefault(r['codec'],[]).append(r)
-    print('codec,total_ratio,aggregate_encode_MBps,aggregate_decode_MBps,roundtrip')
+    agg=[]
     for codec,rs in by.items():
         ib=sum(r['input_bytes'] for r in rs); cb=sum(r['compressed_bytes'] for r in rs)
         et=sum(r['input_bytes']/1e6/max(r['encode_MBps'],1e-12) for r in rs); dt=sum(r['input_bytes']/1e6/max(r['decode_MBps'],1e-12) for r in rs)
-        print(f'{codec},{cb/ib:.6f},{ib/1e6/et:.3f},{ib/1e6/dt:.3f},{"OK" if all(r["roundtrip"]=="OK" for r in rs) else "FAIL"}')
+        agg.append({'codec':codec,'total_ratio':f'{cb/ib:.6f}','aggregate_encode_MBps':f'{ib/1e6/et:.3f}','aggregate_decode_MBps':f'{ib/1e6/dt:.3f}','roundtrip':"OK" if all(r["roundtrip"]=="OK" for r in rs) else "FAIL"})
+    out_sum=Path(a.out).with_name('benchmark-summary.csv')
+    with open(out_sum,'w',newline='') as fp:
+        w=csv.DictWriter(fp,fieldnames=['codec','total_ratio','aggregate_encode_MBps','aggregate_decode_MBps','roundtrip']);w.writeheader();w.writerows(agg)
+    print(f'# wrote {a.out} and {out_sum}')
+    print('codec,total_ratio,aggregate_encode_MBps,aggregate_decode_MBps,roundtrip')
+    for r in agg: print(f'{r["codec"]},{r["total_ratio"]},{r["aggregate_encode_MBps"]},{r["aggregate_decode_MBps"]},{r["roundtrip"]}')
 
 if __name__=='__main__':main()

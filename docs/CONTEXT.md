@@ -54,19 +54,29 @@ build\anvil.exe verify <in> [options]
 
 ## Baseline measured on THIS Windows host (clang-cl Release)
 
-`tests/corpus/doc.md` (2,724 B, markdown):
+Live numbers live in `tests/benchmark-summary.csv` (aggregates) and
+`tests/benchmark-suite.csv` (per-file rows, 8 files x 13 codecs, median 3
+reps). Host spec: `tests/host-spec.md`. The rows below are the historical
+first-pass numbers kept for context only.
+
+Historical first pass — `tests/corpus/doc.md` (2,724 B, markdown):
   anvil-greedy-arith 0.537 / anvil-dp-arith 0.530 / anvil-greedy-rans 0.593
   / anvil-dp-rans 0.577 ; brotli q1 0.513 q4 0.470 q6 0.442 q9 0.442 q11 0.384 ;
   zstd 1 0.497 / 9 0.486 / 19 0.481
 
-`tests/corpus/generated.json` (827,664 B, structured JSON):
-  anvil-greedy-rans 0.175 / anvil-dp-rans 0.138 ; brotli q6 0.143 q9 0.137
-  q11 0.096 ; zstd 9 0.145 19 0.113
+Historical first pass — `tests/corpus/generated.json` (827,664 B, structured
+JSON): anvil-greedy-rans 0.175 / anvil-dp-rans 0.138 ; brotli q6 0.143 q9
+0.137 q11 0.096 ; zstd 9 0.145 19 0.113
 
-Conclusion: on structured data ANVIL dp-rans ratio (~0.138) already matches
-brotli q9 but is ~10x slower at encode and ~3x slower at decode → NOT a Pareto
-win. Throughput and parser cost are the gating problems. Windows host numbers
-are directional; a shared Linux box gave ~2-3x higher throughput.
+Fresh suite aggregate (8-file corpus, see summary CSV): anvil-dp-rans 0.1378
+(encode ~1.1 MB/s, decode ~216 MB/s) vs brotli q9 0.1118 (34.8 MB/s / 829
+MB/s) vs zstd-19 0.0997. Conclusion unchanged and sharper: on structured data
+ANVIL dp-rans ratio ties/approaches brotli q9 only on the JSON-family files,
+but aggregate ratio loses to brotli q9 and encode is ~30x slower → NOT a
+Pareto win. Decode (rANS, ~216 MB/s) is already respectable; the gating
+problems are encode speed (DP parser) and structured-data ratio depth.
+Windows host numbers are directional; a shared Linux box gave ~2-3x higher
+throughput.
 
 ## Research history (Linux sessions, prior to this repo)
 
