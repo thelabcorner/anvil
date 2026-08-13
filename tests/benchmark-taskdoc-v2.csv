@@ -1,0 +1,15 @@
+input_bytes,26904
+codec,compressed_bytes,ratio,encode_MBps,decode_MBps,roundtrip
+anvil-greedy-arith,11212,0.417,18.760,21.188,OK
+anvil-dp-arith,11107,0.413,4.405,20.158,OK
+anvil-greedy-rans,11414,0.424,39.487,145.438,OK
+anvil-dp-rans,11232,0.417,4.945,163.724,OK
+brotli-q1,11903,0.442,248.050,321.722,OK
+brotli-q4,10203,0.379,65.469,537.285,OK
+brotli-q6,9725,0.361,44.579,547.452,OK
+brotli-q9,9709,0.361,4.136,467.936,OK
+brotli-q11,8275,0.308,1.012,359.050,OK
+zstd-1,11103,0.413,364.010,913.424,OK
+zstd-3,10594,0.394,283.018,826.569,OK
+zstd-9,10115,0.376,59.960,761.441,OK
+zstd-19,9880,0.367,5.963,711.821,OK
