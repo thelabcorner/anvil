@@ -1,6 +1,9 @@
 build/
+third_party/
 *.anv
 *.out
 anvil
+anvil.exe
 bench_native
 anvil_bench
+anvil_bench.exe
