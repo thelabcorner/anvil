@@ -196,6 +196,7 @@ Each stream independently chooses a codec from the **stream suite** (arch, itera
 | 3 | static order-0 rANS, 8-bit (256 states), `RANS_L = 1<<16` | smallest symtab |
 | 4 | canonical Huffman | 256 code-length bytes header + bitstream; canonical codes by (len, sym) |
 | 5 | default-with-exceptions | 1 default byte + `uvarint nexc` + `ceil(n/8)` mask bytes + `nexc` exception bytes |
+| 6 | context-switched rANS (arch, iteration 4) | ONE physical rANS state whose frequency table is selected per symbol by a sparse-support quantizer: the previous decoded symbol maps through a learned K-context map (256 -> K, K <= 12, Lloyd-clustered on per-context symbol distributions) to one of K tables. Header: K byte + 256-byte context map + K rANS models + `uvarint dn` + state+renorm bytes. NOT multi-stream fan-out — a single interleaved rANS stream |
 
 Frequency tables for modes 1-3 are serialized with only nonzero symbols. All
 modes carry the decoded length first (`uvarint`). The decoder dispatches on the

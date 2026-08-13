@@ -768,6 +768,148 @@ static std::vector<uint8_t> rans_decode(const uint8_t* p,size_t n,size_t out_n,c
     return out;
 }
 
+// ---- Context-switched literal coder (stream mode 6, t4-entropy) ------------
+// ONE physical context-switched rANS: a single state whose frequency table is
+// selected per symbol by a sparse-support quantizer. The context = the previous
+// decoded symbol of the same stream, mapped through a learned K-context map
+// (256 -> K groups, K=12, Lloyd-clustered on the per-context symbol
+// distributions, ~1.65 ms). NOT multi-stream fan-out: one rANS stream, K tables.
+struct CtxModel {
+    uint8_t K = 0;
+    std::array<uint8_t,256> map{};      // prev-symbol -> context
+    std::array<RansModel, 12> m{};
+};
+
+static constexpr uint32_t kCtxK = 12;
+
+static CtxModel build_ctx_model(const std::vector<uint8_t>& src, uint32_t tot) {
+    CtxModel cm; cm.K = kCtxK;
+    std::array<std::array<uint32_t,256>,256> cnt{};
+    std::array<uint32_t,256> prev_tot{};
+    uint8_t prev = 0;
+    for (uint8_t b : src) { ++cnt[prev][b]; ++prev_tot[prev]; prev = b; }
+    // Lloyd clustering of the 256 prev distributions into K groups (L2 unit vectors)
+    std::array<uint8_t,256> group{};
+    std::vector<uint32_t> seeds;
+    {
+        std::vector<std::pair<uint32_t,uint8_t>> order;
+        for (int p = 0; p < 256; ++p) if (prev_tot[p]) order.push_back({prev_tot[p], uint8_t(p)});
+        std::sort(order.rbegin(), order.rend());
+        for (size_t i = 0; i < order.size() && seeds.size() < kCtxK; ++i) seeds.push_back(order[i].second);
+        for (int p = 0; p < 256; ++p) group[p] = 0;
+    }
+    if (seeds.empty()) return cm;
+    std::array<std::array<double,256>, kCtxK> centroid{};
+    std::array<double, kCtxK> cnorm{}; // L2 norms of the centroids
+    // init centroids from the seeds (L2 unit vectors)
+    for (uint8_t g = 0; g < kCtxK && g < seeds.size(); ++g) {
+        double n2 = 0; for (int s = 0; s < 256; ++s) n2 += double(cnt[seeds[g]][s]) * cnt[seeds[g]][s];
+        double inv = n2 > 0 ? 1.0 / std::sqrt(n2) : 0;
+        for (int s = 0; s < 256; ++s) { centroid[g][s] = double(cnt[seeds[g]][s]) * inv; cnorm[g] += centroid[g][s] * centroid[g][s]; }
+        cnorm[g] = std::sqrt(cnorm[g]);
+    }
+    // normalize the centroids (the seeds were unit already; keep the invariant)
+    auto assign = [&]() {
+        for (int p = 0; p < 256; ++p) {
+            if (prev_tot[p] == 0) { group[p] = 0; continue; }
+            double n2 = 0; for (int s = 0; s < 256; ++s) n2 += double(cnt[p][s]) * cnt[p][s];
+            double inv = n2 > 0 ? 1.0 / std::sqrt(n2) : 0;
+            double best = 1e300; uint8_t bg = 0;
+            for (uint8_t g = 0; g < kCtxK; ++g) {
+                if (cnorm[g] <= 0) continue;
+                double ct = 0; for (int s = 0; s < 256; ++s) ct += double(cnt[p][s]) * inv * centroid[g][s];
+                double d = 1.0 - ct; // cosine distance (both unit)
+                if (d < best) { best = d; bg = g; }
+            }
+            group[p] = bg;
+        }
+    };
+    for (int it = 0; it < 3; ++it) {
+        assign();
+        std::array<std::array<double,256>, kCtxK> sum{};
+        std::array<double, kCtxK> c2{};
+        for (int p = 0; p < 256; ++p) {
+            uint8_t g = group[p];
+            double n2 = 0; for (int s = 0; s < 256; ++s) n2 += double(cnt[p][s]) * cnt[p][s];
+            double inv = n2 > 0 ? 1.0 / std::sqrt(n2) : 0;
+            for (int s = 0; s < 256; ++s) { double v = double(cnt[p][s]) * inv; sum[g][s] += v; c2[g] += v * v; }
+        }
+        for (uint8_t g = 0; g < kCtxK; ++g) {
+            if (c2[g] > 0) { double inv = 1.0 / std::sqrt(c2[g]); for (int s = 0; s < 256; ++s) centroid[g][s] = sum[g][s] * inv; cnorm[g] = 1.0; }
+            else { for (int s = 0; s < 256; ++s) centroid[g][s] = 0; cnorm[g] = 0; }
+        }
+    }
+    assign();
+    // compact the non-empty groups to [0, K_eff); renumber the map
+    std::array<uint8_t, kCtxK> renum{};
+    uint8_t keff = 0;
+    std::array<std::array<uint32_t,256>, kCtxK> gcount{};
+    for (int g = 0; g < kCtxK; ++g) {
+        uint32_t tot_g = 0; for (int s = 0; s < 256; ++s) { gcount[g][s] = 0; }
+        bool any = false;
+        for (int p = 0; p < 256; ++p) if (group[p] == g && prev_tot[p]) any = true;
+        if (!any) continue;
+        renum[g] = keff++;
+        for (int p = 0; p < 256; ++p) if (group[p] == g) for (int s = 0; s < 256; ++s) gcount[renum[g]][s] += cnt[p][s];
+    }
+    if (keff == 0) keff = 1;
+    cm.K = keff;
+    for (int p = 0; p < 256; ++p) cm.map[p] = renum[group[p]];
+    for (uint8_t g = 0; g < keff; ++g) {
+        uint32_t tot_g = 0; for (int s = 0; s < 256; ++s) tot_g += gcount[g][s];
+        if (tot_g == 0) continue;
+        std::vector<uint8_t> synthetic; synthetic.reserve(tot_g);
+        for (int s = 0; s < 256; ++s) for (uint32_t j = 0; j < gcount[g][s]; ++j) synthetic.push_back(uint8_t(s));
+        cm.m[g] = build_rans_model(synthetic, tot);
+    }
+    return cm;
+}
+
+static std::vector<uint8_t> ctx_rans_encode(const std::vector<uint8_t>& src, const CtxModel& cm, const RansSpec& sp) {
+    if (src.empty()) return {};
+    uint32_t x = sp.L; std::vector<uint8_t> emitted; emitted.reserve(src.size()/2 + 16);
+    uint8_t prev = 0;
+    for (size_t ii = src.size(); ii-- > 0;) {
+        uint8_t sym = src[ii];
+        uint8_t ctx = ii > 0 ? cm.map[src[ii-1]] : cm.map[prev];
+        const RansModel& m = cm.m[ctx];
+        uint32_t f = m.freq[sym], st = m.start[sym];
+        uint32_t x_max = ((sp.L >> sp.scale_bits) << 8) * f;
+        while (x >= x_max) { emitted.push_back(static_cast<uint8_t>(x)); x >>= 8; }
+        x = ((x / f) << sp.scale_bits) + (x % f) + st;
+    }
+    (void)prev;
+    std::vector<uint8_t> out(4);
+    out[0] = static_cast<uint8_t>(x); out[1] = static_cast<uint8_t>(x >> 8); out[2] = static_cast<uint8_t>(x >> 16); out[3] = static_cast<uint8_t>(x >> 24);
+    out.reserve(4 + emitted.size());
+    for (auto it = emitted.rbegin(); it != emitted.rend(); ++it) out.push_back(*it);
+    return out;
+}
+
+static std::vector<uint8_t> ctx_rans_decode(const uint8_t* p, size_t n, size_t out_n, const CtxModel& cm, const RansSpec& sp) {
+    if (out_n == 0) return {};
+    if (n < 4) throw std::runtime_error("truncated ctx rANS state");
+    const uint8_t* q = p; const uint8_t* e = p + n; uint32_t x = get_u32le(q, e);
+    std::array<std::vector<uint8_t>, kCtxK> symtab;
+    for (uint8_t g = 0; g < kCtxK; ++g) {
+        symtab[g].assign(sp.tot, 0);
+        for (int s = 0; s < 256; ++s) if (cm.m[g].freq[s]) for (uint32_t j = 0; j < cm.m[g].freq[s]; ++j) symtab[g][cm.m[g].start[s] + j] = static_cast<uint8_t>(s);
+    }
+    std::vector<uint8_t> out(out_n);
+    uint8_t prev = 0;
+    for (size_t i = 0; i < out_n; ++i) {
+        uint8_t ctx = cm.map[prev];
+        const RansModel& m = cm.m[ctx];
+        uint32_t slot = x & (sp.tot - 1);
+        uint8_t sym = symtab[ctx][slot]; out[i] = sym;
+        x = uint32_t(m.freq[sym]) * (x >> sp.scale_bits) + slot - m.start[sym];
+        while (x < sp.L) { if (q >= e) throw std::runtime_error("truncated ctx rANS renorm"); x = (x << 8) | *q++; }
+        prev = sym;
+    }
+    if (q != e) throw std::runtime_error("trailing ctx rANS bytes");
+    return out;
+}
+
 // Canonical Huffman (stream mode 4). Code lengths transmitted as 256 bytes.
 static std::vector<uint8_t> huffman_encode(const std::vector<uint8_t>& src, const std::array<uint8_t,256>& len) {
     // canonical codes: symbols sorted by (len, sym); code increments per symbol
@@ -890,6 +1032,7 @@ static std::vector<uint8_t> defexc_decode(const uint8_t* p, size_t n, size_t out
 static double g_stream_lambda = 0.01;
 static double g_stream_mu = 0.0, g_stream_nu = 0.0;
 static bool g_stream_suite = true;   // false = fixed rANS-4096 + raw (pre-suite behavior)
+static bool g_stream_ctx = true;      // true = context-switched rANS (mode 6) enabled in the suite
 static bool g_stream_log = false;    // --stream-log: record per-stream selection
 static bool g_fused_decode = true;   // mode-12 fused single-path decode (t3-fuse); false = separated-stream A/B
 static uint64_t g_j_agree = 0, g_j_total = 0; // J-selection vs pure-L agreement counters
@@ -917,6 +1060,21 @@ static std::vector<uint8_t> defexc_stream_bytes(const std::vector<uint8_t>& src,
     std::vector<uint8_t> mask((src.size()+7)/8, 0); std::vector<uint8_t> vals;
     for(size_t i=0;i<src.size();++i) if(src[i]!=def){ mask[i>>3]|=uint8_t(1u<<(i&7)); vals.push_back(src[i]); }
     put_uvar(z,vals.size()); z.insert(z.end(),mask.begin(),mask.end()); z.insert(z.end(),vals.begin(),vals.end());
+    return z;
+}
+
+static std::vector<uint8_t> ctx_stream_bytes(const std::vector<uint8_t>& src, const RansSpec& sp) {
+    CtxModel cm = build_ctx_model(src, sp.tot);
+    auto rd = ctx_rans_encode(src, cm, sp);
+    std::vector<uint8_t> z; z.push_back(6); put_uvar(z, src.size());
+    z.push_back(cm.K); // number of contexts (compacted)
+    for (int i = 0; i < 256; ++i) z.push_back(cm.map[i]); // context map
+    for (uint8_t g = 0; g < cm.K; ++g) {
+        uint32_t nz = 0; for (auto f : cm.m[g].freq) if (f) ++nz;
+        put_uvar(z, nz);
+        for (int i = 0; i < 256; ++i) if (cm.m[g].freq[i]) { z.push_back(uint8_t(i)); put_uvar(z, cm.m[g].freq[i]); }
+    }
+    put_uvar(z, rd.size()); z.insert(z.end(), rd.begin(), rd.end());
     return z;
 }
 
@@ -966,6 +1124,9 @@ static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
             uint8_t def=0; for(int i=1;i<256;++i) if(cnt[i]>cnt[def]) def=uint8_t(i);
             if(cnt[def]>=src.size()/2) add(defexc_stream_bytes(src,def), 20.0);
         }
+        // context-switched rANS (mode 6): only for streams large enough to
+        // amortize the 256-byte context map + K model headers (~1.65ms learner)
+        if(g_stream_ctx && src.size() >= 4096) add(ctx_stream_bytes(src,kRans4096), 45.0);
     }
     const Cand* best=&cands[0];
     for(auto& c:cands) if(c.J<best->J) best=&c;
@@ -1009,6 +1170,26 @@ static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size
         auto out=defexc_decode(p,uint64_t(e-p),static_cast<size_t>(raw_n),def);
         p=e; return out;
     }
+    if(mode==6) {
+        if(uint64_t(e-p)<257) throw std::runtime_error("truncated ctx header");
+        CtxModel cm; cm.K = *p++;
+        if (cm.K == 0 || cm.K > kCtxK) throw std::runtime_error("bad ctx K");
+        for (int i = 0; i < 256; ++i) cm.map[i] = *p++;
+        for (uint8_t g = 0; g < cm.K; ++g) {
+            uint64_t nz = get_uvar(p, e); if (nz > 256) throw std::runtime_error("bad ctx model");
+            uint32_t sum = 0;
+            for (uint64_t k = 0; k < nz; ++k) {
+                if (p >= e) throw std::runtime_error("truncated ctx model");
+                uint8_t sym = *p++; uint64_t f = get_uvar(p, e);
+                if (f == 0 || f > kRans4096.tot || cm.m[g].freq[sym]) throw std::runtime_error("bad ctx frequency");
+                cm.m[g].freq[sym] = static_cast<uint16_t>(f); sum += static_cast<uint32_t>(f);
+            }
+            if (sum != kRans4096.tot) throw std::runtime_error("bad ctx total");
+            uint32_t st = 0; for (int i = 0; i < 256; ++i) { cm.m[g].start[i] = static_cast<uint16_t>(st); st += cm.m[g].freq[i]; }
+        }
+        uint64_t dn = get_uvar(p, e); if (dn > uint64_t(e - p)) throw std::runtime_error("truncated ctx rANS stream");
+        auto out = ctx_rans_decode(p, static_cast<size_t>(dn), static_cast<size_t>(raw_n), cm, kRans4096); p += dn; return out;
+    }
     throw std::runtime_error("unknown stream codec");
 }
 
@@ -1040,6 +1221,10 @@ struct StreamPull {
     uint64_t bits_done = 0;        // mask bits consumed (forward)
     const uint8_t* maskp = nullptr;
     const uint8_t* exc = nullptr; const uint8_t* exc_end = nullptr;
+    // ctx rANS (mode 6) state
+    CtxModel cctx{};
+    std::vector<uint8_t> csymtab; // flattened kCtxK x tot
+    uint8_t cprev = 0;
 
     // Parse the substream header starting at q; on success q advances past the
     // whole substream (q == qe). Throws on malformed input.
@@ -1093,6 +1278,33 @@ struct StreamPull {
             maskp = p; p += mask_bytes;
             exc = p; exc_end = p + nexc; p = exc_end;
             bits_done = 0;
+        } else if (codec == 6) {
+            if (uint64_t(e - p) < 257) throw std::runtime_error("truncated ctx header");
+            cctx.K = *p++;
+            if (cctx.K == 0 || cctx.K > kCtxK) throw std::runtime_error("bad ctx K");
+            for (int i = 0; i < 256; ++i) cctx.map[i] = *p++;
+            for (uint8_t g = 0; g < cctx.K; ++g) {
+                uint64_t nz = get_uvar(p, e); if (nz > 256) throw std::runtime_error("bad ctx model");
+                uint32_t sum = 0;
+                for (uint64_t k = 0; k < nz; ++k) {
+                    if (p >= e) throw std::runtime_error("truncated ctx model");
+                    uint8_t sym = *p++; uint64_t f = get_uvar(p, e);
+                    if (f == 0 || f > kRans4096.tot || cctx.m[g].freq[sym]) throw std::runtime_error("bad ctx frequency");
+                    cctx.m[g].freq[sym] = static_cast<uint16_t>(f); sum += static_cast<uint32_t>(f);
+                }
+                if (sum != kRans4096.tot) throw std::runtime_error("bad ctx total");
+                uint32_t st = 0; for (int i = 0; i < 256; ++i) { cctx.m[g].start[i] = static_cast<uint16_t>(st); st += cctx.m[g].freq[i]; }
+            }
+            csymtab.assign(kCtxK * kRans4096.tot, 0);
+            for (uint8_t g = 0; g < kCtxK; ++g)
+                for (int s = 0; s < 256; ++s) if (cctx.m[g].freq[s])
+                    for (uint32_t j = 0; j < cctx.m[g].freq[s]; ++j) csymtab[g * kRans4096.tot + cctx.m[g].start[s] + j] = static_cast<uint8_t>(s);
+            uint64_t dn = get_uvar(p, e); // rANS data length (state + renorm bytes)
+            if (dn < 4 || dn > uint64_t(e - p)) throw std::runtime_error("truncated ctx rANS stream");
+            x = uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+            p += 4;
+            rend = p + dn - 4;
+            cprev = 0;
         } else throw std::runtime_error("unknown stream codec");
         q = e; // whole substream consumed by the parser (headers + data region accounted)
     }
@@ -1139,13 +1351,27 @@ struct StreamPull {
             b = sym; --remaining; return true;
         }
         // defexc
-        if (remaining == 0) return false;
-        if ((maskp[bits_done >> 3] >> (bits_done & 7)) & 1) {
-            if (exc >= exc_end) throw std::runtime_error("truncated defexc values");
-            b = *exc++;
-        } else b = def;
-        ++bits_done;
-        --remaining; return true;
+        if (codec == 5) {
+            if (remaining == 0) return false;
+            if ((maskp[bits_done >> 3] >> (bits_done & 7)) & 1) {
+                if (exc >= exc_end) throw std::runtime_error("truncated defexc values");
+                b = *exc++;
+            } else b = def;
+            ++bits_done;
+            --remaining; return true;
+        }
+        // ctx rANS (mode 6)
+        if (codec == 6) {
+            if (remaining == 0) return false;
+            uint8_t ctx = cctx.map[cprev];
+            const RansModel& m = cctx.m[ctx];
+            uint32_t slot = x & (kRans4096.tot - 1);
+            uint8_t sym = csymtab[ctx * kRans4096.tot + slot];
+            x = uint32_t(m.freq[sym]) * (x >> kRans4096.scale_bits) + slot - m.start[sym];
+            while (x < kRans4096.L) { if (p >= rend) throw std::runtime_error("truncated ctx rANS renorm"); x = (x << 8) | *p++; }
+            b = sym; cprev = sym; --remaining; return true;
+        }
+        throw std::runtime_error("unknown pull codec");
     }
 
     bool pull_bytes(uint8_t* dst, size_t n) {
@@ -1188,6 +1414,7 @@ struct StreamPull {
         if (codec == 0) return p == e;
         if (codec >= 1 && codec <= 3) return p == rend;
         if (codec == 4) return hp == hend;
+        if (codec == 6) return p == rend;
         return bits_done == total && exc == exc_end;
     }
 };
@@ -2525,6 +2752,7 @@ struct Options {
     bool negate=true;      // difference-cover negative gate for incompressible blocks (C5)
     bool channels=false;   // R4 structural channels (measured not-aligned on corpus; SRR follow-up) (persistent displacement bank)
     bool stream_suite=true; // stream codec suite (huffman/defexc/256-512 rANS); off = fixed rANS-4096+raw
+    bool stream_ctx=true;     // context-switched rANS (mode 6) in the suite
     double stream_lambda=0.01; // J-cost decode-weight (pre-registered binding value 0.01)
     bool stream_log=false; // --stream-log: record per-stream codec selection to stdout
     bool quiet=false;
@@ -2562,6 +2790,7 @@ static bool probe_incompressible(const std::vector<uint8_t>& d) {
 
 static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Options& opt, GlobalStats* gs) {
     g_stream_suite = opt.stream_suite;
+    g_stream_ctx = opt.stream_ctx;
     g_stream_lambda = opt.stream_lambda;
     g_stream_log = opt.stream_log;
     g_j_agree = 0; g_j_total = 0; g_stream_log_entries.clear();
@@ -2755,6 +2984,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
             else if(a.rfind("--channels=",0)==0)opt.channels=(a.substr(11)!="off");
             else if(a.rfind("--stream-suite=",0)==0)opt.stream_suite=(a.substr(15)!="off");
+            else if(a.rfind("--stream-ctx=",0)==0)opt.stream_ctx=(a.substr(13)!="off");
             else if(a.rfind("--fused-decode=",0)==0)g_fused_decode=(a.substr(15)!="off");
             else if(a.rfind("--stream-lambda=",0)==0)opt.stream_lambda=std::stod(a.substr(16));
             else if(a=="--stream-log")opt.stream_log=true;
