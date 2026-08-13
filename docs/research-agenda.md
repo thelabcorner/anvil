@@ -786,3 +786,145 @@ q1/q4/q6/q9, q11 final-only) → t3-ledger (claims written only against
 Windows A/B; failures recorded). PNRA (I3-4) pre-registered as the binary-
 lane follow-on; hot-op instruction book (I3-1 remainder) queued for the
 decode leg. All claims pre-registered above; the gate stays the arbiter.
+
+---
+
+# PART IV — Iteration-4 gate criteria (close the throughput leg; open Orbit-Program)
+
+*Mission (coordinator, I4): three iterations produced zero Pareto wins (all
+rows DOMINATED); the binding gap is decode/encode throughput. Strategic
+direction: docs/ORBIT_PROGRAM_COMPRESSION.md — conditional-program
+discovery REF(d,L,P,θ,R) with y = P(x;θ,context)⊕R, objective min
+description, Orbit-LZ equivalence-class matching via canonical/hashable
+invariants (PNRA = first measured instance). Success = EXTENDS_FRONT on at
+least one plane on at least one file class. Every mechanism below is
+pre-registered with the four-part gate (lineage / what-is-new /
+why-Pareto / falsifiable ablation); round-trip + fuzz before any claim;
+failures recorded with reason.*
+
+## I4-1. Compiled hot-op instruction book (decode leg)
+
+- **Lineage:** macro-ops + compiled hot-op instructions (Linux modes
+  23/26-28: encoder synthesizes a decoder instruction book of concrete
+  semantics — kind/len/dist/patch-selector; hot stream = small opcode
+  index, rare tokens fall back to macro-ops; 75-77% of tokens hot on
+  generated.log); Brotli fused insert-and-copy codes (RFC 7932 §5, 704-
+  alphabet static book); zstd sequences (fused lit-len/offset/match-len);
+  Sequitur/Re-Pair (grammar instruction sets). Static/fused vocabularies
+  EXIST; a TRANSMITTED adaptive compiled book with hot/rare split is the
+  interaction (research/priorart-entropy §3).
+- **NEW:** port the Linux pattern to the Windows codec — encoder-synthesized
+  instruction book (transmitted once), hot-opcode-index stream, rare-token
+  macro-op fallback. The fused decode path (t3-fuse, Experiment M) topped
+  out ~1.2x because per-field entropy pulls are the floor; the book removes
+  per-field pulls by turning hot tokens into a single small-index lookup.
+- **Why Pareto:** the measured remainder after fusion — the decode leg
+  (binding gap per FLAG-A; decode ~4x behind brotli q9).
+- **Falsifiable target (pre-registered):** **≥2x decode on record files at
+  preserved ratio** vs the fused mode-12 baseline (same wire or clean A/B),
+  on generated.json/jsonl/log; no-regression on repeat/random; round-trip
+  + fuzz; FLAG-A both-plane Pareto verdict via bench's tools.
+
+## I4-2. SRR synchronized structural probe (alignment)
+
+- **Lineage:** SRR/SSCM "synchronized residual reference" (Linux v2 —
+  structural channels that PROBE distances rather than reinforce-taken);
+  R4's channel bank (Experiment N — reinforcement-of-taken FAILED because
+  69% of greedy matches are far-distance; the probe design is the unbuilt
+  remainder). Recency/repcode distance coding (LZMA/Brotli/zstd) is prior
+  art for reuse, not for structural discovery.
+- **NEW:** the synchronized probe — parser actively tests candidate
+  structural distances (record periods) against history, discovering
+  alignment instead of waiting for matches that never come. This is the
+  missing prerequisite for R2 topology alignment AND TCOPY's headline
+  binary density.
+- **Why Pareto:** unblocks R2 (per-slot modal residuals, 86.5% modal
+  accuracy on Linux logs) and TCOPY's density leg — both blocked on
+  alignment since I2/I3.
+- **Falsifiable target (pre-registered):** (a) the R2 retest (mode 13)
+  after alignment: slot-default coding must beat flat-A on record files
+  (recover the +2.2% repeat-control headroom — the original I2-4 target);
+  (b) mask-recurrence metric: top-32 masks coverage must rise materially
+  above the flat 12.3% on log; (c) TCOPY density retest on .text; (d)
+  no-regression controls; round-trip + fuzz.
+
+## I4-3. Precision-adaptive entropy economics (single context-switched literal coder)
+
+- **Lineage:** context clustering is EXPLICITLY NOT novel (Brotli RFC 7932
+  §7 context maps; Experiment J record). The ~1.65 ms sparse-support
+  quantizer (K≈8-12) is ENABLING INFRASTRUCTURE (not standalone novelty).
+  J-selection is validated 100% faithful (Experiment L corrected; bench
+  median-3). Multi-stream literal fan-out was REJECTED (Linux verdicts).
+- **NEW (as interaction):** integrate the stream suite with ONE physical
+  context-switched literal coder (previous byte selects the class table) —
+  the quantizer makes it economical; the J-objective (pre-registered
+  constants λ=μ=0.01, ν=0) selects per stream. The interaction is
+  "cheap decoder-visible context modeling inside the rANS/semantic
+  architecture," not context clustering per se.
+- **Why Pareto:** literal entropy is a large stream; context-switched
+  coding at ~equal decode cost (single physical stream) is ratio for free;
+  benefits every file class.
+- **Falsifiable target (pre-registered):** (a) ratio improvement vs
+  fixed-rANS on the same wire at equal-or-better decode (FLAG-A); (b)
+  J-faithfulness maintained ≥80% (per-class co-arbiter); (c) no-regression
+  on repeat/random; round-trip + fuzz.
+
+## I4-4. Orbit-LZ: multi-invariant anchoring extension of PNRA
+
+- **Lineage:** parameterized matching (Baker predecessor encoding —
+  canonical invariant: strings parameterize-match iff invariant
+  representations identical); set parameterized matching (Lewenstein &
+  Porat 2026, randomized linear time via multilayer hashing); pattern
+  matching under polynomial/linear transformation (Butman et al. 2011);
+  set reconciliation/sketching (2014); PNRA (ANVIL I3-4 — translation
+  family, invariant I(v,p)=v+p, exact hash lookup, ~474 MB/s event-driven
+  discovery). **These are LINEAGE, not claims** — the invariant trick per
+  class is established; what is NOT established is a practical LZ-family
+  compressor unifying multiple equivalence relations under one MDL parser.
+- **NEW:** extend transformation-invariant anchoring beyond translation —
+  candidate invariants: parameterized-symbol invariant via predecessor
+  encoding; finite-difference invariant for degree-1 polynomial fields;
+  stride/bitplane invariants. Each new invariant = a new index
+  (H_exact, H_additive, H_difference, H_parameterized, H_polynomial,
+  H_stride, H_bitplane) feeding ONE MDL parser over actual encoded bits.
+  The claim is the *multi-index unification under an MDL objective* — not
+  any single invariant (each is prior art).
+- **Why Pareto:** the math target — near-linear-time minimum-description
+  transformed backreference over a useful transformation algebra;
+  invariants/sketches prune (reference × transform) pairs. Binary lane
+  density + general structured data.
+- **Falsifiable target (pre-registered):** (a) per-invariant ablation —
+  each new index (vs PNRA-only) must improve end-to-end encoded bits on
+  its target class at O(1) parser cost, attributable to the invariant not
+  the entropy backend (separate statistical domains); (b) the unified MDL
+  parser must beat single-index baselines on the class mix; (c)
+  LZ = identity-transform special case must reproduce the exact-match
+  baseline; (d) Windows A/B arbiter; round-trip + fuzz; no-regression.
+
+## Prior-art note — program-synthesis compressors (lineage, not claims)
+
+Per docs/ORBIT_PROGRAM_COMPRESSION.md §"Disciplines retained": Brevis
+(2026, lossless compression as program synthesis over a typed DSL, learned
+prior + bounded A*, decoder executes only the compact program — reports
+30.87% smaller on 2.13 TB checkpoints @ 6.61 GB/s decode), LZ77
+k-sensitivity/pre-editing (arXiv 2602.19649, ~3x total improvement in
+favorable cases — philosophically TCOPY), AIT Compression Challenge
+entrants (seed recovery → generator descriptor; mutual-information byte-
+distance contexts), KoLMogorov test (shortest-program framing), Pcodec
+(latent-variable decomposition for columnar), OpenZL (composable
+reversible graph primitives), Diffuse-to-Compress (kb/s-scale — NOT the
+decoder ANVIL wants). **All are LINEAGE for the program-discovery framing —
+none are ANVIL novelty claims.** ANVIL's defensible lane: cheap
+deterministic programs (tiny VM + copy + sparse stores + integer adds),
+encoder-side intelligence only (decoder stays LZ4-class), and the
+invariant-based search formulation. The 2026 citations are
+operator-reported — verify each before citing in the ledger.
+
+## Iteration-4 sequencing
+
+t4-gate (this pre-registration) → t4-hotop (decode leg; unblocks t4-srr +
+t4-entropy) → t4-srr (SRR probe; unblocks t4-orbit + R2/TCOPY retests) →
+t4-orbit (multi-invariant) → t4-bench (both planes, inner loop q1/q4/q6/q9,
+q11 final-only) → t4-ledger (claims written only against Windows A/B;
+failures recorded). All claims pre-registered above; the gate stays the
+arbiter.

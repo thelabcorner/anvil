@@ -1385,3 +1385,50 @@ hot-op instruction book (decode), SRR structural probe (R4/R2/TCOPY),
 PNRA (binary search), 22-stream adaptive entropy (decode). The gate stays
 the arbiter: a claim requires pre-registration, Windows A/B evidence,
 round-trip + fuzz, and an EXTENDS_FRONT verdict from bench's tools.*
+
+## Experiment Q — I4 novelty-gate pre-registration (t4-gate) — targets set, nothing claimed
+
+**Pre-registered (research, t4-gate — agenda PART IV):** falsifiable
+targets for the four I4 mechanisms, each with the four-part gate
+(lineage / what-is-new / why-Pareto / ablation). No mechanism is claimed
+until its isolated Windows ablation passes.
+
+1. **I4-1 Compiled hot-op instruction book (decode leg):** encoder-
+   synthesized decoder instruction book (kind/len/dist/patch-sel),
+   hot-opcode-index stream, rare-token macro-op fallback (Linux modes
+   26-28 pattern). Lineage: Brotli §5 fused codes, zstd sequences,
+   Re-Pair — static/fused vocabularies exist; transmitted adaptive
+   compiled book with hot/rare split is the interaction. **Target:
+   ≥2x decode on record files at preserved ratio vs the fused mode-12
+   baseline** (the measured remainder after fusion topped out ~1.2x).
+2. **I4-2 SRR synchronized structural probe:** parser actively tests
+   candidate structural distances (record periods) — the unbuilt
+   remainder from Experiment N (reinforcement-of-taken failed; 69% far
+   matches). **Targets:** R2 retest (mode 13) must beat flat-A on record
+   files (recover +2.2% headroom); mask-recurrence must rise above the
+   flat 12.3%; TCOPY density retest on .text.
+3. **I4-3 Precision-adaptive entropy economics:** ONE physical
+   context-switched literal coder (K≈8-12 sparse-support quantizer as
+   enabling infra; NOT multi-stream fan-out — rejected) + validated
+   J-selection. **Targets:** ratio vs fixed-rANS at equal-or-better
+   decode; J-faithfulness ≥80% per-class.
+4. **I4-4 Orbit-LZ multi-invariant anchoring:** extend PNRA beyond the
+   translation family (predecessor-encoding invariant, finite-difference
+   invariant for degree-1 polynomials, stride/bitplane); each invariant =
+   a new index (H_exact, H_additive, H_difference, H_parameterized, ...)
+   feeding ONE MDL parser. **Targets:** per-invariant ablation must
+   improve end-to-end bits on its class at O(1) parser cost, attributable
+   to the invariant; unified MDL beats single-index baselines; LZ =
+   identity-transform special case reproduces the exact-match baseline.
+
+**Prior-art note (lineage, not claims):** Brevis (program synthesis over a
+typed DSL), LZ77 k-sensitivity/pre-editing, AIT challenge entrants (seed
+recovery, mutual-information contexts), KoLMogorov (shortest-program
+framing), Pcodec, OpenZL, Diffuse-to-Compress, parameterized matching
+(Baker predecessor encoding), set parameterized matching (Lewenstein &
+Porat 2026), polynomial transformation matching (Butman et al. 2011), set
+reconciliation sketches. All are LINEAGE for the program-discovery framing;
+ANVIL's defensible lane = cheap deterministic programs (tiny VM + copy +
+sparse stores + integer adds), encoder-side intelligence only (decoder
+stays LZ4-class), invariant-based search formulation. **2026 citations are
+operator-reported — verify each before citing in the ledger.**
