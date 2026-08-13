@@ -219,6 +219,17 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   BCJ + clustered literals still stays above q1/q4. Next: ELF section-layout
   analysis to decide between a generalized transformed-reference primitive
   vs a field/record structure detector.
+  **ELF section breakdown (localizes the failure):** .text (~3.26 MB) is the
+  main gap — ANVIL exact ~1.858 MB vs brotli q4 ~1.781 MB / q6 ~1.585 MB;
+  .rodata (~2.25 MB) second — ~773 KB vs q4 ~699 KB; .eh_frame also has a
+  meaningful gap; .data and .PyRuntime are small and already highly
+  compressible. Approximate self-reference does NOT fix these sections (on
+  .text it is worse unless expensive global history is allowed). Verdict: the
+  next frontier is cheap REVERSIBLE STRUCTURE EXPOSURE before matching/coding
+  — position-dependent code and fixed-width binary fields — with lane/field
+  transposition as a generic control and broader executable normalization as
+  the deeper follow-up. (Working hypothesis for a future primitive; not yet
+  implemented on the Windows line.)
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
