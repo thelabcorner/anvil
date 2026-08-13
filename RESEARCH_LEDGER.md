@@ -565,3 +565,15 @@ The remaining gap is the 22-stream/precision-adaptive entropy machinery
 
 Correctness: round-trip verified on all 10 corpus files; fuzzed 450 shape
 variants + canonical 250/1500-mutation PASS.
+
+**Independent median-3 confirmation (bench, per flag-d-ablation-contract —
+blackboard bench/flag-d-verdict):** FLAG-D verdict reproduced at median-3 on
+the 17-codec suite (deterministic bytes): generated.log −17.4% (0.076 vs
+0.092), generated.json −8.2% (0.123 vs 0.134), jsonl flat at CSV precision
+(−0.85%); non-record files within ±0.4% (src.cpp +0.32%, repeat control
++0.17% — no meaningful regression). **FLAG-D: PASS — independently
+confirmed.** Regression context: anvil-shape-rans aggregate 0.131428
+(enc 0.745 / dec 189.8) vs ctxmap control 0.136296; anvil-mdl-rans 0.130663
+still aggregate champion; log 0.0756 = new anvil per-file best. Pareto: ALL
+anvil rows still DOMINATED on both planes — no Pareto win; the gap is the
+entropy machinery (t2-entropy), not shape/displacement.
