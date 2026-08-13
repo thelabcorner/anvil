@@ -476,6 +476,15 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
 - **Falsifiable ablation:** fixed-rANS vs stream-suite per stream; report
   Δratio, Δdecode, Δmodel-build; verify the J-cost predicts the winner on
   ≥80% of streams. Decode win must be real (FLAG-A), not just ratio.
+  **Measurement contract (research/gate lane):**
+  `research/entropy-ablation-contract` — claim = mode 12 with
+  precision/work-adaptive entropy per stream (256/512-state rANS +
+  Huffman/exception/pair/raw suite, J-selected); control = same mode-12
+  pipeline with fixed 4096-state rANS; pass = suite beats fixed-rANS
+  decode on record-structured files (the cross-cutting decoder win), no
+  ratio regression, J predicts winner on ≥80% of the 22 streams,
+  random/repeat controls no-regression; target context Linux 0.1046 @
+  957 MB/s decode on generated.json (host differences per host-spec).
 - **Why Pareto:** stream anatomy shows 22 streams dominated by pair/Huffman
   on the big residual streams; precision-adaptive coding makes rich
   multi-model coding cheap to initialize/execute.
