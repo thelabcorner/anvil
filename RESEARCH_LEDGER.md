@@ -254,6 +254,42 @@ encoded). `--parse=auto` now routes json/log/jsonl to mdl.
   structured-data ratio mechanism; sparse's edge is encode speed on record
   data (32 MB/s).
 
+### Experiment F.1 — median-3 full-corpus confirmation + beats-Brotli verdict
+
+**Median-3 (bench/arch, live in tests/benchmark-suite.csv 120 rows + summary):
+aggregate anvil-mdl-rans 0.130663 = BEST anvil ratio, beats dp-rans
+0.137795**, @ 0.81 MB/s enc / 193 MB/s dec; anvil-sparse-rans 0.141308 @
+23.6 / 197; brotli q9 0.111795 @ 32.0 / 848. Per-file mdl wins on every file
+(json 0.1260, jsonl 0.0778, log 0.0811, sqlite 0.2087, src.cpp 0.2941,
+doc.md 0.5639; repeat/random no regression). Arch's and bench's independent
+runs agree within noise.
+
+**Beats-Brotli verdict (all FAIL — honest gate result, framed per agenda §1.3
++ FLAG-A):**
+
+| File | anvil best | brotli q9 | ratio Δ | enc | dec |
+|---|---|---|---|---|---|
+| generated.json | mdl 0.1260 | 0.1370 | **+8% (ratio win)** | 0.10x (10x slower) | 0.21x (5x slower) |
+| generated.jsonl | mdl 0.0780 | 0.0730 | −6.8% | 0.05x | 0.22x |
+| generated.log | mdl 0.0810 | 0.0640 | −26.6% | — | — |
+| generated.sqlite | dp-arith 0.2090 | 0.1390 | −50.4% | — | — |
+| **Aggregate** | mdl 0.1307 | 0.1118 | **−16.9%** | — | — |
+
+No config beats Brotli on the Pareto plane. **The ratio gap is CLOSED on
+record-structured data** (json ratio win; jsonl within 7%); the binding
+constraints are **decode throughput** (all anvil configs ~4-5x behind brotli
+via the mode-10 rANS path — FLAG-A confirmed everywhere) and **encode
+throughput** for the ratio-best parsers (mdl 0.03x q9). greedy-rans encodes
+1.27x faster than q9 but ratio is 43% worse — no config sits on the frontier.
+
+**Roadmap implication (this is what the novelty claims will be written
+against):** ratio is no longer the gap; the Pareto opening is the
+**throughput architecture** — per coordinator's Linux refs: shape-book +
+per-shape displacement prediction + 22-stream precision-adaptive entropy
+(the Linux line's 0.1046 @ 957 MB/s decode shape-predict result is the
+evidence that throughput path exists). The parser's mismatch budget should be
+swept, not hand-tuned. These are the R2/R3 targets ranked in the agenda v2.
+
 **Decoder safety (t-format closure, `format`):** FORMAT.md now specs mode 11
 exactly as landed (7 substreams S0-S6, flat 32-bit mask words, strict type-2
 invariants incl. mask-bits-beyond-len rejection, len(residuals)==popcount(mask),
