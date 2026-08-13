@@ -336,6 +336,67 @@ public:
         }
         return out;
     }
+    // Scan ONE candidate source q against pos; keeps the best prefix in the
+    // caller's accumulators. Used by the hash-chain walk and the structural
+    // channel check (fixed dist). `work` caps scanned bytes.
+    void scan_candidate(uint32_t pos, uint32_t q, const std::array<double,256>& litcost,
+                        double avg_lit, uint64_t& work, double dead_band,
+                        uint32_t& blen, uint32_t& bk, std::array<uint32_t,kSparseScanMax>& boff,
+                        std::array<uint8_t,kSparseScanMax>& bval, double& best_score) const {
+        const uint8_t* tgt = d_.data() + pos;
+        const uint8_t* src = d_.data() + q;
+        uint32_t remain = static_cast<uint32_t>(d_.size() - pos);
+        uint32_t cap = std::min({remain, max_match_, kSparseScanMax});
+        if (cap < 8) return;
+        const double match_gain = avg_lit - 0.125;
+        const uint32_t dist = pos - q;
+        double score = 0.0, local_best = -1e300;
+        uint32_t k = 0, local_len = 0, local_k = 0;
+        std::array<uint32_t, kSparseScanMax> off{};
+        std::array<uint8_t, kSparseScanMax> val{};
+        uint32_t j = 0;
+        for (; j < cap; ++j) {
+            if (++work > kSparseBlockBudget) break;
+            uint8_t cpy = (dist > 0) ? src[j % dist] : src[j]; // overlapping copy is periodic
+            if (cpy != tgt[j]) {
+                if (k >= kSparseScanMax) break;
+                off[k] = j; val[k] = tgt[j];
+                score -= litcost[tgt[j]] + 0.125;
+                ++k;
+            } else {
+                score += match_gain;
+            }
+            if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; }
+            else if (score < local_best - dead_band) break;
+        }
+        if (local_k >= 1 && local_len >= 8 && local_best > best_score) {
+            best_score = local_best; blen = local_len; bk = local_k;
+            for (uint32_t i = 0; i < local_k; ++i) { boff[i] = off[i]; bval[i] = val[i]; }
+        }
+    }
+
+    // Sparse candidate at a FIXED distance (structural channel): q = pos - dist.
+    bool find_sparse_at(uint32_t pos, uint32_t dist, SparseMatch& out, const std::array<double,256>& litcost,
+                        double avg_lit, uint64_t& work, double dead_band=32.0) const {
+        out.len = 0;
+        if (dist == 0 || dist > pos || pos + 4 > d_.size()) return false;
+        uint32_t q = pos - dist;
+        const uint8_t* tgt = d_.data() + pos;
+        const uint8_t* src = d_.data() + q;
+        if (src[0] != tgt[0] || src[1] != tgt[1] || src[2] != tgt[2] || src[3] != tgt[3]) return false;
+        std::array<uint32_t, kSparseScanMax> boff{};
+        std::array<uint8_t, kSparseScanMax> bval{};
+        uint32_t blen = 0, bk = 0; double best_score = -1e300;
+        scan_candidate(pos, q, litcost, avg_lit, work, dead_band, blen, bk, boff, bval, best_score);
+        if (bk >= 1 && blen >= 8) {
+            out.len = blen; out.dist = dist;
+            out.off.assign(boff.begin(), boff.begin() + bk);
+            out.val.assign(bval.begin(), bval.begin() + bk);
+            return true;
+        }
+        return false;
+    }
+
     // Approximate candidate: same first-4-byte hash bucket, then scan forward
     // allowing mismatches. Tracks the best prefix by an MDL-ish score
     //   score(prefix) = len*avg_lit - len/8 - sum(litcost[correction])
@@ -351,46 +412,23 @@ public:
         uint32_t remain = static_cast<uint32_t>(d_.size() - pos);
         uint32_t cap = std::min({remain, max_match_, kSparseScanMax});
         if (cap < 8) return false;
-        const double match_gain = avg_lit - 0.125;   // saved literal minus mask bit
         std::array<uint32_t, kSparseScanMax> boff{};
         std::array<uint8_t, kSparseScanMax> bval{};
         uint32_t blen = 0, bk = 0;
         double best_score = -1e300;
+        uint32_t best_q = 0;
         for (uint32_t depth = 0; q != kNoPos && depth < kSparseChainMax; ++depth, q = prev_[q]) {
             if (q >= pos) break;
             const uint8_t* src = d_.data() + q;
             if (src[0] != tgt[0] || src[1] != tgt[1] || src[2] != tgt[2] || src[3] != tgt[3]) continue;
-            const uint32_t dist = pos - q;
-            double score = 0.0, local_best = -1e300;
-            uint32_t k = 0, local_len = 0, local_k = 0;
-            std::array<uint32_t, kSparseScanMax> off{};
-            std::array<uint8_t, kSparseScanMax> val{};
-            uint32_t j = 0;
-            for (; j < cap; ++j) {
-                if (++work > kSparseBlockBudget) break;
-                // The decoder's overlapping copy produces src[j % dist]; corrections
-                // must be computed against that, not against src[j], for dist < len.
-                uint8_t cpy = (dist > 0) ? src[j % dist] : src[j];
-                if (cpy != tgt[j]) {
-                    if (k >= kSparseScanMax) break;
-                    off[k] = j; val[k] = tgt[j];
-                    score -= litcost[tgt[j]] + 0.125;
-                    ++k;
-                } else {
-                    score += match_gain;
-                }
-                if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; }
-                else if (score < local_best - dead_band) break;  // surprise budget: tolerance to dips
-            }
-            if (local_k >= 1 && local_len >= 8 && local_best > best_score) {
-                best_score = local_best; blen = local_len; bk = local_k;
-                for (uint32_t i = 0; i < local_k; ++i) { boff[i] = off[i]; bval[i] = val[i]; }
-                out.dist = pos - q;
-            }
+            double before = best_score;
+            scan_candidate(pos, q, litcost, avg_lit, work, dead_band, blen, bk, boff, bval, best_score);
+            if (best_score > before) best_q = q;
             if (work >= kSparseBlockBudget) break;
         }
         if (bk >= 1 && blen >= 8) {
             out.len = blen;
+            out.dist = pos - best_q;
             out.off.assign(boff.begin(), boff.begin() + bk);
             out.val.assign(bval.begin(), bval.begin() + bk);
             return true;
@@ -490,8 +528,16 @@ static std::vector<Token> parse_dp(const std::vector<uint8_t>& d, uint32_t max_c
 // mask-stream cost rule. Conservative by design: the block router arbitrates.
 // `surprise` is the mismatch budget (entropy-control variable, swept): it
 // scales find_sparse's dead band and the max corrections per sparse candidate.
+// `channels` (R4) maintains a bank of persistent STRUCTURAL displacements
+// (record periods), reinforced by successful approximate phrases; channel
+// candidates are preferred on near-ties so corrections align to a record frame
+// (this is what R2 topology coding needs).
+static constexpr uint32_t kChannels = 8;
+struct StructChannel { uint32_t dist = 0; double score = 0.0; uint32_t last = 0; };
+static uint64_t g_ch_try = 0, g_ch_win = 0; // R4 channel diagnostics
+
 static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match,
-                                             uint32_t surprise=6, bool boundary=false) {
+                                             uint32_t surprise=12, bool boundary=false, bool channels=true) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     std::vector<SparseToken> toks;
     if(n==0) return toks;
@@ -510,6 +556,16 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
     const double dead_band=32.0*double(surprise)/6.0;
     MatchFinder mf(d,max_chain,max_match,boundary);
     uint64_t work=0;
+    std::array<StructChannel, kChannels> chan{};
+    size_t nchan = 0;
+    auto reinforce=[&](uint32_t dist, uint32_t at, double gain) {
+        if (dist == 0 || dist > 16384) return; // structural periods are near; far distances are not channels
+        for (size_t c = 0; c < nchan; ++c)
+            if (chan[c].dist == dist) { chan[c].score += gain; chan[c].last = at; return; }
+        if (nchan < kChannels) { chan[nchan++] = {dist, gain, at}; return; }
+        size_t worst = 0; for (size_t c = 1; c < nchan; ++c) if (chan[c].score < chan[worst].score) worst = c;
+        if (gain > chan[worst].score * 0.25) chan[worst] = {dist, gain, at};
+    };
     uint32_t i=0;
     while(i<n) {
         auto ms=mf.find(i);
@@ -517,25 +573,78 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
         for(auto&m:ms) if(m.len>exact.len || (m.len==exact.len && m.dist<exact.dist)) exact=m;
         double exact_c=std::numeric_limits<double>::infinity();
         if(exact.len>=4) exact_c=0.6+varint_cost(exact.len-4)+varint_cost(exact.dist-1)+0.18*std::log2(double(exact.dist)+1.0);
+        // R4: structural channel candidates first (persistent record period)
+        SparseMatch ch_sm; bool has_ch=false; double ch_cost=0.0;
+        if(channels && work<kSparseBlockBudget) {
+            for(size_t c=0;c<nchan;++c) {
+                if(chan[c].dist==0 || chan[c].dist>i) continue;
+                chan[c].score *= std::pow(0.9, double(i - chan[c].last) / 128.0);
+                chan[c].last = i;
+                SparseMatch sm;
+                ++g_ch_try; if(mf.find_sparse_at(i,chan[c].dist,sm,litcost,avg_lit,work,dead_band)) { ++g_ch_win;
+                    double sc=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
+                             +0.18*std::log2(double(sm.dist)+1.0);
+                    for(size_t k=0;k<sm.off.size();++k) sc+=litcost[sm.val[k]];
+                    if(!has_ch || sc<ch_cost) { has_ch=true; ch_cost=sc; ch_sm=std::move(sm); }
+                }
+            }
+        }
         if(exact.len<128 && work<kSparseBlockBudget) {
             SparseMatch sm;
             if(mf.find_sparse(i,sm,litcost,avg_lit,work,dead_band)) {
                 double sparse_c=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
                                +0.18*std::log2(double(sm.dist)+1.0);
                 for(size_t k=0;k<sm.off.size();++k) sparse_c+=litcost[sm.val[k]];
+                // prefer the structural channel on near-ties (alignment for R2);
+                // reinforced channels (high score) get a stronger structural bias
+                double margin = 2.0;
+                for (size_t c = 0; c < nchan; ++c) if (chan[c].dist == sm.dist) margin += std::min(chan[c].score * 0.08, 10.0);
+                double best_c = sparse_c;
+                if(has_ch && ch_cost < best_c + margin) { best_c = ch_cost; sm = std::move(ch_sm); has_ch=false; }
                 double alt_c=std::numeric_limits<double>::infinity();
                 if(exact.len>=4) alt_c=exact_c+(pref[i+sm.len]-pref[i+std::min<uint32_t>(exact.len,sm.len)]);
                 else alt_c=pref[i+sm.len]-pref[i];
-                if(sparse_c<alt_c) {
+                if(best_c<alt_c) {
                     SparseToken t; t.type=2; t.pos=i; t.len=sm.len; t.dist=sm.dist;
                     t.off=std::move(sm.off); t.val=std::move(sm.val);
                     toks.push_back(std::move(t));
                     if(boundary) mf.insert_boundary(i);
+                    reinforce(sm.dist,i,double(sm.len)*0.5);
                     uint32_t end=i+sm.len;
                     for(uint32_t p=i;p<end;++p) mf.insert(p);
                     i=end;
                     continue;
                 }
+            } else if(has_ch) {
+                double alt_c=std::numeric_limits<double>::infinity();
+                if(exact.len>=4) alt_c=exact_c+(pref[i+ch_sm.len]-pref[i+std::min<uint32_t>(exact.len,ch_sm.len)]);
+                else alt_c=pref[i+ch_sm.len]-pref[i];
+                if(ch_cost<alt_c) {
+                    SparseToken t; t.type=2; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
+                    t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val);
+                    toks.push_back(std::move(t));
+                    if(boundary) mf.insert_boundary(i);
+                    reinforce(t.dist,i,double(t.len)*0.5);
+                    uint32_t end=i+t.len;
+                    for(uint32_t p=i;p<end;++p) mf.insert(p);
+                    i=end;
+                    continue;
+                }
+            }
+        } else if(has_ch) {
+            double alt_c=std::numeric_limits<double>::infinity();
+            if(exact.len>=4) alt_c=exact_c+(pref[i+ch_sm.len]-pref[i+std::min<uint32_t>(exact.len,ch_sm.len)]);
+            else alt_c=pref[i+ch_sm.len]-pref[i];
+            if(ch_cost<alt_c) {
+                SparseToken t; t.type=2; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
+                t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val);
+                toks.push_back(std::move(t));
+                if(boundary) mf.insert_boundary(i);
+                reinforce(t.dist,i,double(t.len)*0.5);
+                uint32_t end=i+t.len;
+                for(uint32_t p=i;p<end;++p) mf.insert(p);
+                i=end;
+                continue;
             }
         }
         // A match must beat the literal cost of the SAME span it covers, not one byte.
@@ -543,7 +652,7 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
             SparseToken t; t.type=1; t.pos=i; t.len=exact.len; t.dist=exact.dist;
             toks.push_back(std::move(t));
             if(boundary) mf.insert_boundary(i);
-            uint32_t end=i+exact.len;
+            reinforce(exact.dist,i,double(exact.len)*0.25);            uint32_t end=i+exact.len;
             for(uint32_t p=i;p<end;++p) mf.insert(p);
             i=end;
         } else {
@@ -1432,20 +1541,22 @@ static std::vector<uint8_t> decode_tokens_shape_fused(const uint8_t* p, size_t n
             if (dist == 0 || dist > pos) throw std::runtime_error("invalid shape distance");
             lastd = dist;
             uint8_t* o = out.data();
-            if (dist >= len) {
+            if (dist >= len && len >= 16) {
                 std::memcpy(o + pos, o + pos - dist, static_cast<size_t>(len)); // non-overlap bulk copy
             } else {
-                for (uint64_t k = 0; k < len; ++k) o[pos + k] = o[pos + k - dist]; // overlap (RLE)
+                for (uint64_t k = 0; k < len; ++k) o[pos + k] = o[pos + k - dist]; // overlap / short copy
             }
             pos += static_cast<size_t>(len);
             if (type == 2) {
                 uint64_t nwords = (len + 31) / 32;
                 std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
                 uint32_t pc = 0;
+                // pull the whole mask region in one bulk read
+                std::array<uint8_t,(kSparseMaxLen+31)/32*4> mb{};
+                if (!s[6].pull_bytes(mb.data(), nwords * 4)) throw std::runtime_error("truncated mask stream");
                 for (uint64_t w = 0; w < nwords; ++w) {
-                    uint8_t mb[4];
-                    if (!s[6].pull_bytes(mb, 4)) throw std::runtime_error("truncated mask stream");
-                    uint32_t m = uint32_t(mb[0]) | (uint32_t(mb[1]) << 8) | (uint32_t(mb[2]) << 16) | (uint32_t(mb[3]) << 24);
+                    const uint8_t* mp = mb.data() + w * 4;
+                    uint32_t m = uint32_t(mp[0]) | (uint32_t(mp[1]) << 8) | (uint32_t(mp[2]) << 16) | (uint32_t(mp[3]) << 24);
                     uint32_t first = uint32_t(w * 32);
                     if (first + 32 > len) { uint32_t over = first + 32 - len; if ((m >> (32 - over)) != 0) throw std::runtime_error("mask bits beyond copy length"); }
                     words[w] = m;
@@ -1887,6 +1998,7 @@ struct Options {
     uint32_t shape_states=28; // mode-12 per-shape displacement states (28 = per-shape, 1 = generic/FLAG-D control)
     bool boundary=false;   // boundary-aligned candidate generation (C5; measured neutral on corpus)
     bool negate=true;      // difference-cover negative gate for incompressible blocks (C5)
+    bool channels=false;   // R4 structural channels (measured not-aligned on corpus; SRR follow-up) (persistent displacement bank)
     bool stream_suite=true; // stream codec suite (huffman/defexc/256-512 rANS); off = fixed rANS-4096+raw
     double stream_lambda=0.01; // J-cost decode-weight (pre-registered binding value 0.01)
     bool stream_log=false; // --stream-log: record per-stream codec selection to stdout
@@ -1970,7 +2082,7 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         if(opt.parse=="auto" || opt.parse=="mdl") { mdl_toks=parse_mdl(block,opt.max_chain,opt.max_match,3,opt.boundary); have_mdl=true; consider_parse(mdl_toks); }
         std::vector<SparseToken> sp_toks; bool have_sp=false;
         if(opt.parse=="auto" || opt.parse=="sparse") {
-            sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary); have_sp=true;
+            sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels); have_sp=true;
             auto payload=encode_tokens_sparse(block,sp_toks);
             std::vector<Token> t; t.reserve(sp_toks.size());
             for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
@@ -1979,7 +2091,7 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         // Mode 12 (SHAPE): per-shape displacement prediction over either the
         // sparse parse (types 0/1/2) or the mdl parse (exact-only).
         if(opt.parse=="auto" || opt.parse=="shape") {
-            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary); have_sp=true; }
+            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels); have_sp=true; }
             if(!have_mdl) { mdl_toks=parse_mdl(block,opt.max_chain,opt.max_match,3,opt.boundary); have_mdl=true; }
             auto try_shape=[&](const std::vector<SparseToken>& st){
                 auto payload=encode_tokens_shape(block,st,opt.shape_states);
@@ -1995,7 +2107,7 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         // Mode 13 (TOPOLOGY): per-slot modal residual + exception mask over the
         // sparse parse (types 0/1/2). R2 correction-topology coding.
         if(opt.parse=="auto" || opt.parse=="topology") {
-            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary); have_sp=true; }
+            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels); have_sp=true; }
             auto payload=encode_tokens_topology(block,sp_toks,opt.shape_states);
             std::vector<Token> t; t.reserve(sp_toks.size());
             for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
@@ -2096,6 +2208,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--shape-states=",0)==0)opt.shape_states=std::stoul(a.substr(15));
             else if(a.rfind("--boundary=",0)==0)opt.boundary=(a.substr(11)!="off");
             else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
+            else if(a.rfind("--channels=",0)==0)opt.channels=(a.substr(11)!="off");
             else if(a.rfind("--stream-suite=",0)==0)opt.stream_suite=(a.substr(15)!="off");
             else if(a.rfind("--fused-decode=",0)==0)g_fused_decode=(a.substr(15)!="off");
             else if(a.rfind("--stream-lambda=",0)==0)opt.stream_lambda=std::stod(a.substr(16));
@@ -2111,7 +2224,7 @@ int main(int argc,char**argv) {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(opt.stream_log) for(auto&e:g_stream_log_entries) std::cout<<"stream_log chosen="<<e.chosen<<" l_winner="<<e.l_winner<<" chosen_L="<<e.chosen_L<<" min_L="<<e.min_L<<"\n";
-            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<"\n";}
+            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<" ch_try="<<g_ch_try<<" ch_win="<<g_ch_win<<"\n";}
         } else if(cmd=="d") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}
