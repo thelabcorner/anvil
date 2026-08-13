@@ -154,6 +154,24 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
 
 ### Measured highlights (Linux, directional)
 
+- **Parser economics — surprise-budget sweep (current frontier)**: the
+  hand-tuned local score / mismatch budget ("surprise budget", default 6)
+  inherited from the generalized parser does NOT suit the shape-predict
+  representation. Sweeping it under the new representation: budget 5 +
+  shallower approximate-anchor probe → JSON 268,059 B at ~60 MB/s parse
+  (vs 273,700 B at ~25 MB/s for budget 6 — smaller AND ~2.4x faster);
+  budget 3 → 256,713 B, only ~3.5% above brotli q6 (248,087 B). The budget
+  is an entropy-control variable; optimum is below the historical default.
+  Extend sweep below 3 + tune min approximate-reference length. **Action for
+  the Windows line: expose and sweep the parser mismatch budget; do not keep
+  hand-tuned defaults.**
+- **FAILED THE PARETO GATE (ablation only, do not re-burn)**: (a) static
+  per-shape displacement manifolds — faster than the dynamic last-distance
+  predictor but give back too much ratio; (b) learned (shape, Δdistance)
+  delta-superinstructions compiled into the opcode vocabulary — top-127 pairs
+  cover ~26% of hot refs (JSON) / ~47% (logs), yet they recover only a little
+  decode speed while giving back enough compression to fail the gate. The
+  dynamic per-shape last-displacement predictor stays the baseline.
 - **Shape-frontier matched table (generated.json, 827,664 B)** — the
   reference for the next prototype decisions (Linux EPYC, clang, median reps):
   | codec | bytes | ratio | enc MB/s | dec MB/s |
