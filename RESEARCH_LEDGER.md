@@ -504,3 +504,64 @@ mdl variants PASS) before claims. **Truthfulness note:** the G1 figures in
 this entry are the corrected v2 sweep (dead-band-only knob); the v1 sweep
 (correction-cap confound) was superseded and its numbers replaced — the
 confound is documented above so the knob's true scope is unambiguous.
+
+## Experiment H — Shape-book + per-shape displacement prediction P(d|s) (I2-1, mode 12)
+
+**Gate pre-registration:** agenda PART II I2-1 — narrow novelty (FLAG-D
+binds): the claim is per-SHAPE state via semantic opcode with signed-delta
+reuse, NOT a generic context map. Mandatory ablation: per-shape vs
+equivalent generic context-map (single state) vs global recency, everything
+else fixed; keep only if per-shape beats context-map-equivalent. Measurement
+contract: `bench/flag-d-ablation-contract` (claim `anvil-shape-rans` vs
+control `anvil-shape-ctxmap-rans`).
+
+**Mechanism (arch, mode 12):** semantic shape vocabulary (kind × 14
+len-classes = 28 shapes) compiled into a decoder-side instruction book; each
+shape keeps a last-displacement state; distances coded first-absolute then
+reuse/signed-delta (zigzag). Payload = 1 state-count byte + 8 streams.
+Decoder = stream lookups + one state-table update per match. Wire spec in
+FORMAT.md (arch-documented; format lane retired).
+
+**Ratio (single-rep Windows, independently re-measured by research —
+agrees with arch exactly):**
+
+| file | shape (m12) | mdl (m10) | dp | Δ vs mdl |
+|---|---:|---:|---:|---:|
+| generated.log | **0.0756** (NEW anvil best) | 0.0811 | 0.0906 | **−6.8%** |
+| generated.json | 0.1232 | 0.1262 | 0.1381 | −2.4% |
+| generated.jsonl | 0.0785 | 0.0778 | 0.0874 | +0.9% (mdl wins) |
+| generated.sqlite | 0.2185 | 0.2087 | 0.2120 | +4.7% (mdl wins) |
+
+Auto router: log all-blocks mode 12 (0.0756), json 0.1230; aggregate on the
+4 record files **0.1120 — best anvil aggregate yet** (vs mdl 0.1176-ish,
+brotli q9 0.1118 — now within 0.2% of q9 aggregate on the record files).
+
+**FLAG-D ablation (28 per-shape vs 1 generic state, same parser/backend —
+independently reproduced):** log generic 0.0921 vs per-shape 0.0756
+(**+17.9%**), json 0.1340 vs 0.1232 (**+8.1%**), jsonl 0.0792 vs 0.0785
+(+0.85%), sqlite −0.3%, src.cpp −0.4%. **FLAG-D verdict: PASS** — per-shape
+decisively beats the generic context-map-equivalent on the mechanism's
+target data (record-structured); the P(d|s) claim separates from a renamed
+context map.
+
+**Decode (LZ-class claim):** log 194 MB/s, json 115 MB/s — mode-12 stream
+lookup + state-table update. **But: still ~4-7x behind brotli decode
+(200-850 MB/s on these files) and json decode is LOWER than mode-10's path
+(161 MB/s) — the decode leg of the I2-1 target (Linux 957 MB/s) is NOT met.
+The remaining gap is the 22-stream/precision-adaptive entropy machinery
+(t2-entropy), per arch's own analysis.**
+
+**I2-1 gate verdict:**
+- **FLAG-D novelty: PASS** (ablation decisive, independently verified).
+- **Ratio leg: PASS on the mechanism's target domain** — log new anvil best
+  (−6.8% vs mdl), aggregate on record files 0.1120 ≈ brotli q9's 0.1118
+  (within 0.2%).
+- **Decode-throughput leg: NOT met.** 115-194 MB/s is LZ-class vs ANVIL's
+  own rANS path, but still ~4-7x behind brotli's decode and far from the
+  Linux 957 MB/s reference. The I2 mission (close the throughput gap) is
+  NOT complete; t2-entropy is the next dependency.
+- **Not a Pareto claim** (bench's median-3 + pareto_front.py will confirm;
+  single-rep directional pending).
+
+Correctness: round-trip verified on all 10 corpus files; fuzzed 450 shape
+variants + canonical 250/1500-mutation PASS.
