@@ -1248,3 +1248,140 @@ mechanism clears the Pareto gate with Windows evidence.*
 *Next for the swarm (iteration 3, per coordinator refs): the 22-stream /
 precision-adaptive entropy architecture + structural-distance propagation
 (R4, which unblocks R2 topology) + TCOPY (binary lane, patent check first).*
+
+---
+
+# PART V — t3-ledger consolidation: iteration-3 narrative, novelty claims, honest Pareto verdict
+
+*Consolidated by `research` (t3-ledger) from the swarm's Iteration-3
+measurements, Aug 2026. Source of truth: `tests/benchmark-suite.csv` (230
+rows, 10 files × 23 codecs, median 3, all roundtrip OK — corpus extended
+with PINNED PE executables tests/corpus/anvil.exe + anvil_bench.exe) +
+`tests/benchmark-summary.csv` + `tests/pareto-verdict.csv` (150 rows) +
+`tests/pareto-baseline.csv` + `tests/noise-floor.csv`. Ratio CV = 0.000%
+(exact); timing CV host-load dependent. All I3 mechanisms were gated
+against pre-registered criteria (agenda PART III, committed before each
+experiment ran).*
+
+## 1. Iteration-3 narrative (mission: push the Pareto frontier)
+
+The mission (coordinator): EXTENDS_FRONT on at least one plane on at least
+one file class. Four mechanism tasks + the regression:
+
+1. **t3-fuse (I3-1, fused shape-stream decode):** single fused
+   instruction/decode path for mode 12 (pull-based readers + inline
+   reconstruction, bulk memcpy; wire unchanged, bytes identical). Real
+   attributable gain (~1.2x record files, up to 1.76x repeat) at preserved
+   ratio — but the pre-registered 2x target NOT MET. Root cause: per-field
+   entropy pulls are the decode floor in both paths; the 2x+ regime needs
+   the compiled hot-op instruction book (Linux modes 26-28).
+2. **t3-r4 (I3-2, structural-distance propagation):** persistent
+   displacement channels + reinforcement. NOT ADOPTED — no mask alignment
+   (top-32 masks 12.3% on log, flat on/off/forced). Root cause: 69% of
+   greedy matches are far-distance, so reinforcement-of-taken can never
+   discover the record period; the Linux SRR *synchronized structural
+   probe* is the unbuilt remainder.
+3. **t3-tcopy (I3-3, mode 14):** implicit Δ=−d transformed copy. Mechanism
+   VALIDATED (519 transform fields in anvil.exe block 0; small real binary
+   edge) but headline density NOT reproduced — the greedy parse is the
+   limiting factor. **Narrowed-claim test INCOMPLETE** (explicit-Δ control
+   unbuilt); novelty claim NOT YET DECIDABLE pending two gate conditions.
+4. **t3-patent (t3 gate):** four-pass prior-art convergence — the
+   single-file self-referential implicit-Δ formulation UNCLAIMED in the
+   searched record (US7676506B2 closest art; Intel US 7,111,148 /
+   7,010,665 full-text review is a binding closeout item).
+5. **PNRA (I3-4, pre-registered):** transformation-invariant temporal
+   anchoring — new search formulation, queued as the binary-lane follow-on.
+
+## 2. Iteration-3 regression results (bench, median-3 — the arbiter)
+
+**Aggregate (10 files incl. pinned PE):**
+
+| codec | ratio | enc MB/s | dec MB/s |
+|---|---:|---:|---:|
+| anvil-mdl-rans | **0.190591** (best anvil) | 0.84 | 145.4 |
+| anvil-shape-rans | 0.193713 | 0.71 | 154.7 |
+| anvil-shape-ctxmap (FLAG-D ctrl) | 0.197808 | 0.76 | 164.5 |
+| anvil-tcopy-rans (mode 14) | 0.197506 | 11.6 | 165.0 |
+| anvil-sparse-rans | 0.197640 | 12.1 | 167.0 |
+| anvil-sparse-channels (R4 row) | 0.198658 | 9.1 | 162.7 |
+| brotli q9 | 0.167032 | 23.2 | 597.9 |
+| brotli q11 | 0.139371 | — | — |
+| zstd 19 | 0.153095 | — | — |
+
+**PE binary lane (TCOPY):** anvil.exe — tcopy 0.406 vs sparse 0.408
+(~0.5% smaller; mdl 0.402 best); anvil_bench.exe — tcopy 0.444 = sparse
+0.444 (tie; mdl 0.437 best). Small real binary-lane signal; exact-LZ mdl
+still wins. **R4 channels confirmed slightly worse at median-3** (jsonl
+0.081 vs 0.079 — not-adopted reproduced). **Fused decode ~1.2x record
+files** (doc 1.20x, json 1.21x, jsonl 1.23x, log 1.16x, src 1.24x, random
+1.18x, repeat 1.40x; sqlite ~0.8-1.0x); ratios byte-identical; ≥2x target
+NOT met.
+
+**Pareto: ALL 15 anvil rows DOMINATED on both planes — 0 EXTENDS_FRONT.**
+Verdict rows (150): 0 PARETO-WIN / 0 RATIO-BEATS / 127 RATIO-BEATS-SOME /
+23 NO-BEAT. **The iteration-3 goal (EXTENDS_FRONT on at least one plane
+on at least one file class) is NOT met.**
+
+## 3. Consolidated Iteration-3 novelty claims
+
+- **C10 — Fused single-path decode (I3-1): PARTIAL PASS.** Real,
+  attributable ~1.2x decode at preserved ratio, zero wire change. The
+  pre-registered 2x target is unmet; the compiled hot-op instruction book
+  (Linux modes 26-28) is the recorded remainder. Enabling infrastructure,
+  not a Pareto claim.
+- **C11 — R4 structural-distance propagation (I3-2): NOT ADOPTED.** The
+  corrective insight is durable: reinforcement-of-taken cannot discover
+  the record period; the SRR synchronized structural-distance *probe* is
+  the genuine R4 remainder (prerequisite for R2 topology AND TCOPY
+  headline density). R2 topology verdict STANDS (blocked on alignment).
+- **C12 — TCOPY implicit-Δ transformed copy (I3-3): mechanism VALIDATED,
+  novelty claim UNDECIDABLE.** Transform fields fire on real PE; small
+  binary edge. Two binding gate conditions before any novelty claim:
+  (1) explicit-Δ control ablation (implicit-vs-transmitted separation —
+  decides NARROW-to-NONE vs standing per US7676506B2), (2) Intel
+  US 7,111,148 / US 7,010,665 full-text review. FTO attorney review
+  recommended. No Pareto candidate.
+- **C13 — PNRA transformation-invariant anchoring (I3-4): PRE-REGISTERED
+  candidate.** New search formulation (invariant-based indexing); queued
+  as the binary-lane follow-on; falsifiable ablation pre-registered; no
+  Windows measurement yet, no claim.
+
+## 4. The honest Iteration-3 verdict
+
+- **The frontier was NOT pushed.** 0 EXTENDS_FRONT in 150 verdict rows;
+  all 15 anvil rows DOMINATED on both planes. Three iterations, zero
+  Pareto wins — every claim pre-registered, every failure recorded with
+  reason.
+- **What iteration 3 delivered (truthfully):** validated mechanisms with
+  real but sub-frontier effects — fused decode ~1.2x (no wire change,
+  enabling), TCOPY small binary-lane signal (prototype, claim pending),
+  R4 honest negative with the precise unbuilt remainder, and the PNRA
+  pre-registration pointing at the strongest binary-lane direction yet.
+- **The binding levers, now precisely identified from measured evidence:**
+  (1) the **compiled hot-op instruction book** (Linux modes 26-28) for the
+  decode leg — fusion alone tops out ~1.2x because per-field entropy pulls
+  are the floor; (2) the **SRR synchronized structural probe** — the shared
+  prerequisite for R2 topology alignment AND TCOPY's headline binary
+  density (both failed here because the greedy parser never discovers
+  structural distance); (3) **PNRA** (transformation-invariant anchoring)
+  as the search-formulation fix for the binary lane; (4) the
+  **22-stream/precision-adaptive entropy architecture** (Linux reference
+  0.1046 @ 957 MB/s decode) as the decode-throughput path.
+- **Prior-art discipline held:** four-pass TCOPY record (US7676506B2
+  closest art; Intel review binding); VCDIFF/RFC 3284 correctly scoped
+  SPARSE-REF C1 (separator = sparse-mask-as-entropy-stream +
+  implicit-transform, not self-reference); masking-only patents
+  (US12373439, US20240211132A1) cross-referenced; PNRA positioned as a
+  new search formulation.
+- **Gate integrity:** every I3 verdict decided against pre-registered
+  criteria; confounds corrected in-record (G1, Experiment L);
+  mis-routes handled without lane violations; the honest
+  0-EXTENDS_FRONT result is the record, not the ambition.
+
+*End of iteration-3 consolidation. The ledger remains the living record.
+Iteration 4, when scheduled, builds on the precisely identified levers:
+hot-op instruction book (decode), SRR structural probe (R4/R2/TCOPY),
+PNRA (binary search), 22-stream adaptive entropy (decode). The gate stays
+the arbiter: a claim requires pre-registration, Windows A/B evidence,
+round-trip + fuzz, and an EXTENDS_FRONT verdict from bench's tools.*
