@@ -670,6 +670,29 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   18-month publication blackout, paywalled corpora, US 6,466,999 full
   claims; FTO attorney review still recommended. **The CONDITIONAL-PASS
   verdict is now strongly supported by three-pass convergence.**
+- **Pass 4 (coordinator, most rigorous scan — committed):** verdict
+  UNCHANGED (NOT-FOUND) with material updates folded in:
+  - **REQUIRED ITEM — Intel US 7,111,148 B1 / US 7,010,665 B1
+    ("compressing/decompressing relative addresses", prio 27-Jun-2002):
+    full-text/claims review is REQUIRED before the executable-specific
+    novelty boundary is treated as closed** — titles too close to wave
+    away; claims not retrievable in the pass. This is a binding
+    binary-lane-gate closeout item.
+  - **VCDIFF / RFC 3284 (June 2002) — touches SPARSE-REF C1:** single-file
+    self-reference + exact COPY + ADD/RUN corrections (incl. overlapping
+    target copies) is STANDARDIZED prior art. C1's separator must remain
+    the sparse-correction-mask-as-first-class-entropy-stream +
+    implicit-transform combination — NOT self-reference per se.
+  - **Zucchini (Chromium) = strongest executable near-hit:** copy +
+    correction + rel32 handling exists, but two-file patching.
+  - **BCJ boundary QUALIFIED:** defensible distinction is *pre-LZ filter
+    layer* (per xz filter-chain docs), not "file-wide" per se.
+  - **Corrections:** US 12,373,439 REMOVED as compression art (OptumSoft
+    table matching); US 6,564,314 is STMicroelectronics, not IBM.
+  - GenCompress/RLZAP noted as close-but-different approximate-match art.
+  - Closest combined art: VCDIFF/Microsoft (self-ref COPY), GenCompress
+    (ref-plus-edits), BCJ/Philips US5787302 (relocation normalization),
+    Zucchini (executable-aware copy-plus-correction).
 
 ## Iteration-2 sequencing (as scheduled)
 

@@ -795,6 +795,38 @@ separator. Residual gaps: 18-month publication blackout; paywalled
 corpora; US 6,466,999 full claims. CONDITIONAL-PASS strongly supported by
 three-pass convergence; FTO attorney review still recommended.
 
+**Pass 4 (coordinator, most rigorous scan, committed):** verdict UNCHANGED
+(NOT-FOUND) with material updates:
+
+- **REQUIRED ITEM (binding binary-lane-gate closeout): Intel US 7,111,148
+  B1 / US 7,010,665 B1 ("compressing/decompressing relative addresses",
+  prio 27-Jun-2002) — full-text/claims review REQUIRED before the
+  executable-specific novelty boundary is treated as closed.** Titles too
+  close to wave away; claims not retrievable this pass. This is a hard
+  gate item for the TCOPY lane, alongside the isolated ablation.
+- **VCDIFF / RFC 3284 (June 2002) — touches SPARSE-REF C1:** single-file
+  self-reference + exact COPY + ADD/RUN corrections (incl. overlapping
+  target copies) is STANDARDIZED prior art. C1's separator must remain
+  the sparse-correction-mask-as-first-class-entropy-stream +
+  implicit-transform combination — NOT self-reference per se. (C1's
+  record now cites this.)
+- **Zucchini (Chromium) = strongest executable near-hit:** copy +
+  correction + rel32 handling exists, but two-file patching.
+- **BCJ boundary QUALIFIED:** defensible distinction is *pre-LZ filter
+  layer* (xz filter-chain docs), not "file-wide" per se.
+- **Corrections to earlier passes:** US 12,373,439 REMOVED as compression
+  art (OptumSoft table matching, not approximate LZ); US 6,564,314 is
+  STMicroelectronics, not IBM.
+- GenCompress (1999) and RLZAP (2016) recorded as close-but-different
+  approximate-match art (reference-plus-edits; no common 32-bit additive Δ
+  on selected fields, no distance-derived transform).
+- **Closest combined art (all four passes):** VCDIFF/Microsoft
+  (self-referential COPY), GenCompress (ref-plus-edits), BCJ/Philips
+  US5787302 (relocation normalization), Zucchini (executable-aware
+  copy-plus-correction, two-file). The TCOPY claim stands only on the
+  per-reference implicit Δ=−d mechanism, which remains unclaimed in the
+  searched record pending the Intel full-text review.
+
 ## Experiment M — Fused shape-stream decode (t3-fuse, I3 target) — REAL GAIN, 2x TARGET NOT MET
 
 **Gate pre-registration (agenda PART II + coordinator I3 mission):** port
