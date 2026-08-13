@@ -780,3 +780,153 @@ ratio neutral-or-better with real decode wins. It remains enabling
 infrastructure (no Pareto claim); bench's median-3 at λ=0.01 completes the
 formal verdict including the per-class co-arbiter. The v1 "partial pass"
 framing is superseded by this corrected full-pass record.
+
+---
+
+# PART IV — t2-ledger consolidation: iteration-2 narrative, novelty claims, honest verdict
+
+*Consolidated by `research` (t2-ledger) from the swarm's Iteration-2
+measurements, Aug 2026. Source of truth: `tests/benchmark-suite.csv` (168
+rows, 8 files × 21 codecs, median 3, all roundtrip OK) +
+`tests/benchmark-summary.csv` + `tests/pareto-verdict.csv` (96 rows) +
+`tests/pareto-baseline.csv` + `tests/noise-floor.csv`. Ratio CV = 0.000%
+(exact); timing CV host-load dependent (deltas <5-10% on big files within
+noise). All four I2 mechanisms were gated against pre-registered criteria
+(agenda PART II, committed before each experiment ran).*
+
+## 1. Iteration-2 narrative (mission: close the throughput gap)
+
+Iteration 1 proved the ratio is competitive (mdl 0.1307 vs brotli q9
+0.1118 aggregate; SPARSE-REF −9.6% on jsonl) but every config was
+Pareto-DOMINATED: decode 3.5-4.5x and encode 24-40x slower than q9. The
+I2 mission (coordinator): convert the ratio advantage into LZ-class decode
+via the throughput architecture. Four mechanisms were gated, built, and
+measured:
+
+1. **t2-gates (I2-3, cheap adopts):** surprise-budget sweep (default 6→12,
+   −2.82% aggregate on record files, knob exposed — "sweep, don't
+   hand-tune"); boundary-aligned candidates (byte-identical vs off — the
+   mdl DP's measured near-distance costs already subsume alignment;
+   recorded as an honest non-result); mod-64 negative gate (random.bin
+   auto encode 0.525→381.7 MB/s, 727x, byte-identical output).
+2. **t2-shape (I2-1, mode 12):** shape-book + per-shape displacement
+   prediction. log 0.0756 = new anvil per-file best (−6.8% vs mdl).
+   **FLAG-D ablation: PASS** (per-shape beats generic context-map
+   +17.9% log / +8.1% json at median-3, double-confirmed by bench).
+3. **t2-topology (I2-4, mode 13):** per-slot modal residual + exception
+   mask. **NOT ADOPTED** (honest negative): loses to flat-A on every file
+   (log +19.3%); modal accuracy 17-23% vs Linux's 86.5%, masks ~90%
+   unique. Root cause: architecture dependency — ANVIL's greedy parser
+   lets correction positions drift where Linux's SRR/SSCM structural
+   channels align them. R2 blocked on structural-distance propagation (R4).
+4. **t2-entropy (I2-2):** precision/work-adaptive stream suite
+   (rANS-4096/512/256, Huffman, exception, raw) with J = L + λ·C_decode.
+   **FULL PASS at the pre-registered λ=0.01** after two correctness fixes
+   (additive J form; raw-candidate bug): J-faithfulness 100%, ratio
+   neutral-or-better on every file, modest real decode wins at zero ratio
+   cost.
+
+## 2. Iteration-2 regression results (bench, median-3 — the arbiter)
+
+**Aggregate (best anvil vs brotli):**
+
+| codec | ratio | enc MB/s | dec MB/s |
+|---|---:|---:|---:|
+| anvil-mdl-rans (stream suite) | **0.130323** | 0.75 | 179.1 |
+| anvil-shape-rans | 0.130635 | 0.69 | 176.2 |
+| anvil-shape-ctxmap-rans (FLAG-D control) | 0.135786 | 0.72 | 192.6 |
+| anvil-sparse-rans | 0.137280 | 21.3 | 188.5 |
+| anvil-dp-rans (I1 best exact-LZ) | 0.137091 | 1.0 | 193.8 |
+| brotli q9 | 0.111795 | 30.5 | 819.0 |
+| brotli q11 | 0.089776 | 0.7 | 723.2 |
+| zstd 19 | 0.099710 | 2.2 | 1692.4 |
+
+The stream suite IMPROVED mdl (0.130663 → 0.130323) at neutral-or-better
+ratio — the I2-2 mechanism earns its keep. The λ=0/0.01/0.04 rows are
+byte-identical on this corpus (the work-adaptive knob is not exercised at
+these λ — the time term ≤0.16 B/stream never overrides the size winner).
+
+**J-cost validation (pre-registered contract, 1800 streams on the 4 record
+files):** size-faithfulness **100% at λ=0.01 AND 0.04 AND 0.0** — the
+pre-registered ≥80% bar is cleared outright; per-class co-arbiter passes
+trivially (100% everywhere → no failing class). The honest nuance: decode
+wins are modest and within timing noise at median-3 — the mechanism is
+validated as faithful + zero-ratio-cost, but its decode win is small on
+this corpus.
+
+**Pareto (both planes, per file + aggregate): ALL 12 anvil rows DOMINATED
+— NO EXTENDS_FRONT, no Pareto win on either plane.** Verdict rows: 96,
+0 PARETO-WIN / 0 RATIO-BEATS / 76 RATIO-BEATS-SOME / 20 NO-BEAT. Best
+near-miss: generated.jsonl mdl 0.078 vs brotli-q6 0.073 (ratio AND decode
+dominated); generated.json mdl 0.123 vs zstd-19 0.113 / brotli-q11 0.096.
+Decode remains ~4x behind q9 (FLAG-A binding).
+
+## 3. Consolidated Iteration-2 novelty claims
+
+### C6 — Shape-book + per-shape displacement prediction P(d|s) (I2-1) — VALIDATED
+- **NEW (narrow, FLAG-D):** per-shape last-displacement state via semantic
+  opcode, first-absolute then signed-delta reuse — not a generic context
+  map (Brotli §7.2 + LZMA match-state are the antecedents).
+- **Evidence:** FLAG-D ablation PASS at median-3 (log −17.4%, json −8.2%
+  vs the generic single-state control; non-record files within ±0.4%);
+  log 0.0756 = new anvil per-file best. **Claim stands** as a validated
+  narrow interaction. Not Pareto (decode 176 MB/s vs q9 819).
+
+### C7 — Precision/work-adaptive entropy with cost-based J-selection (I2-2) — VALIDATED (infra)
+- **NEW (NEW-INTERACTION):** the pre-registered J = L + λ·C_decode
+  objective selecting among multiple independent backends (rANS precisions
+  + Huffman + exception/raw) with measured costs — per-stream selection
+  exists (zstd Compression_Mode, RFC 7932 block types) but a
+  decode-cost-weighted selection objective is not documented prior art.
+- **Evidence:** J-faithfulness 100% at the pre-registered λ=0.01 (1800
+  streams), ratio neutral-or-better on every file, modest real decode
+  wins. **Claim stands as enabling infrastructure** — validated, not a
+  Pareto claim.
+
+### C8 — Negative gate + surprise-budget sweep (I2-3) — ADOPTED (engineering)
+- Cheap adopts with real measured value: random.bin auto encode 727x,
+  −2.82% on record files at budget 12. No mechanism-level novelty claim —
+  engineering value gated on measurement.
+
+### Falsified / deferred (recorded with reasons):
+- **C9 — R2 correction-topology coding (I2-4): NOT ADOPTED.** Modal
+  accuracy 17-23% (not 86.5%), masks ~90% unique. **Blocked on
+  structural-distance propagation (R4)** — revisit after R4 lands; the
+  pre-registered contract stands.
+- **Boundary-aligned candidate generation: measured non-result** (byte-
+  identical vs off — mdl DP already subsumes alignment).
+
+## 4. The honest Iteration-2 verdict
+
+- **No Pareto win on either plane.** All 12 anvil rows DOMINATED; 0
+  EXTENDS_FRONT in 96 verdict rows. The I2 mission's falsifiable target is
+  NOT met — decode is still ~4x behind brotli q9.
+- **What iteration 2 delivered (truthfully):** validated enabling
+  infrastructure — a faithful cost-based entropy-selection mechanism
+  (C7), a validated narrow displacement-prediction interaction (C6),
+  two cheap engineering adopts (C8), one honest negative with its root
+  cause (C9), and a hardened no-regression story (negative gate makes
+  random.bin 727x faster with identical bytes; repeat/random controls
+  clean everywhere).
+- **The binding lever remains the 22-stream / precision-adaptive
+  architecture (Linux line):** the per-stream codec choice is validated
+  but its decode win is modest; the full cross-stream architecture is
+  where the Linux line's 0.1046 @ 957 MB/s decode lives. That is the
+  iteration-3 frontier.
+- **Prior-art discipline held:** RFC 7932 §4/§7.2 confirmed for distance
+  maps (FLAG-D narrow); context clustering correctly NOT claimed (RFC 7932
+  §7); J-objective positioned as NEW-INTERACTION against zstd/RFC 7932
+  antecedents; TCOPY pre-registered with a binding patent-check gate
+  step.
+- **Gate integrity:** every I2 verdict was decided against pre-registered
+  criteria; two confounds found and corrected in the record (G1
+  correction-cap; Experiment L multiplicative-form J); failed mechanisms
+  recorded with measured reasons, not silence.
+
+*End of iteration-2 consolidation. The ledger remains the living record;
+iteration-3 experiments append here, and this Part IV is updated when a
+mechanism clears the Pareto gate with Windows evidence.*
+
+*Next for the swarm (iteration 3, per coordinator refs): the 22-stream /
+precision-adaptive entropy architecture + structural-distance propagation
+(R4, which unblocks R2 topology) + TCOPY (binary lane, patent check first).*
