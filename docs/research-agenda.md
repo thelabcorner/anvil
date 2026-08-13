@@ -418,3 +418,90 @@ difference-cover gate); fail-gate additions recorded. Build order for the
 Windows tree: port v2 validated mechanisms as new modes (t-sparse) → parser
 (t-parser) → full-corpus regression incl. decode plane (t-bench) → ledger
 claims written only against Windows A/B evidence (t-ledger).*
+
+---
+
+# PART II — Iteration 2 gate criteria (throughput architecture)
+
+*Mission (coordinator, Aug 2026): close the throughput gap. Iteration 1
+proved the ratio is competitive (mdl aggregate 0.1307 vs brotli q9 0.1118;
+SPARSE-REF mode 11 −9.6% on jsonl) but every config is Pareto-DOMINATED:
+decode 3.5-4.5x and encode 24-40x slower than brotli q9. The Linux reference
+line proves the path: semantic shape book + per-shape displacement reached
+0.1046 ratio @ 957 MB/s decode on generated.json (vs brotli q4 0.1252 @
+1411, q9 0.0897 @ 1210). This Part II sets the falsifiable gate criteria for
+each Iteration-2 mechanism BEFORE implementation, so the claims are
+pre-registered. Ledger must record every decision, including failures.*
+
+**Iteration-2 Pareto target (the gate):** any Iteration-2 config must beat
+brotli on the ratio-vs-decode plane (or ratio-vs-encode) per
+tools/pareto_front.py on ≥1 corpus file, per-file AND/or aggregate —
+EXTENDS_FRONT, not just a ratio beat. Round-trip + fuzz before any claim.
+Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
+
+## I2-1. Shape-book + per-shape displacement prediction P(d|s)
+
+- **Lineage:** Brotli distance context maps; LZMA match-state distance
+  coding; zstd repcodes. Distance prediction with context is NOT new.
+- **NEW (narrow — FLAG-D binds):** compile the shape vocabulary
+  (kind/len/patch-topology) into a decoder instruction book; each shape
+  carries a tiny per-shape displacement state — first occurrence absolute,
+  later = signed delta from the shape's last displacement (zigzag +
+  class/extra). The claim is *per-shape state via semantic opcode*, not a
+  generic context map.
+- **Falsifiable ablation (MANDATORY, pre-registered):** P(d|s) vs an
+  equivalent-size generic context-map vs global recency, everything else
+  fixed. KEEP only if per-shape beats context-map-equivalent end-to-end —
+  otherwise it is a renamed context map and FAILS the gate.
+- **Evidence to match:** Linux 0.1046 @ 957 MB/s decode on generated.json;
+  per-shape log-proxy ~9.4 bits vs ~13 unconditional. Windows A/B is the
+  arbiter (FLAG-B).
+
+## I2-2. Precision/work-adaptive entropy
+
+- **Lineage:** rANS/ANS precision (Duda; ryg_rans; FSE); Brotli/zstd block
+  type selection. Per-stream codec choice is partly explored.
+- **NEW (as a claim):** joint cost J = L_stream + λC_decode + μC_model-build
+  + νW_cache selecting per stream among 256/512-state rANS (cache-resident
+  tables) × stream suite (Huffman / default-with-sparse-exceptions /
+  pair-rANS / raw). "Smallest wins, but the objective includes decode and
+  model-build cost."
+- **Falsifiable ablation:** fixed-rANS vs stream-suite per stream; report
+  Δratio, Δdecode, Δmodel-build; verify the J-cost predicts the winner on
+  ≥80% of streams. Decode win must be real (FLAG-A), not just ratio.
+- **Why Pareto:** stream anatomy shows 22 streams dominated by pair/Huffman
+  on the big residual streams; precision-adaptive coding makes rich
+  multi-model coding cheap to initialize/execute.
+
+## I2-3. Cheap adopts (C5): surprise-budget sweep + boundary candidates + negative gate
+
+- **Lineage:** deflate stored-block decisions; zstd/lz4 incompressible
+  detection; standard search formulations.
+- **NEW (search formulations, low novelty — gate passes on engineering
+  value + measured effect, not mechanism novelty):** (a) parser
+  surprise-budget sweep — Linux: budget 5/3 beats default 6; it is an
+  *entropy-control variable*, expose and sweep, don't hand-tune (arch's
+  compile-time constants are the known caveat); (b) boundary-aligned
+  candidate generation (66-92% of LZ sources within ±8 B of prior token
+  starts); (c) mod-64 cyclic difference-cover negative gate (random 3,341
+  MB/s Linux).
+- **Falsifiable ablation:** each adopt ON/OFF; encode Δ (must be real),
+  ratio Δ (must be ~0). Random/repeat controls no-regression.
+
+## I2-4. R2 correction-topology coding (per-slot modal residual + exception mask)
+
+- **Lineage:** flat mismatch lists (Zdelta); flat diff arrays (bsdiff);
+  edit ops (DNA); PPM templates.
+- **NEW:** per-(mask,slot) modal residual as decoder-visible default +
+  exception mask. Slot-default accuracy measured 86.5% on logs (Linux v2);
+  Windows ablation is the open item.
+- **Falsifiable ablation:** flat-A baseline vs slot-default vs order-1 mask
+  model on the same sparse tokens; Δratio and Δdecode. The flat-A mask
+  overhead (repeat control +2.2%) is the headroom it must recover.
+
+## Iteration-2 sequencing (as scheduled)
+
+t2-shape → t2-entropy, t2-topology → t2-bench (full regression, both planes)
+→ t2-ledger (claims written only against Windows A/B; failures recorded).
+t2-gates (cheap adopts) runs in parallel. All claims pre-registered above;
+the gate stays the arbiter.
