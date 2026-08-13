@@ -193,6 +193,16 @@ encode) is the mechanism's honest Pareto contribution so far; the decode leg
 is the binding open problem for R2/R3 (topology coding + macro-op/hot-op
 streams from the Linux line are the candidates to close it).
 
+**Formal Pareto-baseline verdict (bench, tools/pareto_front.py, regenerated
+baseline):** every anvil row INCLUDING anvil-sparse-rans is DOMINATED on both
+planes (ratio-vs-encode and ratio-vs-decode), per-file and aggregate. On
+generated.jsonl specifically, brotli-q6 dominates sparse on BOTH ratio and
+decode. This is the tool-backed FLAG-A verdict: the R1 mechanism contributes
+a trade-off point, not a frontier extension — consistent with the ledger
+above. F1 open finding (modes 1-5 accept trailing garbage bytes inside arith
+payloads, LOW, deterministic repro; modes 10/11 reject) is legacy-machinery,
+does not gate the sparse claims; fix ownership = arch.
+
 **Decoder safety (t-format closure, `format`):** FORMAT.md now specs mode 11
 exactly as landed (7 substreams S0-S6, flat 32-bit mask words, strict type-2
 invariants incl. mask-bits-beyond-len rejection, len(residuals)==popcount(mask),
