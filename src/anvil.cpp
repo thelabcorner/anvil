@@ -340,7 +340,7 @@ public:
     // i.e. mask+residuals vs the all-literal fallback. Returns the best sparse
     // candidate with >=1 correction, or false. `work` caps scanned bytes.
     bool find_sparse(uint32_t pos, SparseMatch& out, const std::array<double,256>& litcost,
-                     double avg_lit, uint64_t& work, double dead_band=32.0, uint32_t surprise_max=64) const {
+                     double avg_lit, uint64_t& work, double dead_band=32.0) const {
         out.len = 0;
         if (pos + 4 > d_.size()) return false;
         const uint8_t* tgt = d_.data() + pos;
@@ -370,7 +370,7 @@ public:
                 // must be computed against that, not against src[j], for dist < len.
                 uint8_t cpy = (dist > 0) ? src[j % dist] : src[j];
                 if (cpy != tgt[j]) {
-                    if (k >= kSparseScanMax || k >= surprise_max) break; // surprise budget (entropy-control var)
+                    if (k >= kSparseScanMax) break;
                     off[k] = j; val[k] = tgt[j];
                     score -= litcost[tgt[j]] + 0.125;
                     ++k;
@@ -506,7 +506,6 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
     for(uint32_t i=0;i<n;++i) pref[i+1]=pref[i]+litcost[d[i]]+0.10;
 
     const double dead_band=32.0*double(surprise)/6.0;
-    const uint32_t surprise_max=8u*surprise;
     MatchFinder mf(d,max_chain,max_match,boundary);
     uint64_t work=0;
     uint32_t i=0;
@@ -518,7 +517,7 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
         if(exact.len>=4) exact_c=0.6+varint_cost(exact.len-4)+varint_cost(exact.dist-1)+0.18*std::log2(double(exact.dist)+1.0);
         if(exact.len<128 && work<kSparseBlockBudget) {
             SparseMatch sm;
-            if(mf.find_sparse(i,sm,litcost,avg_lit,work,dead_band,surprise_max)) {
+            if(mf.find_sparse(i,sm,litcost,avg_lit,work,dead_band)) {
                 double sparse_c=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
                                +0.18*std::log2(double(sm.dist)+1.0);
                 for(size_t k=0;k<sm.off.size();++k) sparse_c+=litcost[sm.val[k]];
@@ -794,6 +793,166 @@ static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, siz
     return out;
 }
 
+// ---- SHAPE backend (mode 12): shape-book + per-shape displacement ----------
+// Semantic shape vocabulary (kind x len-class) compiled into a decoder-side
+// instruction book: each match token's shape selects a per-shape displacement
+// state, and the distance is coded against that state (first = absolute, then
+// reuse-last or signed delta, zigzag). Decoder = stream lookups + a tiny state
+// table (LZ-class). num_states is transmitted (1 = generic single state, the
+// FLAG-D control; 28 = per-shape (type x 14 len-classes)).
+static constexpr uint32_t kShapeClasses = 14;
+
+static inline uint32_t len_class(uint32_t len) { // len >= 4 -> 0..13 (doubling)
+    uint32_t cl = 0, v = 4;
+    while (len >= v * 2 && cl < kShapeClasses - 1) { v *= 2; ++cl; }
+    return cl;
+}
+
+static inline uint32_t shape_index(uint8_t type, uint32_t len, uint32_t num_states) {
+    if (num_states <= 1) return 0;
+    return (type - 1) * kShapeClasses + len_class(len); // types 1,2 -> 0..27
+}
+
+static std::vector<uint8_t> encode_tokens_shape(const std::vector<uint8_t>& d, const std::vector<SparseToken>& toks,
+                                                uint32_t num_states) {
+    std::vector<uint8_t> types, ll, ml, dflags, dvar, lits, masks, resid;
+    types.reserve(toks.size());
+    std::array<uint32_t, 2 * kShapeClasses> last{};
+    std::array<uint32_t,(kSparseScanMax+31)/32> words{};
+    for (auto& t : toks) {
+        types.push_back(t.type);
+        if (t.type == 0) {
+            append_varint_bytes(ll, t.len - 1);
+            lits.insert(lits.end(), d.begin() + t.pos, d.begin() + t.pos + t.len);
+        } else {
+            append_varint_bytes(ml, t.len - 4);
+            uint32_t shape = shape_index(t.type, t.len, num_states);
+            uint32_t& lastd = last[shape];
+            if (lastd == 0) {
+                dflags.push_back(0);
+                append_varint_bytes(dvar, t.dist - 1);
+                lastd = t.dist;
+            } else if (t.dist == lastd) {
+                dflags.push_back(1);
+            } else {
+                dflags.push_back(2);
+                int64_t dlt = int64_t(t.dist) - int64_t(lastd);
+                uint64_t zz = dlt >= 0 ? uint64_t(dlt) * 2 : uint64_t(-dlt) * 2 - 1;
+                append_varint_bytes(dvar, zz);
+                lastd = t.dist;
+            }
+            if (t.type == 2) {
+                std::fill(words.begin(), words.end(), 0u);
+                for (size_t k = 0; k < t.off.size(); ++k) {
+                    words[t.off[k] / 32] |= (1u << (t.off[k] % 32));
+                    resid.push_back(t.val[k]);
+                }
+                uint32_t nwords = (t.len + 31) / 32;
+                for (uint32_t w = 0; w < nwords; ++w) {
+                    uint32_t m = words[w];
+                    masks.push_back(static_cast<uint8_t>(m));
+                    masks.push_back(static_cast<uint8_t>(m >> 8));
+                    masks.push_back(static_cast<uint8_t>(m >> 16));
+                    masks.push_back(static_cast<uint8_t>(m >> 24));
+                }
+            }
+        }
+    }
+    std::vector<uint8_t> out;
+    out.push_back(static_cast<uint8_t>(num_states));
+    for (const auto* v : {&types, &ll, &ml, &dflags, &dvar, &lits, &masks, &resid}) {
+        auto z = encode_stream(*v);
+        put_uvar(out, z.size());
+        out.insert(out.end(), z.begin(), z.end());
+    }
+    return out;
+}
+
+static std::vector<uint8_t> decode_tokens_shape(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e = p + n;
+    if (p >= e) throw std::runtime_error("truncated shape header");
+    uint32_t num_states = *p++;
+    if (num_states != 1 && num_states != 2 * kShapeClasses) throw std::runtime_error("bad shape state count");
+    std::array<std::vector<uint8_t>, 8> s;
+    const size_t max_sub = 16 * out_len + 64;
+    for (int i = 0; i < 8; ++i) {
+        uint64_t zn = get_uvar(p, e);
+        if (zn > uint64_t(e - p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q = p; const uint8_t* qe = p + zn;
+        s[i] = decode_stream(q, qe, max_sub);
+        if (q != qe) throw std::runtime_error("substream trailing bytes");
+        p += zn;
+    }
+    if (p != e) throw std::runtime_error("payload trailing bytes");
+    size_t ip_ll = 0, ip_ml = 0, ip_df = 0, ip_dv = 0, ip_lit = 0, ip_mask = 0, ip_res = 0;
+    std::array<uint32_t, 2 * kShapeClasses> last{};
+    std::vector<uint8_t> out; out.reserve(out_len);
+    for (uint8_t type : s[0]) {
+        if (out.size() >= out_len) throw std::runtime_error("too many tokens");
+        if (type == 0) {
+            uint64_t len = read_varint_bytes(s[1], ip_ll) + 1;
+            if (len > out_len - out.size() || len > s[5].size() - ip_lit) throw std::runtime_error("bad literal run");
+            out.insert(out.end(), s[5].begin() + ip_lit, s[5].begin() + ip_lit + len);
+            ip_lit += len;
+        } else if (type == 1 || type == 2) {
+            uint64_t len = read_varint_bytes(s[2], ip_ml) + 4;
+            if (len > kSparseMaxLen || len > out_len - out.size()) throw std::runtime_error("bad shape match");
+            if (ip_df >= s[3].size()) throw std::runtime_error("truncated dist flags");
+            uint8_t flag = s[3][ip_df++];
+            uint32_t shape = shape_index(type, static_cast<uint32_t>(len), num_states);
+            uint32_t& lastd = last[shape];
+            uint32_t dist;
+            if (flag == 0) {
+                uint64_t dv = read_varint_bytes(s[4], ip_dv);
+                if (dv >= 0xFFFFFFFFull) throw std::runtime_error("bad absolute distance");
+                dist = static_cast<uint32_t>(dv) + 1; // dv = dist-1, dist in [1, 2^32)
+            } else if (flag == 1) {
+                if (lastd == 0) throw std::runtime_error("dist reuse before first absolute");
+                dist = lastd;
+            } else if (flag == 2) {
+                if (lastd == 0) throw std::runtime_error("dist delta before first absolute");
+                uint64_t zz = read_varint_bytes(s[4], ip_dv);
+                int64_t dlt = (zz & 1) ? -int64_t((zz + 1) >> 1) : int64_t(zz >> 1);
+                int64_t dd = int64_t(lastd) + dlt;
+                if (dd <= 0 || dd > 0xFFFFFFFFll) throw std::runtime_error("bad distance delta");
+                dist = static_cast<uint32_t>(dd);
+            } else throw std::runtime_error("bad dist flag");
+            if (dist == 0 || dist > out.size()) throw std::runtime_error("invalid shape distance");
+            lastd = dist;
+            for (uint64_t k = 0; k < len; ++k) out.push_back(out[out.size() - dist]); // copy (overlap allowed)
+            if (type == 2) {
+                uint64_t nwords = (len + 31) / 32;
+                if (nwords * 4 > s[6].size() - ip_mask) throw std::runtime_error("truncated mask stream");
+                std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+                uint32_t pc = 0;
+                for (uint64_t w = 0; w < nwords; ++w) {
+                    uint32_t m = uint32_t(s[6][ip_mask]) | (uint32_t(s[6][ip_mask+1]) << 8)
+                              | (uint32_t(s[6][ip_mask+2]) << 16) | (uint32_t(s[6][ip_mask+3]) << 24);
+                    ip_mask += 4;
+                    uint32_t first = uint32_t(w * 32);
+                    if (first + 32 > len) { uint32_t over = first + 32 - len; if ((m >> (32 - over)) != 0) throw std::runtime_error("mask bits beyond copy length"); }
+                    words[w] = m;
+                    pc += std::popcount(m);
+                }
+                if (pc > s[7].size() - ip_res) throw std::runtime_error("truncated residual stream");
+                size_t start = out.size() - len; // copy destination start
+                for (uint64_t w = 0; w < nwords; ++w) {
+                    uint32_t m = words[w];
+                    while (m) {
+                        uint32_t b = std::countr_zero(m);
+                        out[start + uint32_t(w * 32) + b] = s[7][ip_res++];
+                        m &= m - 1;
+                    }
+                }
+            }
+        } else throw std::runtime_error("unknown shape token type");
+    }
+    if (out.size() != out_len || ip_ll != s[1].size() || ip_ml != s[2].size() || ip_df != s[3].size()
+       || ip_dv != s[4].size() || ip_lit != s[5].size() || ip_mask != s[6].size() || ip_res != s[7].size())
+        throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
 // ---- R3: measured-cost single-pass MDL parser (--parse=mdl) ---------------
 // Replaces the global DP's heuristic costs with costs MEASURED from the actual
 // downstream rANS stream construction: after each single-pass greedy parse we
@@ -1020,6 +1179,7 @@ struct Options {
     std::string literal="auto"; // auto|o0|o1|g4|g8|g16
     std::string entropy="auto"; // auto|arith|rans
     uint32_t surprise=12;  // parser mismatch/surprise budget (entropy-control var; swept -> 12 beats 6 on corpus)
+    uint32_t shape_states=28; // mode-12 per-shape displacement states (28 = per-shape, 1 = generic/FLAG-D control)
     bool boundary=false;   // boundary-aligned candidate generation (C5; measured neutral on corpus)
     bool negate=true;      // difference-cover negative gate for incompressible blocks (C5)
     bool quiet=false;
@@ -1094,13 +1254,31 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         };
         if(opt.parse=="auto" || opt.parse=="greedy") consider_parse(parse_greedy(block,opt.max_chain,opt.max_match));
         if(opt.parse=="auto" || opt.parse=="dp") consider_parse(parse_dp(block,opt.max_chain,opt.max_match));
-        if(opt.parse=="auto" || opt.parse=="mdl") consider_parse(parse_mdl(block,opt.max_chain,opt.max_match,3,opt.boundary));
+        std::vector<Token> mdl_toks; bool have_mdl=false;
+        if(opt.parse=="auto" || opt.parse=="mdl") { mdl_toks=parse_mdl(block,opt.max_chain,opt.max_match,3,opt.boundary); have_mdl=true; consider_parse(mdl_toks); }
+        std::vector<SparseToken> sp_toks; bool have_sp=false;
         if(opt.parse=="auto" || opt.parse=="sparse") {
-            auto stoks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary);
-            auto payload=encode_tokens_sparse(block,stoks);
-            std::vector<Token> t; t.reserve(stoks.size());
-            for(auto&s:stoks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+            sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary); have_sp=true;
+            auto payload=encode_tokens_sparse(block,sp_toks);
+            std::vector<Token> t; t.reserve(sp_toks.size());
+            for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
             if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),11};
+        }
+        // Mode 12 (SHAPE): per-shape displacement prediction over either the
+        // sparse parse (types 0/1/2) or the mdl parse (exact-only).
+        if(opt.parse=="auto" || opt.parse=="shape") {
+            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary); have_sp=true; }
+            if(!have_mdl) { mdl_toks=parse_mdl(block,opt.max_chain,opt.max_match,3,opt.boundary); have_mdl=true; }
+            auto try_shape=[&](const std::vector<SparseToken>& st){
+                auto payload=encode_tokens_shape(block,st,opt.shape_states);
+                std::vector<Token> t; t.reserve(st.size());
+                for(auto&s:st) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+                if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),12};
+            };
+            try_shape(sp_toks);
+            std::vector<SparseToken> st2; st2.reserve(mdl_toks.size());
+            for(auto&x:mdl_toks) st2.push_back({static_cast<uint8_t>(x.match?1:0), x.pos, x.len, x.dist, {}, {}});
+            try_shape(st2);
         }
         if(best.mode==0) throw std::runtime_error("no encoder candidate");
 
@@ -1144,6 +1322,8 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
             b=decode_tokens_rans(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else if(mode==11) {
             b=decode_tokens_sparse(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
+        } else if(mode==12) {
+            b=decode_tokens_shape(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else throw std::runtime_error("unknown block mode");
         if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
         out.insert(out.end(),b.begin(),b.end()); p+=plen;
@@ -1164,11 +1344,11 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--boundary=on|off] [--negate=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
-              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
-              << "  note: --parse=sparse emits block mode 11 (SPARSE-REF); --parse=mdl is the measured-cost single-pass parser (mode 10)\n"
-              << "  note: --surprise=N is the sparse-parser mismatch budget (default 6); --boundary/--negate are C5 adopts\n";
+              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
+              << "  note: sparse->mode 11, shape->mode 12 (per-shape displacement prediction); --shape-states=1 is the FLAG-D control\n"
+              << "  note: --surprise=N is the sparse-parser mismatch budget (default 12); --boundary/--negate are C5 adopts\n";
 }
 
 } // namespace anvil
@@ -1188,14 +1368,16 @@ int main(int argc,char**argv) {
             else if(a.rfind("--chain=",0)==0)opt.max_chain=std::stoul(a.substr(8));
             else if(a.rfind("--max-match=",0)==0)opt.max_match=std::stoul(a.substr(12));
             else if(a.rfind("--surprise=",0)==0)opt.surprise=std::stoul(a.substr(11));
+            else if(a.rfind("--shape-states=",0)==0)opt.shape_states=std::stoul(a.substr(15));
             else if(a.rfind("--boundary=",0)==0)opt.boundary=(a.substr(11)!="off");
             else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
-        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl")throw std::runtime_error("parse must be auto, dp, greedy, sparse or mdl");
+        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl or shape");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
         if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans"&&opt.entropy!="sparse")throw std::runtime_error("entropy must be auto, arith, rans or sparse");
+        if(opt.shape_states!=1 && opt.shape_states!=28)throw std::runtime_error("shape-states must be 1 or 28");
         if(cmd=="c") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);

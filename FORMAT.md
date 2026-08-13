@@ -29,8 +29,39 @@ Block modes:
 - `5`: arithmetic backend, order-1 gated after 16 observations
 - `10`: separated-stream static rANS backend
 - `11`: SPARSE-REF backend (approximate self-reference with sparse correction)
+- `12`: SHAPE backend (per-shape displacement prediction; arch, iteration 2)
 
 Unknown modes are rejected.
+
+## SHAPE token backend (mode 12)
+
+Mode 12 (landed by `arch` during iteration 2) is the SPARSE-REF token model with
+a shape-conditional distance coder. Payload = 1 header byte (`num_states`, must
+be `1` or `28`) followed by 8 substreams, each serialized with the per-stream
+codec (raw or static order-0 rANS):
+
+1. token types (0 literal run, 1 exact match, 2 sparse-corrected match)
+2. literal-run length, uvarint(len-1)
+3. match length, uvarint(len-4) [types 1,2]
+4. distance flags: 0 = first-absolute, 1 = reuse-last, 2 = signed delta [types 1,2]
+5. distance varints: absolute `uvarint(dist-1)` or zigzag `uvarint(delta)` [types 1,2]
+6. literal bytes
+7. correction masks (flat 32-bit words, 4 B per 32 B of phrase) [type 2]
+8. residual bytes, popcount(mask) per type-2 token [type 2]
+
+Distance prediction: each match's shape = `(type-1)*14 + len_class(len)` when
+`num_states == 28` (len_class buckets lengths 4..65535 into 14 doubling
+classes), or shape 0 for all matches when `num_states == 1` (the generic
+single-state control). Each shape keeps a last-displacement state (init 0 =
+unset). Flag 0 codes an absolute distance (first occurrence of the shape) and
+sets the state; flag 1 reuses the state exactly; flag 2 codes a signed delta
+(zigzag: `dlt>=0 ? 2*dlt : -2*dlt-1`) from the state and updates it.
+
+Decoder strictness: `num_states` in {1,28}; delta before first absolute or
+before reuse rejected; zigzag decode bounds-checked; `dist in [1, out.size()]`;
+type-2 invariants identical to mode 11 (mask bits beyond len rejected,
+`len(residuals) == popcount(mask)`, full substream consumption, CRC). Decode
+cost is one state-table lookup + add per match — LZ-class.
 
 ## Arithmetic token backend
 
