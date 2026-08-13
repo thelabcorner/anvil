@@ -436,3 +436,54 @@ Each claim below states the mechanism, the evidence, and the honest verdict.
 *End of consolidation. Ledger remains the living record; future experiments
 append to Part I, and this Part II is updated when a new mechanism clears the
 gate with Windows evidence.*
+
+---
+
+# PART III — Iteration 2 experiments (throughput architecture)
+
+## Experiment G — Cheap adopts (I2-3): surprise-budget sweep, boundary candidates, negative gate
+
+**Gate pre-registration:** agenda PART II I2-3 — engineering-value gate:
+each adopt ON/OFF; encode Δ must be real, ratio Δ must be ~0; random/repeat
+controls no-regression. Mechanism-level novelty is LOW by design; the gate
+passes on measured engineering value.
+
+**G1 — Surprise-budget sweep (`--surprise=N`):** exposed by arch (scales
+find_sparse dead-band + max corrections per sparse candidate). Swept
+{3,5,6,8,12,16,24,32} on the record corpus.
+
+| budget | json | jsonl | log | sqlite |
+|---|---:|---:|---:|---:|
+| 6 (old default) | 0.1638 | 0.0862 | 0.0952 | 0.2261 |
+| **12 (new default)** | **0.1522** | **0.0821** | **0.0920** | **0.2185** |
+| Δ | −7.1% | −4.8% | −3.4% | −3.4% |
+
+Aggregate **−4.24%** on the 4 record files; +1.3% on src.cpp (expected —
+code is not record-structured). **Direction note (semantic, not a
+contradiction):** Linux reported budget 5/3 beating 6, but their budget is
+the shape-predict *mismatch budget*; arch's is the sparse-match
+tolerance/max-corrections — different quantities, both moving their own
+cost model correctly. Verdict: **ADOPTED** (default 12, knob stays exposed
+— "sweep, don't hand-tune" honored). Round-trip verified + fuzzed.
+
+**G2 — Boundary-aligned candidate generation:** boundary-indexed hash (token
+starts ±8, per the 66-92% Linux claim) unioned with the full hash.
+**Measured: byte-identical output on every corpus file vs off.** The mdl DP's
+measured near-distance costs already subsume the alignment signal. Verdict:
+**NOT ADOPTED — recorded as a measured non-result** (the mechanism adds
+nothing on this codebase; the claim it was derived from — LZ sources align
+to token starts — is real but already exploited by the measured-cost parser).
+This is a legitimate falsifiable failure: kept in the ledger with the reason.
+
+**G3 — Mod-64-style negative gate:** content-hash probe (~1024 samples;
+≥99% distinct → raw block, skip all parses). **Output byte-identical
+everywhere** (never skips a compressible block on the corpus); random.bin
+auto-mode encode 0.525 → 381.7 MB/s (**727x**) with identical bytes.
+Verdict: **ADOPTED** (default on). **Bench note:** random.bin encode speed
+in the next suite run jumps ~700x (was ~21 MB/s, now ~380 MB/s) — the gate
+fires inside compress(), so bench_native picks it up for free.
+
+**I2-3 gate result:** 2 of 3 adopts pass (G1, G3 — real encode/ratio value,
+no regression); G2 is an honest measured non-result recorded with its
+reason. All round-trip verified + fuzzed (350 canonical + 270 sparse + 270
+mdl variants PASS) before claims.
