@@ -598,10 +598,10 @@ static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
     return z.size()<raw.size()?z:raw;
 }
 
-static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e) {
+static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size_t max_n) {
     if(p>=e) throw std::runtime_error("truncated stream header");
     uint8_t mode=*p++; uint64_t raw_n=get_uvar(p,e);
-    if(raw_n>(1ull<<32))throw std::runtime_error("stream too large");
+    if(raw_n>max_n)throw std::runtime_error("stream too large"); // DoS guard: bound by block out_len
     if(mode==0){if(raw_n>uint64_t(e-p))throw std::runtime_error("truncated raw stream");std::vector<uint8_t>o(p,p+raw_n);p+=raw_n;return o;}
     if(mode!=1)throw std::runtime_error("unknown stream codec");
     uint64_t nz=get_uvar(p,e); if(nz>256)throw std::runtime_error("bad rANS model"); RansModel m; uint32_t sum=0;
@@ -622,7 +622,8 @@ static std::vector<uint8_t> encode_tokens_rans(const std::vector<uint8_t>&d,cons
 
 static std::vector<uint8_t> decode_tokens_rans(const uint8_t*p,size_t n,size_t out_len){
     const uint8_t*e=p+n;std::array<std::vector<uint8_t>,5>s;
-    for(int i=0;i<5;++i){uint64_t zn=get_uvar(p,e);if(zn>uint64_t(e-p))throw std::runtime_error("truncated substream");const uint8_t*q=p;const uint8_t*qe=p+zn;s[i]=decode_stream(q,qe);if(q!=qe)throw std::runtime_error("substream trailing bytes");p+=zn;}
+    const size_t max_sub=16*out_len+64; // provable per-substream bound: varints(<=10B)*tokens(<=out_len) + literals
+    for(int i=0;i<5;++i){uint64_t zn=get_uvar(p,e);if(zn>uint64_t(e-p))throw std::runtime_error("truncated substream");const uint8_t*q=p;const uint8_t*qe=p+zn;s[i]=decode_stream(q,qe,max_sub);if(q!=qe)throw std::runtime_error("substream trailing bytes");p+=zn;}
     if(p!=e)throw std::runtime_error("payload trailing bytes");
     size_t ip_ll=0,ip_ml=0,ip_ds=0,ip_lit=0;std::vector<uint8_t>out;out.reserve(out_len);
     for(uint8_t type:s[0]){
@@ -692,11 +693,12 @@ static std::vector<uint8_t> encode_tokens_sparse(const std::vector<uint8_t>& d, 
 static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, size_t out_len) {
     const uint8_t* e=p+n;
     std::array<std::vector<uint8_t>,7> s;
+    const size_t max_sub=16*out_len+64; // masks <= out_len/8+4/token, residuals <= out_len, varints <= 10/token
     for(int i=0;i<7;++i) {
         uint64_t zn=get_uvar(p,e);
         if(zn>uint64_t(e-p)) throw std::runtime_error("truncated substream");
         const uint8_t* q=p; const uint8_t* qe=p+zn;
-        s[i]=decode_stream(q,qe);
+        s[i]=decode_stream(q,qe,max_sub);
         if(q!=qe) throw std::runtime_error("substream trailing bytes");
         p+=zn;
     }
@@ -750,6 +752,123 @@ static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, siz
        ||ip_lit!=s[4].size()||ip_mask!=s[5].size()||ip_res!=s[6].size())
         throw std::runtime_error("substream consumption mismatch");
     return out;
+}
+
+// ---- R3: measured-cost single-pass MDL parser (--parse=mdl) ---------------
+// Replaces the global DP's heuristic costs with costs MEASURED from the actual
+// downstream rANS stream construction: after each single-pass greedy parse we
+// build the five separated streams (types/lit-len/match-len/dist/literals) and
+// measure per-symbol empirical entropies; the next pass re-parses with those
+// measured costs. All state is per-block and cache-resident; iterative
+// refinement converges in a few passes at greedy-class speed (the DP is O(block)
+// with global lookahead, this is O(block) with bounded single-edge lookahead).
+
+struct MdlCosts {
+    std::array<double,256> lit{};   // measured cost per literal byte value
+    std::array<double,256> ttype{}; // measured cost per token type symbol
+    std::array<double,256> ll{};    // measured cost per lit-run varint byte value
+    std::array<double,256> ml{};    // measured cost per match-len varint byte value
+    std::array<double,256> ds{};    // measured cost per dist varint byte value
+};
+
+static double varint_cost_ms(uint64_t x, const std::array<double,256>& m) {
+    double c=0.0;
+    for(;;) {
+        uint8_t b=static_cast<uint8_t>(x&0x7F); x>>=7;
+        if(x) b|=0x80;
+        c+=m[b];
+        if(!x) break;
+    }
+    return c;
+}
+
+static void measure_stream_costs(const std::vector<uint8_t>& v, std::array<double,256>& out) {
+    if(v.empty()) { std::fill(out.begin(),out.end(),8.0); return; }
+    std::array<uint64_t,256> cnt{};
+    for(auto b:v) ++cnt[b];
+    double tot=double(v.size());
+    for(int i=0;i<256;++i)
+        out[i]=cnt[i]?std::clamp(-std::log2(double(cnt[i])/tot),0.1,16.0):20.0; // absent syms never chosen
+}
+
+// Build the five mode-10 streams from a token sequence; return the measured
+// per-stream costs plus the raw stream byte total (a faithful MDL proxy for the
+// eventual rANS payload size).
+static std::pair<MdlCosts,size_t> measure_parse(const std::vector<uint8_t>& d, const std::vector<Token>& toks) {
+    std::vector<uint8_t> types,ll,ml,ds,lits;
+    types.reserve(toks.size());
+    for(auto&t:toks) {
+        types.push_back(t.match?1:0);
+        if(t.match){ append_varint_bytes(ml,t.len-4); append_varint_bytes(ds,t.dist-1); }
+        else { append_varint_bytes(ll,t.len-1); lits.insert(lits.end(),d.begin()+t.pos,d.begin()+t.pos+t.len); }
+    }
+    MdlCosts c;
+    measure_stream_costs(types,c.ttype);
+    measure_stream_costs(ll,c.ll);
+    measure_stream_costs(ml,c.ml);
+    measure_stream_costs(ds,c.ds);
+    measure_stream_costs(lits,c.lit);
+    size_t total=types.size()+ll.size()+ml.size()+ds.size()+lits.size();
+    return {c,total};
+}
+
+static std::vector<Token> parse_mdl_pass(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, const MdlCosts& c) {
+    const uint32_t n=static_cast<uint32_t>(d.size());
+    std::vector<Token> toks;
+    if(n==0) return toks;
+    std::vector<double> pref(n+1,0.0); // prefix sums of measured literal cost
+    for(uint32_t i=0;i<n;++i) pref[i+1]=pref[i]+c.lit[d[i]];
+    MatchFinder mf(d,max_chain,max_match);
+    static constexpr uint32_t cuts[] = {4,5,6,8,12,16,24,32,48,64,96,128,192,256,384,512,768,1024,1536,2048,3072,4096,6144,8192,12288,16384,24576,32768,49152,65535};
+    uint32_t i=0;
+    while(i<n) {
+        auto ms=mf.find(i);
+        // Greedy edge choice: pick the (candidate,length) with max savings over
+        // coding the same span as one literal run, using measured costs.
+        double best_save=0.0; uint32_t blen=0,bdist=0;
+        for(const auto&m:ms) {
+            std::array<uint32_t,32> lens{}; size_t nl=0;
+            for(uint32_t ct:cuts) if(ct<=m.len) lens[nl++]=ct;
+            if(nl==0||lens[nl-1]!=m.len) lens[nl++]=m.len;
+            for(size_t k=0;k<nl;++k) {
+                uint32_t L=lens[k];
+                double run_lit=(pref[i+L]-pref[i])+c.ttype[0]+varint_cost_ms(L-1,c.ll);
+                double mc=c.ttype[1]+varint_cost_ms(L-4,c.ml)+varint_cost_ms(m.dist-1,c.ds);
+                double save=run_lit-mc;
+                if(save>best_save){best_save=save;blen=L;bdist=m.dist;}
+            }
+        }
+        if(best_save>0 && blen>=4) {
+            toks.push_back({true,i,blen,bdist});
+            uint32_t end=i+blen;
+            for(uint32_t p=i;p<end;++p) mf.insert(p);
+            i=end;
+        } else {
+            if(!toks.empty() && !toks.back().match && toks.back().pos+toks.back().len==i) ++toks.back().len;
+            else toks.push_back({false,i,1,0});
+            mf.insert(i);
+            ++i;
+        }
+    }
+    return toks;
+}
+
+static std::vector<Token> parse_mdl(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match, uint32_t iters=3) {
+    const uint32_t n=static_cast<uint32_t>(d.size());
+    if(n==0) return {};
+    MdlCosts c;
+    std::array<uint32_t,256> hist{}; for(auto b:d) ++hist[b];
+    for(int b=0;b<256;++b) { double p=(hist[b]+0.5)/(double(n)+128.0); c.lit[b]=std::clamp(-std::log2(p),1.0,9.5); }
+    std::fill(c.ttype.begin(),c.ttype.end(),1.0);
+    for(int i=0;i<256;++i){ c.ll[i]=5.25; c.ml[i]=5.25; c.ds[i]=5.25; }
+    std::vector<Token> best; size_t best_total=SIZE_MAX;
+    for(uint32_t it=0;it<iters;++it) {
+        auto toks=parse_mdl_pass(d,max_chain,max_match,c);
+        auto [cm,total]=measure_parse(d,toks);
+        if(total<best_total){ best_total=total; best=std::move(toks); }
+        if(it+1<iters) c=cm; // re-parse with measured costs next pass
+    }
+    return best;
 }
 
 static uint32_t gate_threshold(uint8_t lit_mode) {
@@ -850,6 +969,7 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         };
         if(opt.parse=="auto" || opt.parse=="greedy") consider_parse(parse_greedy(block,opt.max_chain,opt.max_match));
         if(opt.parse=="auto" || opt.parse=="dp") consider_parse(parse_dp(block,opt.max_chain,opt.max_match));
+        if(opt.parse=="auto" || opt.parse=="mdl") consider_parse(parse_mdl(block,opt.max_chain,opt.max_match));
         if(opt.parse=="auto" || opt.parse=="sparse") {
             auto stoks=parse_sparse(block,opt.max_chain,opt.max_match);
             auto payload=encode_tokens_sparse(block,stoks);
@@ -879,6 +999,9 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
     uint64_t block_size=get_uvar(p,e);
     if(block_size==0 || block_size>(64ull<<20)) throw std::runtime_error("invalid block size");
     uint64_t total=get_uvar(p,e); if(total>std::numeric_limits<size_t>::max()) throw std::runtime_error("output too large");
+    // DoS guard: output cannot legitimately exceed (max blocks) * (max block size);
+    // each block needs >= 7 header bytes, block_size is capped at 64 MiB.
+    if(total > ((uint64_t)in.size()/7 + 2) * (1ull<<26)) throw std::runtime_error("declared size exceeds amplification bound");
     std::vector<uint8_t> out; out.reserve(static_cast<size_t>(std::min<uint64_t>(total,64ull<<20)));
     while(out.size()<total) {
         uint64_t blen=get_uvar(p,e); if(blen==0 || blen>block_size) throw std::runtime_error("invalid block length");
@@ -916,10 +1039,10 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans] [--block=N] [--chain=N] [--max-match=N] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
-              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans]\n"
-              << "  note: --parse=sparse emits block mode 11 (SPARSE-REF); --literal/--entropy do not apply to it\n";
+              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
+              << "  note: --parse=sparse emits block mode 11 (SPARSE-REF); --parse=mdl is the measured-cost single-pass parser (mode 10)\n";
 }
 
 } // namespace anvil
@@ -941,7 +1064,7 @@ int main(int argc,char**argv) {
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
-        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse")throw std::runtime_error("parse must be auto, dp, greedy or sparse");
+        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl")throw std::runtime_error("parse must be auto, dp, greedy, sparse or mdl");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
         if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans"&&opt.entropy!="sparse")throw std::runtime_error("entropy must be auto, arith, rans or sparse");
         if(cmd=="c") {

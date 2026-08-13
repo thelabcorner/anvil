@@ -28,7 +28,7 @@ Block modes:
 - `4`: arithmetic backend, order-1 gated after 8 observations
 - `5`: arithmetic backend, order-1 gated after 16 observations
 - `10`: separated-stream static rANS backend
-- `11`: separated-stream static rANS backend with sparse-corrected matches (SPARSE-REF)
+- `11`: SPARSE-REF backend (approximate self-reference with sparse correction)
 
 Unknown modes are rejected.
 
@@ -108,7 +108,7 @@ Strict bounds (see the decoder audit, `deliverable/t-format`):
 
 - `block_size` is bounded to `[1, 64 MiB]`; every block length must satisfy
   `1 <= blen <= block_size` and `blen <= total - out.size()`.
-- Declared `total` must be plausible for the input: `total <= (in.size()/7 + 1) * 2^26`.
+- Declared `total` must be plausible for the input: `total <= (in.size()/7 + 2) * 2^26`.
   The minimum block header is 7 bytes (length varint + mode + payload-length
   varint + 4-byte CRC), and `blen` cannot exceed the 64 MiB block cap, so no
   well-formed encoder output can exceed this bound; it is a guard against
