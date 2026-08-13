@@ -635,6 +635,20 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   per US7676506B2) and the claim FAILS the gate; if implicit materially
   beats transmitted, the self-referential implicit-parameter claim
   stands. Windows A/B is the arbiter (FLAG-B).
+- **External corroboration (coordinator, docs/priorart-tcopy-external.md,
+  committed):** independent web pass CONFIRMS the patent gate — no prior
+  art teaches single-file self-referential implicit-Δ transformed copy.
+  Adds: Microsoft lineage (US7861224B2 "delta compression using multiple
+  pointers"; US20050022175A1/US7600225B2/EP1501196A1 intra-package delta;
+  symbol-aware executable delta US 6,466,999 — two-file, full claims not
+  retrieved); Apple dyld chained-pointer relocation compaction
+  (close-but-different: pointer/rebase METADATA, not LZ-copied bytes);
+  BCJ/E8-E9 public-domain confirmation (LZMA SDK 4.62, Dec 2008, global
+  pre-LZ). Coverage gaps flagged for the record: US 6,466,999 full claims;
+  Qualcomm/IBM targeted queries; Apple chained-fixup patent number;
+  Espacenet/lens.org not queried; FTO attorney review still recommended.
+  **Residual gaps are OPEN items for the binary-lane gate, not blockers
+  on the narrowed claim's current status (CONDITIONAL PASS).**
 
 ## Iteration-2 sequencing (as scheduled)
 

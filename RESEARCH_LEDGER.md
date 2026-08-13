@@ -755,6 +755,24 @@ novelty is NARROW-to-NONE — flag for the binary-lane gate; (3) this is a
 literature/patent-classification gate, NOT legal advice — freedom-to-operate
 attorney review recommended before any commercial claim.
 
+**External corroboration (coordinator, docs/priorart-tcopy-external.md,
+committed):** an independent web-research pass CONFIRMS the gate verdict —
+no prior art found teaching single-file self-referential implicit-Δ
+transformed copy. Additional families recorded: Microsoft US7861224B2
+("delta compression using multiple pointers") + intra-package delta
+(US20050022175A1/US7600225B2/EP1501196A1) + the symbol-aware executable
+delta US 6,466,999 (two-file; full claims NOT retrieved — open item);
+Apple dyld chained-pointer relocation compaction (close-but-different:
+compresses pointer/rebase METADATA via linked lists in unused pointer
+bits, NOT LZ-copied instruction bytes whose branch-immediate differs by
+−distance); BCJ/E8-E9 public-domain confirmation (LZMA SDK 4.62, Dec
+2008, global pre-LZ — boundary confirmed). Coverage gaps flagged for the
+record: US 6,466,999 full claims; dedicated Qualcomm/IBM queries; Apple
+chained-fixup patent number; Espacenet/lens.org not queried. Residual
+gaps are OPEN items for the binary-lane gate, not blockers on the
+current CONDITIONAL-PASS status. FTO attorney review remains
+recommended.
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — CORRECTED (v2): FULL PASS at pre-registered λ=0.01
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-
