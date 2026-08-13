@@ -1521,3 +1521,75 @@ streams compress ~44-46% under the context model. Decode ~3-10% slower
 - **No Pareto claim.** Bench: suite rows shift materially (ratio down
   8-16% on record files) — re-baseline needed; `--stream-ctx=off` gives
   the old sizes.
+
+---
+
+# PART VI — t4-ledger consolidation: iteration-4 narrative, novelty claims, honest Pareto verdict
+
+*Skeleton drafted by `research` (t4-ledger) pre-registration — numbers are
+NOT yet in. Filled from the swarm's Iteration-4 measurements when t4-bench
+lands (blocked on t4-srr → t4-orbit). Source of truth will be
+`tests/benchmark-suite.csv` (Iteration-4 rows) + `tests/benchmark-summary.csv`
++ `tests/pareto-verdict.csv` + `tests/pareto-baseline.csv` + `tests/noise-floor.csv`.
+Nothing below is claimed; every slot is pre-registered per the I4 gate
+(Experiment Q / agenda PART IV).*
+
+## 1. Iteration-4 narrative (mission: close the throughput leg, open Orbit-Program)
+
+The mission (coordinator, docs/ORBIT_PROGRAM_COMPRESSION.md): EXTENDS_FRONT
+on at least one plane on at least one file class. Four pre-registered
+mechanisms + the regression:
+
+1. **t4-hotop (I4-1, compiled hot-op instruction book):** Experiment R —
+   **PARTIAL PASS.** 1.17-1.34x decode vs fused mode-12, ~1.6-1.9x vs the
+   t3-fuse start, at near-preserved ratio (log even −0.1%). Pre-registered
+   ≥2x target NOT met — floor is opcode-stream entropy decode + copy
+   throughput; the recorded lever is I4-3's J-economics applied to the
+   hot-opcode stream itself.
+2. **t4-srr (I4-2, SRR synchronized structural probe):** *[FILL — arch
+   working. Pre-registered targets: R2 retest (mode 13) beats flat-A on
+   record files recovering the +2.2% headroom; mask-recurrence above the
+   flat 12.3%; TCOPY density retest on .text.]*
+3. **t4-entropy (I4-3, single context-switched literal coder):** Experiment
+   S — **RATIO PASS (strongest single mechanism to date).** −8.3% to −16.2%
+   on record files; J-faithfulness preserved (825/825, 300/300); decode
+   ~3-10% slower (DECODE PARTIAL, not the throughput primitive). No Pareto
+   claim.
+4. **t4-orbit (I4-4, Orbit-LZ multi-invariant anchoring):** *[FILL — blocked
+   on t4-srr. Pre-registered targets: per-invariant ablation improves
+   end-to-end bits on its class at O(1) parser cost, attributable to the
+   invariant; unified MDL beats single-index baselines; LZ = identity
+   special case reproduces the exact-match baseline.]*
+
+## 2. Iteration-4 regression results (bench, median-3 — the arbiter)
+
+*[FILL — pending t4-bench. Placeholder row set mirrors Iteration-3; expect
+record-file ratio rows to shift down 8-16% on stream-mode-6 rows
+(--stream-ctx=on) vs the t3 baseline, per Experiment S.]*
+
+## 3. Consolidated Iteration-4 novelty claims
+
+*[FILL after t4-bench. Pre-registered claim positions:*
+
+- **C14 — Compiled hot-op instruction book (I4-1): PARTIAL PASS** (recorded
+  Experiment R) — validated decode accelerator; ≥2x target unmet; no Pareto
+  claim.
+- **C15 — SRR synchronized structural probe (I4-2):** *[verdict pending
+  t4-srr]* — if targets met, unblocks R2 topology + TCOPY density retest.
+- **C16 — Context-switched literal coder (I4-3): RATIO PASS** (recorded
+  Experiment S) — strongest single mechanism; decode leg unmet; no Pareto
+  claim.
+- **C17 — Orbit-LZ multi-invariant anchoring (I4-4):** *[verdict pending
+  t4-orbit]*.
+
+*]*
+
+## 4. The honest Iteration-4 verdict
+
+*[FILL after t4-bench — the I4 gate binds: EXTENDS_FRONT on at least one
+plane on at least one file class, decided by bench's Pareto tools against
+the pre-registered targets; every failure recorded with reason.]*
+
+*End of iteration-4 skeleton. Numbers slot in on t4-bench; claims require
+pre-registration, Windows A/B evidence, round-trip + fuzz, and an
+EXTENDS_FRONT verdict.*
