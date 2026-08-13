@@ -315,6 +315,69 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   hundreds of thousands of tiny 4–7 B exact tokens from the sidecar; with
   ~19 KB of q4 rate headroom, sweep the minimum exact-match length to spend
   surplus on fewer decoder instructions/search updates.
+- **PNRA — Position-Normalized Relocation Anchoring / Transformation-Invariant
+  Temporal Anchoring (NEW, strongest mechanism-level advance; Linux .text,
+  directional)** — the idea that changes generalized-reference discovery:
+  for a TCOPY field with v_dst = v_src − (p−q), the quantity v + absolute
+  field position is INVARIANT. So hash fields into a representation already
+  invariant to the transform being discovered — no approximate-nearest-
+  neighbor byte matching needed. Prototypes (prototypes/pnra/ in this repo):
+  - Single-anchor PNRA: raw-history TCOPY 1,766,167 B → PNRA-only 1,741,092 B
+    → combined 1,730,689 B vs brotli q4 1,781,130 B (combined ~50 KB below
+    q4). Naive version too expensive (single normalized CALL target
+    insufficiently selective — common callees → huge candidate populations).
+  - Two-anchor invariant (K1, K2, Δf) with K_i = v_i + position(v_i) and Δf
+    the spacing between transformed fields: far more selective; empirically
+    2,862/4,583 transformed phrases contain ≥2 E8/E9 fields. Pair-index:
+    1,755,244 B @ ~29.5 MB/s parser / ~279 MB/s decoder, only ~186k
+    expensive verifications; aggressive one-pair config ~1,769,263 B @ ~34.6
+    MB/s parser.
+  - EVENT-DRIVEN PNRA (invert the computation: structural event → historical
+    invariant match → candidate synthesis → O(1) parser lookup): only
+    ~115,490 relevant relocation-pair events in 3.26 MB .text vs ~1.4M
+    parser decision positions. Measured: 13,752 matching pair signatures,
+    13,752 verifications, 5,581 precomputed candidates, 2,751 selected
+    TCOPYs; candidate generation ~474 MB/s. Full experiment: 1,794,886 B vs
+    q4 1,781,130 B (gives back ~13.8 KB; encode ~39.3 vs ~60 MB/s; decode
+    ~270 vs ~267 MB/s) — does not beat q4 YET, but transformed-search is no
+    longer the dominant encoder bottleneck; ordinary exact-match
+    history/parsing is now the expensive component.
+  - **Formulation: Transformation-Invariant Temporal Anchoring.** Derive
+    I(x,p) such that I(T(x,θ), p') = I(x,p) for the relevant transform;
+    build the temporal dictionary over I, not raw bytes. Changes discovery
+    from "candidate generation → expensive approximate verification →
+    discover transformation" into "transformation invariant → exact hash
+    lookup → cheap verification". Ordinary LZ = identity-transform special
+    case. Broader program: derive cheap invariants for useful transformation
+    families and index equivalence classes of generative explanations.
+  - Next frontier (the asymmetry): make exact history event/admission-driven
+    too, or derive raw-match invariants so ANVIL stops indexing every byte —
+    expensive temporal state only for information with demonstrated
+    predictive value.
+  - Gate note: mechanism-level novelty candidate (new search formulation —
+    invariant-based indexing). Pre-register at the gate; the C1/TCOPY
+    separators now include "transformation-invariant anchoring" as an
+    enabling primitive.
+  - NEWEST BOUNDARY + STRATEGY (Linux, .text): (a) Decoupled search
+    experiment — PNRA + a small raw-matchability cache restores
+    transformed-reference density but does NOT improve encode enough (best
+    tested gate still ~28–34 MB/s end-to-end, only approaching q4 density);
+    ordinary exact-history search is the residual encoder cost. (b)
+    RE-TARGET: brotli q6 encodes .text at only ~18.7 MB/s — ANVIL's
+    transformed search is already faster than that. The favorable comparison
+    is q6-class density at ~300 MB/s decode, not chasing q4-class encode.
+    Combined rate budget under study: TCOPY/PNRA + executable normalization
+    + ONE physical context-switched literal coder (single context-switched
+    stream, NOT multi-stream fan-out — the rejected fan-out stays rejected).
+    (c) Reduced exact-depth test: one/two-candidate exact table + PNRA may
+    preserve q4-class density; K=1/K=2 still allocate four positions per
+    hash bucket (hardwired bucket type — implementation-era artifact);
+    specialize the temporal table width PHYSICALLY (K=1 → ~1 MB direct table
+    instead of ~4 MB four-slot) — no candidate-decision change, pure cache
+    economics test. (d) The event-driven inversion stands as the algorithmic
+    step: search work proportional to structural events (~115k relocation
+    pairs in 3.26 MB .text) rather than input length (~1.4M parser
+    positions); parser does O(1) candidate lookup at phrase starts.
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
