@@ -117,9 +117,30 @@ Tokens are de-interleaved into five logical streams:
 4. match-distance varint bytes
 5. literal bytes
 
-Each stream independently chooses raw storage or a static order-0 byte rANS representation. rANS uses a 12-bit normalized frequency space (4096 states) and byte renormalization with `RANS_L = 1 << 23`. Frequency tables are serialized with only nonzero symbols.
+Each stream independently chooses a codec from the **stream suite** (arch, iteration 2; `--stream-suite` and `ANVIL_STREAM_LAMBDA` control the encoder selection):
 
-This representation is deliberately asymmetric: the encoder performs parsing and stream construction, while the decoder mostly performs rANS table lookups, varint reads, literal copies, and overlapping match copies.
+| mode | codec | notes |
+|---|---|---|
+| 0 | raw | unchanged |
+| 1 | static order-0 rANS, 12-bit (4096 states), `RANS_L = 1<<23` | the original backend (unchanged wire) |
+| 2 | static order-0 rANS, 9-bit (512 states), `RANS_L = 1<<17` | smaller symtab (cache-resident) |
+| 3 | static order-0 rANS, 8-bit (256 states), `RANS_L = 1<<16` | smallest symtab |
+| 4 | canonical Huffman | 256 code-length bytes header + bitstream; canonical codes by (len, sym) |
+| 5 | default-with-exceptions | 1 default byte + `uvarint nexc` + `ceil(n/8)` mask bytes + `nexc` exception bytes |
+
+Frequency tables for modes 1-3 are serialized with only nonzero symbols. All
+modes carry the decoded length first (`uvarint`). The decoder dispatches on the
+mode byte; unknown modes are rejected.
+
+Encoder selection (per stream): each codec is built and scored by
+`J = L + λ·C_decode·L`, where `L` = encoded byte length, `C_decode` = per-byte
+decode cost units (raw 1, rANS-4096 4, rANS-512 3.5, rANS-256 3, Huffman 2.2,
+default-exc 2.0), and `λ` defaults to 0.04 (`ANVIL_STREAM_LAMBDA` overrides;
+`0` = pure length). The lowest-J codec is chosen.
+
+This representation is deliberately asymmetric: the encoder performs parsing,
+stream construction, and codec selection, while the decoder mostly performs
+codec table lookups, varint reads, literal copies, and overlapping match copies.
 
 ## SPARSE-REF token backend (mode 11)
 

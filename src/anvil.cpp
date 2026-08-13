@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -561,49 +562,55 @@ static ParseStats token_stats(const std::vector<Token>& t) {
     return s;
 }
 
-static constexpr uint32_t kRansScaleBits=12;
-static constexpr uint32_t kRansTot=1u<<kRansScaleBits;
-static constexpr uint32_t kRansL=1u<<23;
+// ---- Precision/work-adaptive entropy (t2-entropy) ---------------------------
+// Stream suite: each substream picks the cheapest codec under
+//   J = L + lambda * C_decode * L     (C_decode = per-byte decode cost units)
+// Codecs: 0 raw, 1 rANS-4096 (existing wire), 2 rANS-512, 3 rANS-256,
+//         4 canonical Huffman, 5 default-with-exceptions.
+struct RansSpec { uint32_t scale_bits; uint32_t tot; uint32_t L; };
+static constexpr RansSpec kRans4096{12, 1u<<12, 1u<<23};
+static constexpr RansSpec kRans512 {9,  1u<<9,  1u<<17};
+static constexpr RansSpec kRans256 {8,  1u<<8,  1u<<16};
 
 struct RansModel {
     std::array<uint16_t,256> freq{};
     std::array<uint16_t,256> start{};
 };
 
-static RansModel build_rans_model(const std::vector<uint8_t>& src) {
+static RansModel build_rans_model(const std::vector<uint8_t>& src, uint32_t tot) {
     RansModel m; if(src.empty()) return m;
     std::array<uint32_t,256> count{}; for(uint8_t b:src)++count[b];
     std::array<double,256> exact{}; uint32_t sum=0;
     for(int i=0;i<256;++i) if(count[i]) {
-        exact[i]=double(count[i])*kRansTot/src.size();
+        exact[i]=double(count[i])*tot/src.size();
         uint32_t f=std::max<uint32_t>(1,static_cast<uint32_t>(std::floor(exact[i])));
         m.freq[i]=static_cast<uint16_t>(f); sum+=f;
     }
-    while(sum<kRansTot) {
+    while(sum<tot) {
         int best=-1; double score=-1e100;
         for(int i=0;i<256;++i) if(count[i]) { double sc=exact[i]-m.freq[i]; if(sc>score){score=sc;best=i;} }
         if(best<0) throw std::runtime_error("rANS normalization underflow");
         ++m.freq[best]; ++sum;
     }
-    while(sum>kRansTot) {
+    while(sum>tot) {
         int best=-1; double score=-1e100;
         for(int i=0;i<256;++i) if(m.freq[i]>1) { double sc=m.freq[i]-exact[i]; if(sc>score){score=sc;best=i;} }
         if(best<0) throw std::runtime_error("rANS normalization overflow");
         --m.freq[best]; --sum;
     }
     uint32_t st=0; for(int i=0;i<256;++i){m.start[i]=static_cast<uint16_t>(st);st+=m.freq[i];}
-    if(st!=kRansTot) throw std::runtime_error("rANS normalization sum");
+    if(st!=tot) throw std::runtime_error("rANS normalization sum");
     return m;
 }
 
-static std::vector<uint8_t> rans_encode(const std::vector<uint8_t>& src,const RansModel&m) {
+static std::vector<uint8_t> rans_encode(const std::vector<uint8_t>& src,const RansModel&m,const RansSpec&sp) {
     if(src.empty())return {};
-    uint32_t x=kRansL; std::vector<uint8_t> emitted; emitted.reserve(src.size()/2+16);
+    uint32_t x=sp.L; std::vector<uint8_t> emitted; emitted.reserve(src.size()/2+16);
     for(size_t ii=src.size();ii-->0;) {
         uint8_t sym=src[ii]; uint32_t f=m.freq[sym], st=m.start[sym];
-        uint32_t x_max=((kRansL>>kRansScaleBits)<<8)*f;
+        uint32_t x_max=((sp.L>>sp.scale_bits)<<8)*f;
         while(x>=x_max){emitted.push_back(static_cast<uint8_t>(x));x>>=8;}
-        x=((x/f)<<kRansScaleBits)+(x%f)+st;
+        x=((x/f)<<sp.scale_bits)+(x%f)+st;
     }
     std::vector<uint8_t> out(4);
     out[0]=static_cast<uint8_t>(x); out[1]=static_cast<uint8_t>(x>>8); out[2]=static_cast<uint8_t>(x>>16); out[3]=static_cast<uint8_t>(x>>24);
@@ -612,30 +619,211 @@ static std::vector<uint8_t> rans_encode(const std::vector<uint8_t>& src,const Ra
     return out;
 }
 
-static std::vector<uint8_t> rans_decode(const uint8_t* p,size_t n,size_t out_n,const RansModel&m) {
+static std::vector<uint8_t> rans_decode(const uint8_t* p,size_t n,size_t out_n,const RansModel&m,const RansSpec&sp) {
     if(out_n==0)return {};
     if(n<4)throw std::runtime_error("truncated rANS state");
     const uint8_t* q=p; const uint8_t* e=p+n; uint32_t x=get_u32le(q,e);
-    std::array<uint8_t,kRansTot> symtab{};
+    std::vector<uint8_t> symtab(sp.tot);
     for(int s=0;s<256;++s) if(m.freq[s]) for(uint32_t j=0;j<m.freq[s];++j)symtab[m.start[s]+j]=static_cast<uint8_t>(s);
     std::vector<uint8_t> out(out_n);
     for(size_t i=0;i<out_n;++i) {
-        uint32_t slot=x&(kRansTot-1); uint8_t sym=symtab[slot]; out[i]=sym;
-        x=uint32_t(m.freq[sym])*(x>>kRansScaleBits)+slot-m.start[sym];
-        while(x<kRansL){ if(q>=e)throw std::runtime_error("truncated rANS renorm"); x=(x<<8)|*q++; }
+        uint32_t slot=x&(sp.tot-1); uint8_t sym=symtab[slot]; out[i]=sym;
+        x=uint32_t(m.freq[sym])*(x>>sp.scale_bits)+slot-m.start[sym];
+        while(x<sp.L){ if(q>=e)throw std::runtime_error("truncated rANS renorm"); x=(x<<8)|*q++; }
     }
     if(q!=e)throw std::runtime_error("trailing rANS bytes");
     return out;
 }
 
+// Canonical Huffman (stream mode 4). Code lengths transmitted as 256 bytes.
+static std::vector<uint8_t> huffman_encode(const std::vector<uint8_t>& src, const std::array<uint8_t,256>& len) {
+    // canonical codes: symbols sorted by (len, sym); code increments per symbol
+    std::array<uint8_t,256> order{};
+    size_t cnt=0;
+    for(int s=0;s<256;++s) if(len[s]) order[cnt++]=uint8_t(s);
+    std::sort(order.begin(), order.begin()+cnt, [&](uint8_t a, uint8_t b){ return len[a]!=len[b] ? len[a]<len[b] : a<b; });
+    std::array<uint32_t,256> code{};
+    uint32_t c=0, clen=0;
+    for(size_t i=0;i<cnt;++i){ while(clen<len[order[i]]){ c<<=1; ++clen; } code[order[i]]=c++; }
+    std::vector<uint8_t> out; out.reserve(src.size()+16);
+    uint64_t acc=0; int nbits=0;
+    for(uint8_t sym:src) {
+        uint32_t cd=code[sym]; int l=len[sym];
+        for(int b=l-1;b>=0;--b){ acc=(acc<<1)|((cd>>b)&1); if(++nbits==64){ for(int k=7;k>=0;--k)out.push_back(uint8_t(acc>>(8*k))); nbits=0; acc=0; } }
+    }
+    if(nbits){ acc<<=(64-nbits); int bytes=(nbits+7)/8; for(int k=0;k<bytes;++k)out.push_back(uint8_t(acc>>(64-8*(k+1)))); }
+    return out;
+}
+
+struct HuffModel {
+    std::array<uint8_t,256> len{};
+    // canonical decode state
+    std::array<uint16_t,256> first_code{}; // first code of each length (as a bit-reversed? no: canonical, read MSB-first)
+    std::array<uint16_t,256> first_sym{};  // first symbol index of each length
+    std::array<uint16_t,256> n_codes{};
+    std::array<uint8_t,256> order{};
+    uint8_t max_len=0, n_ord=0;
+};
+
+static HuffModel build_huff_model(const std::array<uint8_t,256>& len) {
+    HuffModel h; h.len=len;
+    std::array<uint8_t,256> syms{};
+    uint32_t cnt=0;
+    for(int s=0;s<256;++s) if(len[s]) syms[cnt++]=uint8_t(s);
+    std::sort(syms.begin(), syms.begin()+cnt, [&](uint8_t a,uint8_t b){ return len[a]!=len[b] ? len[a]<len[b] : a<b; });
+    h.n_ord=uint8_t(cnt); for(uint32_t i=0;i<cnt;++i) h.order[i]=syms[i];
+    std::array<uint32_t,256> code{};
+    uint32_t c=0, clen=0;
+    for(uint32_t i=0;i<cnt;++i){ while(clen<len[syms[i]]){ c<<=1; ++clen; } code[syms[i]]=c++; if(len[syms[i]]>h.max_len) h.max_len=len[syms[i]]; }
+    uint32_t cur=0;
+    for(int l=1;l<=24;++l){
+        while(cur<cnt && len[syms[cur]]<l) ++cur;
+        if(cur<cnt && len[syms[cur]]==l){ h.first_code[l]=uint16_t(code[syms[cur]]); h.first_sym[l]=uint16_t(cur); uint32_t k=cur; while(k<cnt && len[syms[k]]==l) ++k; h.n_codes[l]=uint16_t(k-cur); }
+    }
+    return h;
+}
+
+static std::vector<uint8_t> huffman_decode(const uint8_t* p, size_t n, size_t out_n, const HuffModel& h) {
+    std::vector<uint8_t> out(out_n);
+    const uint8_t* e=p+n;
+    uint64_t acc=0; int have=0;
+    auto refill=[&](int need){ while(have<need && p<e){ acc=(acc<<8)|*p++; have+=8; } };
+    for(size_t i=0;i<out_n;++i){
+        if (h.max_len <= 12) {
+            refill(12);
+            int win = have; if (win > 12) win = 12;
+            uint32_t code=(uint32_t)((acc>>(have-win)) & ((1u<<win)-1));
+            uint8_t sym=0; int used=-1;
+            for(int l=1;l<=win;++l){
+                if(h.n_codes[l]){
+                    uint32_t sh=win-l;
+                    uint32_t cand=(code>>sh);
+                    if(cand>=h.first_code[l] && cand<h.first_code[l]+h.n_codes[l]){ sym=h.order[h.first_sym[l]+(cand-h.first_code[l])]; used=l; break; }
+                }
+            }
+            if(used<0) throw std::runtime_error("invalid huffman code");
+            have-=used; out[i]=sym;
+        } else {
+            refill(1);
+            uint32_t code=0; uint8_t sym=0; bool found=false;
+            for(int l=1;l<=24;++l){
+                if(have<1) throw std::runtime_error("truncated huffman bits");
+                code=(code<<1)|((uint32_t)((acc>>(have-1))&1));
+                --have; refill(1);
+                if(h.n_codes[l] && code>=h.first_code[l] && code<h.first_code[l]+h.n_codes[l]){ sym=h.order[h.first_sym[l]+(code-h.first_code[l])]; found=true; break; }
+            }
+            if(!found) throw std::runtime_error("invalid huffman code");
+            out[i]=sym;
+        }
+    }
+    return out;
+}
+
+static std::vector<uint8_t> defexc_decode(const uint8_t* p, size_t n, size_t out_n, uint8_t def) {
+    // format: mode 5, uvarint raw_n, byte default, uvarint nexc, ceil(n/8) mask bytes, nexc value bytes
+    const uint8_t* e=p+n;
+    if(p>=e) throw std::runtime_error("truncated defexc");
+    uint64_t nexc=get_uvar(p,e);
+    uint64_t mask_bytes=(out_n+7)/8;
+    if(mask_bytes>uint64_t(e-p)) throw std::runtime_error("truncated defexc mask");
+    if(nexc>uint64_t(e-p)-mask_bytes) throw std::runtime_error("truncated defexc values");
+    const uint8_t* mask=p; p+=mask_bytes;
+    std::vector<uint8_t> out(out_n);
+    for(size_t i=0;i<out_n;++i){
+        if((mask[i>>3]>>(i&7))&1){ out[i]=*p++; }
+        else out[i]=def;
+    }
+    if(p!=e) throw std::runtime_error("trailing defexc bytes");
+    return out;
+}
+
+// ---- stream-suite selection ------------------------------------------------
+// J = L + lambda * C_decode * L with per-byte decode cost units:
+//   raw 1, rans-4096 4, rans-512 3.5, rans-256 3, huffman 2.2, defexc 2.0
+static double g_stream_lambda = 0.04; // ANVIL_STREAM_LAMBDA overrides (0 = pure length)
+static bool g_stream_suite = true;   // false = fixed rANS-4096 + raw (pre-suite behavior)
+static uint64_t g_j_agree = 0, g_j_total = 0; // J-selection vs pure-L agreement counters
+
+static std::vector<uint8_t> rans_stream_bytes(const std::vector<uint8_t>& src, const RansSpec& sp, uint8_t mode) {
+    RansModel m=build_rans_model(src,sp.tot); auto rd=rans_encode(src,m,sp);
+    std::vector<uint8_t> z; z.push_back(mode); put_uvar(z,src.size());
+    uint32_t nz=0; for(auto f:m.freq) if(f) ++nz; put_uvar(z,nz);
+    for(int i=0;i<256;++i) if(m.freq[i]) { z.push_back(uint8_t(i)); put_uvar(z,m.freq[i]); }
+    put_uvar(z,rd.size()); z.insert(z.end(),rd.begin(),rd.end());
+    return z;
+}
+
+static std::vector<uint8_t> huffman_stream_bytes(const std::vector<uint8_t>& src, const std::array<uint8_t,256>& len) {
+    std::vector<uint8_t> z; z.push_back(4); put_uvar(z,src.size());
+    for(int i=0;i<256;++i) z.push_back(len[i]);
+    auto bits=huffman_encode(src,len); put_uvar(z,bits.size()); z.insert(z.end(),bits.begin(),bits.end());
+    return z;
+}
+
+static std::vector<uint8_t> defexc_stream_bytes(const std::vector<uint8_t>& src, uint8_t def) {
+    std::vector<uint8_t> z; z.push_back(5); put_uvar(z,src.size()); z.push_back(def);
+    std::vector<uint8_t> mask((src.size()+7)/8, 0); std::vector<uint8_t> vals;
+    for(size_t i=0;i<src.size();++i) if(src[i]!=def){ mask[i>>3]|=uint8_t(1u<<(i&7)); vals.push_back(src[i]); }
+    put_uvar(z,vals.size()); z.insert(z.end(),mask.begin(),mask.end()); z.insert(z.end(),vals.begin(),vals.end());
+    return z;
+}
+
+// Build code lengths for canonical Huffman (bottom-up tree, O(256 log 256)).
+static std::array<uint8_t,256> huffman_lengths(const std::vector<uint8_t>& src) {
+    std::array<uint32_t,256> cnt{}; for(uint8_t b:src) ++cnt[b];
+    std::array<uint8_t,256> len{};
+    uint32_t alive=0; for(int i=0;i<256;++i) if(cnt[i]) ++alive;
+    if(alive==0) return len;
+    if(alive==1){ for(int i=0;i<256;++i) if(cnt[i]) len[i]=1; return len; }
+    struct Node { uint32_t freq; int left, right; int sym; }; // sym >= 0 leaf
+    std::vector<Node> nodes; nodes.reserve(2*alive);
+    for(int i=0;i<256;++i) if(cnt[i]) nodes.push_back({cnt[i],-1,-1,i});
+    std::vector<std::pair<int,int>> heap2; // (freq, node index)
+    for(size_t i=0;i<nodes.size();++i) heap2.push_back({int(nodes[i].freq),int(i)});
+    auto lt=[](auto&a,auto&b){ return a.first>b.first; };
+    std::make_heap(heap2.begin(),heap2.end(),lt);
+    while(heap2.size()>1){
+        std::pop_heap(heap2.begin(),heap2.end(),lt); auto a=heap2.back(); heap2.pop_back();
+        std::pop_heap(heap2.begin(),heap2.end(),lt); auto b=heap2.back(); heap2.pop_back();
+        int nn=int(nodes.size()); nodes.push_back({uint32_t(a.first+b.first),a.second,b.second,-1});
+        heap2.push_back({int(nodes[nn].freq),nn}); std::push_heap(heap2.begin(),heap2.end(),lt);
+    }
+    std::function<void(int,int)> walk=[&](int nd,int depth){
+        if(nodes[nd].sym>=0){ len[nodes[nd].sym]=uint8_t(depth); return; }
+        walk(nodes[nd].left,depth+1); walk(nodes[nd].right,depth+1);
+    };
+    walk(heap2[0].second,0);
+    return len;
+}
+
 static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
     std::vector<uint8_t> raw; raw.push_back(0); put_uvar(raw,src.size()); raw.insert(raw.end(),src.begin(),src.end());
-    if(src.size()<16)return raw;
-    RansModel m=build_rans_model(src); auto rd=rans_encode(src,m); std::vector<uint8_t> z; z.push_back(1); put_uvar(z,src.size());
-    uint32_t nz=0;for(auto f:m.freq)if(f)++nz; put_uvar(z,nz);
-    for(int i=0;i<256;++i)if(m.freq[i]){z.push_back(static_cast<uint8_t>(i));put_uvar(z,m.freq[i]);}
-    put_uvar(z,rd.size()); z.insert(z.end(),rd.begin(),rd.end());
-    return z.size()<raw.size()?z:raw;
+    if(src.size()<16) return raw;
+    struct Cand { std::vector<uint8_t> bytes; double J; };
+    std::vector<Cand> cands;
+    auto add=[&](std::vector<uint8_t> b, double cu){ double L=double(b.size()); cands.push_back({std::move(b), L + g_stream_lambda*cu*L}); };
+    add(rans_stream_bytes(src,kRans4096,1), 4.0);
+    if(g_stream_suite) {
+        add(rans_stream_bytes(src,kRans512,2), 3.5);
+        add(rans_stream_bytes(src,kRans256,3), 3.0);
+        auto hlen=huffman_lengths(src);
+        add(huffman_stream_bytes(src,hlen), 2.2);
+        {
+            std::array<uint32_t,256> cnt{}; for(uint8_t b:src) ++cnt[b];
+            uint8_t def=0; for(int i=1;i<256;++i) if(cnt[i]>cnt[def]) def=uint8_t(i);
+            if(cnt[def]>=src.size()/2) add(defexc_stream_bytes(src,def), 2.0);
+        }
+    }
+    const Cand* best=&cands[0];
+    for(auto& c:cands) if(c.J<best->J) best=&c;
+    // J-prediction accounting: ratio-faithfulness = J-winner's length within 1% of
+    // the smallest-length codec (the decode-cost term must not mis-pick badly).
+    if(g_stream_suite && cands.size()>1) {
+        size_t lw=0; for(size_t i=1;i<cands.size();++i) if(cands[i].bytes.size()<cands[lw].bytes.size()) lw=i;
+        ++g_j_total;
+        if(best->bytes.size() <= cands[lw].bytes.size()*101/100) ++g_j_agree;
+    }
+    return best->bytes;
 }
 
 static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size_t max_n) {
@@ -643,12 +831,31 @@ static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size
     uint8_t mode=*p++; uint64_t raw_n=get_uvar(p,e);
     if(raw_n>max_n)throw std::runtime_error("stream too large"); // DoS guard: bound by block out_len
     if(mode==0){if(raw_n>uint64_t(e-p))throw std::runtime_error("truncated raw stream");std::vector<uint8_t>o(p,p+raw_n);p+=raw_n;return o;}
-    if(mode!=1)throw std::runtime_error("unknown stream codec");
-    uint64_t nz=get_uvar(p,e); if(nz>256)throw std::runtime_error("bad rANS model"); RansModel m; uint32_t sum=0;
-    for(uint64_t k=0;k<nz;++k){if(p>=e)throw std::runtime_error("truncated rANS model");uint8_t sym=*p++;uint64_t f=get_uvar(p,e);if(f==0||f>kRansTot||m.freq[sym])throw std::runtime_error("bad rANS frequency");m.freq[sym]=static_cast<uint16_t>(f);sum+=f;}
-    if(sum!=kRansTot) throw std::runtime_error("bad rANS total");
-    uint32_t st=0;for(int i=0;i<256;++i){m.start[i]=static_cast<uint16_t>(st);st+=m.freq[i];}
-    uint64_t dn=get_uvar(p,e);if(dn>uint64_t(e-p))throw std::runtime_error("truncated rANS stream");auto out=rans_decode(p,static_cast<size_t>(dn),static_cast<size_t>(raw_n),m);p+=dn;return out;
+    if(mode>=1 && mode<=3) {
+        const RansSpec* sp = mode==1 ? &kRans4096 : mode==2 ? &kRans512 : &kRans256;
+        uint64_t nz=get_uvar(p,e); if(nz>256)throw std::runtime_error("bad rANS model"); RansModel m; uint32_t sum=0;
+        for(uint64_t k=0;k<nz;++k){if(p>=e)throw std::runtime_error("truncated rANS model");uint8_t sym=*p++;uint64_t f=get_uvar(p,e);if(f==0||f>sp->tot||m.freq[sym])throw std::runtime_error("bad rANS frequency");m.freq[sym]=static_cast<uint16_t>(f);sum+=f;}
+        if(sum!=sp->tot) throw std::runtime_error("bad rANS total");
+        uint32_t st=0;for(int i=0;i<256;++i){m.start[i]=static_cast<uint16_t>(st);st+=m.freq[i];}
+        uint64_t dn=get_uvar(p,e);if(dn>uint64_t(e-p))throw std::runtime_error("truncated rANS stream");auto out=rans_decode(p,static_cast<size_t>(dn),static_cast<size_t>(raw_n),m,*sp);p+=dn;return out;
+    }
+    if(mode==4) {
+        if(uint64_t(e-p)<256) throw std::runtime_error("truncated huffman lengths");
+        std::array<uint8_t,256> len{}; for(int i=0;i<256;++i) len[i]=*p++;
+        // validate Kraft inequality
+        uint64_t kraft=0; for(int i=0;i<256;++i) if(len[i]) { if(len[i]>24) throw std::runtime_error("bad huffman length"); kraft += 1ull<<(24-len[i]); }
+        if(kraft> (1ull<<24)) throw std::runtime_error("huffman overfull");
+        HuffModel h=build_huff_model(len);
+        uint64_t dn=get_uvar(p,e); if(dn>uint64_t(e-p)) throw std::runtime_error("truncated huffman stream");
+        auto out=huffman_decode(p,static_cast<size_t>(dn),static_cast<size_t>(raw_n),h); p+=dn; return out;
+    }
+    if(mode==5) {
+        if(p>=e) throw std::runtime_error("truncated defexc default");
+        uint8_t def=*p++;
+        auto out=defexc_decode(p,uint64_t(e-p),static_cast<size_t>(raw_n),def);
+        p=e; return out;
+    }
+    throw std::runtime_error("unknown stream codec");
 }
 
 static void append_varint_bytes(std::vector<uint8_t>& out,uint64_t x){do{uint8_t b=static_cast<uint8_t>(x&0x7f);x>>=7;if(x)b|=0x80;out.push_back(b);}while(x);}
@@ -1368,6 +1575,7 @@ struct Options {
     uint32_t shape_states=28; // mode-12 per-shape displacement states (28 = per-shape, 1 = generic/FLAG-D control)
     bool boundary=false;   // boundary-aligned candidate generation (C5; measured neutral on corpus)
     bool negate=true;      // difference-cover negative gate for incompressible blocks (C5)
+    bool stream_suite=true; // stream codec suite (huffman/defexc/256-512 rANS); off = fixed rANS-4096+raw
     bool quiet=false;
 };
 struct GlobalStats { uint64_t in=0,out=0,blocks=0,raw_blocks=0,compressed_blocks=0,literals=0,matches=0,matched_bytes=0,tokens=0; };
@@ -1402,6 +1610,8 @@ static bool probe_incompressible(const std::vector<uint8_t>& d) {
 }
 
 static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Options& opt, GlobalStats* gs) {
+    g_stream_suite = opt.stream_suite;
+    g_j_agree = 0; g_j_total = 0;
     std::vector<uint8_t> out={'A','N','V','0',1};
     put_uvar(out,opt.block_size); put_uvar(out,input.size());
     GlobalStats st; st.in=input.size();
@@ -1554,6 +1764,7 @@ static void usage() {
 int main(int argc,char**argv) {
     using namespace anvil;
     try {
+        if(const char* env=getenv("ANVIL_STREAM_LAMBDA")) g_stream_lambda=std::atof(env);
         if(argc<3){usage();return 2;}
         std::string cmd=argv[1]; Options opt;
         for(int i=(cmd=="verify"?3:4);i<argc;++i) {
@@ -1568,6 +1779,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--shape-states=",0)==0)opt.shape_states=std::stoul(a.substr(15));
             else if(a.rfind("--boundary=",0)==0)opt.boundary=(a.substr(11)!="off");
             else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
+            else if(a.rfind("--stream-suite=",0)==0)opt.stream_suite=(a.substr(15)!="off");
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
@@ -1578,7 +1790,7 @@ int main(int argc,char**argv) {
         if(cmd=="c") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
-            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<"\n";}
+            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<"\n";}
         } else if(cmd=="d") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}
