@@ -194,6 +194,31 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   weaker prototype. Set-associative EAM sweeps: eam_setassoc_sqlite bits=18-20
   K=2-8 → 418–498 KB @ up to ~1,207 MB/s decode; setassoc_context_fine JSON
   bits=18-19 K=3-7 → 234–259 KB.
+  **Verdicts from full integration (do not re-derive):** (1) context-switched
+  rANS is a RATIO mechanism, not the missing throughput primitive — full
+  SQLite depth-2/K12 ≈ 404.7 KB, depth-3/K12 ≈ 379.3 KB vs brotli q4 ~422.1
+  KB (huge ratio headroom), but the decoder falls to ~0.6–0.74 GB/s. (2) The
+  "spend rate surplus on a decoder-cheaper code" branch — context-switched
+  table Huffman/direct codes over the same classes — was REJECTED: ~143.8 KB
+  at K=12 (same size) but context-dependent prefix machinery is SLOWER than
+  clustered rANS once model/table setup is counted. (3) PRIOR-ART HONESTY:
+  Brotli itself maps decoded literal context to several literal prefix trees
+  with a compact context map driven by previous decoded bytes (RFC 7932) —
+  context clustering is NOT ANVIL novelty. The narrow, defensible contribution
+  is the ~1.65 ms sparse-support quantizer making decoder-visible context
+  modeling economical inside ANVIL's rANS/semantic architecture; treat as
+  enabling infrastructure unless an ablation shows a genuinely new
+  interaction. (4) Keep the K≈8–12 quantizer as reusable infrastructure;
+  branch the search to the ELF/source lane.
+  **ELF lane:** direct depth-1 temporal map reproduces the exact ELF parse at
+  ~2x chain-search speed; clustered literals (K≈12–20) cut the literal stream
+  ~370–410 KB yet the whole file stays far above brotli q4/q6 — the ELF gap
+  is REPRESENTATION/MATCHABILITY, not entropy. BCJ-style x86 CALL/JMP
+  normalization (control, not novelty) improves the ELF payload ~117–130 KB
+  at ~1.6 GB/s transform and makes literal contexts more predictable, but
+  BCJ + clustered literals still stays above q1/q4. Next: ELF section-layout
+  analysis to decide between a generalized transformed-reference primitive
+  vs a field/record structure detector.
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
