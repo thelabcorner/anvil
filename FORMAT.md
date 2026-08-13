@@ -32,8 +32,44 @@ Block modes:
 - `12`: SHAPE backend (per-shape displacement prediction; arch, iteration 2)
 - `13`: TOPOLOGY backend (per-slot modal residual + exception mask; arch, iteration 2 — MEASURED NOT-ADOPTED, retained as a research mode)
 - `14`: TCOPY backend (implicit Delta=-d transformed copy; arch, iteration 3 — prototype)
+- `15`: HOTOP backend (compiled hot-op instruction book; arch, iteration 4 — prototype)
 
 Unknown modes are rejected.
+
+## HOTOP token backend (mode 15)
+
+Mode 15 (landed by `arch` during iteration 4) is the mode-12 token model with a
+compiled decoder instruction book (Linux modes 26-28 pattern, corrected per the
+Linux results: a fully concrete absolute-distance book is rejected — hot
+commands COEXIST with the per-shape displacement state). The encoder compiles
+the most frequent `(kind, len, shape)` tuples that REUSE the shape's last
+displacement into a book; the hot stream is a single opcode-index stream (one
+entropy field per hot token — no per-field pulls), and the shape-state index is
+compiled INTO each entry (constant-time opcode -> semantics -> state read ->
+copy). Rare tokens escape to macro-ops, which use the full mode-12 shape coding
+(absolute / reuse / delta + sparse patches) and update the SAME shape state.
+
+Payload: `num_states` byte (1 or 28), `uvarint K` (book size <= 254), K entries
+of `(kind byte, len uvar, shape byte)` — kind 0 = literal run (len; no state),
+kind 1 = exact-match reuse (`dist = last[shape]`) — then 9 streams (per-stream
+suite): opcodes (0..K, K = escape) / macro types / macro ll / macro ml / macro
+dflags / macro dvar / literals / macro masks / macro residuals.
+
+Decoder (fused single path): the opcode and literal streams are pulled on
+demand; a hot op executes with one pull + bulk copy; macro streams are eager
+(rare). Strictness: hot kind-1 requires `last[shape]` set and valid
+(`dist in [1, pos]`), book bounds, macro invariants as mode 12, full substream
+consumption, CRC.
+
+**Measured status (arch, Windows): prototype. Round-trip verified on all corpus
+files + PEs; fuzzed. Decode (median-5) vs the fused mode-12 baseline:
+generated.log 274 vs 234 MB/s (1.17x), generated.json 194 vs 157 (1.23x),
+generated.jsonl 284 vs 226 (1.25x), generated.sqlite 157 vs 118 (1.34x) — a
+real hot-path win, but the pre-registered >=2x I4-1 target is NOT met; the
+remaining floor is the opcode-stream entropy decode + copy throughput (the full
+22-stream/precision-adaptive architecture is the Linux 0.87-0.99 GB/s lever).
+Ratio: near-neutral on record files (log -0.1% vs sparse; +0.3-0.7% elsewhere;
+small files pay the book header).
 
 ## TCOPY token backend (mode 14)
 

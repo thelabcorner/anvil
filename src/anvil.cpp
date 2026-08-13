@@ -1524,13 +1524,21 @@ static std::vector<uint8_t> decode_tokens_tcopy(const uint8_t* p, size_t n, size
     return out;
 }
 
-// ---- SHAPE backend (mode 12): shape-book + per-shape displacement ----------
-// Semantic shape vocabulary (kind x len-class) compiled into a decoder-side
-// instruction book: each match token's shape selects a per-shape displacement
-// state, and the distance is coded against that state (first = absolute, then
-// reuse-last or signed delta, zigzag). Decoder = stream lookups + a tiny state
-// table (LZ-class). num_states is transmitted (1 = generic single state, the
-// FLAG-D control; 28 = per-shape (type x 14 len-classes)).
+// ---- HOTOP backend (mode 15): compiled hot-op instruction book (v2) --------
+// Linux modes 26-28 pattern, corrected per the Linux results (a fully concrete
+// book is REJECTED: +40% bytes — absolute-distance specialization destroys
+// shape-conditioned distance coding). v2: hot concrete commands COEXIST with
+// the per-shape displacement state. The book compiles the most frequent
+// (kind, len, shape) tuples that REUSE the shape's last displacement; the
+// opcode-index stream replaces the per-field pulls for the hot path, and the
+// shape-state index is compiled INTO each entry (constant-time opcode ->
+// semantics -> state read -> copy). Rare tokens escape to macro-ops, which use
+// the full mode-12 shape coding (absolute / reuse / delta + sparse patches) and
+// update the SAME shape state. Book kinds: 0 = literal run (len; no state),
+// 1 = exact match reuse (dist = last[shape]).
+// Payload: num_states byte, uvarint K, K x (kind byte, len uvar, shape byte),
+// then 9 streams: opcodes / macro types / macro ll / macro ml / macro dflags /
+// macro dvar / literals / macro masks / macro residuals.
 static constexpr uint32_t kShapeClasses = 14;
 
 static inline uint32_t len_class(uint32_t len) { // len >= 4 -> 0..13 (doubling)
@@ -1544,6 +1552,322 @@ static inline uint32_t shape_index(uint8_t type, uint32_t len, uint32_t num_stat
     return (type - 1) * kShapeClasses + len_class(len); // types 1,2 -> 0..27
 }
 
+struct HotOp { uint8_t kind; uint32_t len; uint8_t shape; };
+
+static constexpr uint32_t kHotMaxOps = 254; // escape symbol = book.size() <= 254 fits a byte
+
+static std::vector<uint8_t> encode_tokens_hotop(const std::vector<uint8_t>& d, const std::vector<SparseToken>& toks, uint32_t num_states) {
+    // pass 1: simulate the per-shape state; classify hot (reuse / literal) vs macro
+    std::array<uint32_t, 2*kShapeClasses> last{};
+    std::vector<uint8_t> is_hot(toks.size(), 0);
+    std::vector<uint8_t> tok_shape(toks.size(), 0);
+    std::map<std::tuple<uint8_t,uint32_t,uint8_t>, uint32_t> cnt;
+    for (size_t ti = 0; ti < toks.size(); ++ti) {
+        auto& t = toks[ti];
+        if (t.type == 0) { ++cnt[{0, t.len, 0}]; is_hot[ti] = 1; tok_shape[ti] = 0; continue; }
+        uint32_t shape = shape_index(t.type, t.len, num_states);
+        tok_shape[ti] = uint8_t(shape);
+        uint32_t& ld = last[shape];
+        if (t.type == 1 && ld != 0 && t.dist == ld) { ++cnt[{1, t.len, uint8_t(shape)}]; is_hot[ti] = 1; }
+        else { is_hot[ti] = 0; ld = t.dist; }
+    }
+    std::vector<std::pair<uint32_t, std::tuple<uint8_t,uint32_t,uint8_t>>> v;
+    v.reserve(cnt.size());
+    for (auto& [k, c] : cnt) v.push_back({c, k});
+    std::sort(v.rbegin(), v.rend());
+    if (v.size() > kHotMaxOps) v.resize(kHotMaxOps);
+    std::map<std::tuple<uint8_t,uint32_t,uint8_t>, uint32_t> book_idx;
+    std::vector<HotOp> book;
+    book.reserve(v.size());
+    for (auto& [c, k] : v) { book_idx[k] = static_cast<uint32_t>(book.size()); book.push_back({std::get<0>(k), std::get<1>(k), std::get<2>(k)}); }
+    // pass 2: encode
+    std::vector<uint8_t> opcodes, mtypes, mll, mml, mdflags, mdvar, lits, mmasks, mresid;
+    opcodes.reserve(toks.size());
+    std::array<uint32_t, 2*kShapeClasses> last2{};
+    std::array<uint32_t,(kSparseScanMax+31)/32> words{};
+    for (size_t ti = 0; ti < toks.size(); ++ti) {
+        auto& t = toks[ti];
+        auto key = t.type == 0 ? std::make_tuple(uint8_t(0), t.len, uint8_t(0)) : std::make_tuple(uint8_t(1), t.len, tok_shape[ti]);
+        auto it = book_idx.find(key);
+        if (is_hot[ti] && it != book_idx.end()) {
+            opcodes.push_back(static_cast<uint8_t>(it->second));
+            if (t.type == 0) lits.insert(lits.end(), d.begin()+t.pos, d.begin()+t.pos+t.len);
+        } else {
+            opcodes.push_back(static_cast<uint8_t>(book.size())); // escape -> macro
+            mtypes.push_back(t.type);
+            if (t.type == 0) { append_varint_bytes(mll, t.len-1); lits.insert(lits.end(), d.begin()+t.pos, d.begin()+t.pos+t.len); }
+            else {
+                append_varint_bytes(mml, t.len-4);
+                uint32_t shape = shape_index(t.type, t.len, num_states);
+                uint32_t& ld = last2[shape];
+                if (ld == 0) { mdflags.push_back(0); append_varint_bytes(mdvar, t.dist-1); ld = t.dist; }
+                else if (t.dist == ld) mdflags.push_back(1);
+                else { mdflags.push_back(2); int64_t dlt = int64_t(t.dist)-int64_t(ld); uint64_t zz = dlt>=0?uint64_t(dlt)*2:uint64_t(-dlt)*2-1; append_varint_bytes(mdvar, zz); ld = t.dist; }
+                if (t.type == 2) {
+                    std::fill(words.begin(), words.end(), 0u);
+                    for (size_t k = 0; k < t.off.size(); ++k) { words[t.off[k]/32] |= (1u << (t.off[k]%32)); mresid.push_back(t.val[k]); }
+                    uint32_t nwords = (t.len + 31) / 32;
+                    for (uint32_t w = 0; w < nwords; ++w) {
+                        uint32_t m = words[w];
+                        mmasks.push_back(static_cast<uint8_t>(m));
+                        mmasks.push_back(static_cast<uint8_t>(m>>8));
+                        mmasks.push_back(static_cast<uint8_t>(m>>16));
+                        mmasks.push_back(static_cast<uint8_t>(m>>24));
+                    }
+                }
+            }
+        }
+    }
+    std::vector<uint8_t> out;
+    out.push_back(static_cast<uint8_t>(num_states));
+    put_uvar(out, book.size());
+    for (auto& op : book) { out.push_back(op.kind); put_uvar(out, op.len); out.push_back(op.shape); }
+    for (const auto* v2 : {&opcodes, &mtypes, &mll, &mml, &mdflags, &mdvar, &lits, &mmasks, &mresid}) {
+        auto z = encode_stream(*v2);
+        put_uvar(out, z.size());
+        out.insert(out.end(), z.begin(), z.end());
+    }
+    return out;
+}
+
+static std::vector<uint8_t> decode_tokens_hotop(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e = p + n;
+    if (p >= e) throw std::runtime_error("truncated hotop header");
+    uint32_t num_states = *p++;
+    if (num_states != 1 && num_states != 2 * kShapeClasses) throw std::runtime_error("bad hotop state count");
+    uint64_t K = get_uvar(p, e);
+    if (K > kHotMaxOps) throw std::runtime_error("bad hotop book size");
+    std::vector<HotOp> book(K);
+    for (uint64_t i = 0; i < K; ++i) {
+        if (p >= e) throw std::runtime_error("truncated hotop book");
+        uint8_t kind = *p++;
+        if (kind > 1) throw std::runtime_error("bad hotop kind");
+        uint64_t len = get_uvar(p, e);
+        if (p >= e) throw std::runtime_error("truncated hotop book");
+        uint8_t shape = *p++;
+        if (len == 0 || len > kSparseMaxLen) throw std::runtime_error("bad hotop len");
+        if (kind == 1 && shape >= 2 * kShapeClasses) throw std::runtime_error("bad hotop shape");
+        book[i] = {kind, static_cast<uint32_t>(len), shape};
+    }
+    std::array<std::vector<uint8_t>, 9> s;
+    const size_t max_sub = 16 * out_len + 64;
+    for (int i = 0; i < 9; ++i) {
+        uint64_t zn = get_uvar(p, e);
+        if (zn > uint64_t(e - p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q = p; const uint8_t* qe = p + zn;
+        s[i] = decode_stream(q, qe, max_sub);
+        if (q != qe) throw std::runtime_error("substream trailing bytes");
+        p += zn;
+    }
+    if (p != e) throw std::runtime_error("payload trailing bytes");
+    size_t ip_mt = 0, ip_mll = 0, ip_mml = 0, ip_mdf = 0, ip_mdv = 0, ip_lit = 0, ip_mask = 0, ip_res = 0;
+    std::array<uint32_t, 2*kShapeClasses> last{};
+    std::vector<uint8_t> out; out.reserve(out_len);
+    for (uint8_t op : s[0]) {
+        if (out.size() >= out_len) throw std::runtime_error("too many tokens");
+        if (op < K) {
+            const HotOp& b = book[op];
+            if (b.kind == 0) {
+                if (b.len > out_len - out.size() || b.len > s[6].size() - ip_lit) throw std::runtime_error("bad hotop literal run");
+                out.insert(out.end(), s[6].begin() + ip_lit, s[6].begin() + ip_lit + b.len);
+                ip_lit += b.len;
+            } else {
+                uint32_t dist = last[b.shape];
+                if (dist == 0 || dist > out.size() || b.len > out_len - out.size()) throw std::runtime_error("bad hotop match");
+                if (dist >= b.len) { size_t os = out.size(); out.insert(out.end(), out.begin() + os - dist, out.begin() + os - dist + b.len); }
+                else for (uint64_t k = 0; k < b.len; ++k) out.push_back(out[out.size() - dist]);
+            }
+        } else if (op == K) {
+            if (ip_mt >= s[1].size()) throw std::runtime_error("truncated macro types");
+            uint8_t type = s[1][ip_mt++];
+            if (type == 0) {
+                uint64_t len = read_varint_bytes(s[2], ip_mll) + 1;
+                if (len > out_len - out.size() || len > s[6].size() - ip_lit) throw std::runtime_error("bad macro literal");
+                out.insert(out.end(), s[6].begin() + ip_lit, s[6].begin() + ip_lit + len);
+                ip_lit += len;
+            } else if (type == 1 || type == 2) {
+                uint64_t len = read_varint_bytes(s[3], ip_mml) + 4;
+                if (len > kSparseMaxLen || len > out_len - out.size()) throw std::runtime_error("bad macro match");
+                if (ip_mdf >= s[4].size()) throw std::runtime_error("truncated macro flags");
+                uint8_t flag = s[4][ip_mdf++];
+                uint32_t shape = shape_index(type, static_cast<uint32_t>(len), num_states);
+                uint32_t& ld = last[shape];
+                uint32_t dist;
+                if (flag == 0) { uint64_t dv = read_varint_bytes(s[5], ip_mdv); if (dv >= 0xFFFFFFFFull) throw std::runtime_error("bad macro abs dist"); dist = static_cast<uint32_t>(dv) + 1; }
+                else if (flag == 1) { if (ld == 0) throw std::runtime_error("macro reuse before absolute"); dist = ld; }
+                else if (flag == 2) { if (ld == 0) throw std::runtime_error("macro delta before absolute"); uint64_t zz = read_varint_bytes(s[5], ip_mdv); int64_t dlt = (zz & 1) ? -int64_t((zz + 1) >> 1) : int64_t(zz >> 1); int64_t dd = int64_t(ld) + dlt; if (dd <= 0 || dd > 0xFFFFFFFFll) throw std::runtime_error("bad macro delta"); dist = static_cast<uint32_t>(dd); }
+                else throw std::runtime_error("bad macro flag");
+                if (dist == 0 || dist > out.size()) throw std::runtime_error("invalid macro dist");
+                ld = dist;
+                size_t start = out.size();
+                for (uint64_t k = 0; k < len; ++k) out.push_back(out[out.size() - dist]);
+                if (type == 2) {
+                    uint64_t nwords = (len + 31) / 32;
+                    if (nwords * 4 > s[7].size() - ip_mask) throw std::runtime_error("truncated macro mask");
+                    std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+                    uint32_t pc = 0;
+                    for (uint64_t w = 0; w < nwords; ++w) {
+                        uint32_t m = uint32_t(s[7][ip_mask]) | (uint32_t(s[7][ip_mask+1]) << 8) | (uint32_t(s[7][ip_mask+2]) << 16) | (uint32_t(s[7][ip_mask+3]) << 24);
+                        ip_mask += 4;
+                        uint32_t first = uint32_t(w * 32);
+                        if (first + 32 > len) { uint32_t over = first + 32 - len; if ((m >> (32 - over)) != 0) throw std::runtime_error("mask bits beyond copy length"); }
+                        words[w] = m;
+                        pc += std::popcount(m);
+                    }
+                    if (pc > s[8].size() - ip_res) throw std::runtime_error("truncated macro residual");
+                    for (uint64_t w = 0; w < nwords; ++w) {
+                        uint32_t m = words[w];
+                        while (m) {
+                            uint32_t b = std::countr_zero(m);
+                            out[start + uint32_t(w * 32) + b] = s[8][ip_res++];
+                            m &= m - 1;
+                        }
+                    }
+                }
+            } else throw std::runtime_error("bad macro type");
+        } else throw std::runtime_error("bad hotop opcode");
+    }
+    if (out.size() != out_len || ip_mt != s[1].size() || ip_mll != s[2].size() || ip_mml != s[3].size()
+       || ip_mdf != s[4].size() || ip_mdv != s[5].size() || ip_lit != s[6].size() || ip_mask != s[7].size() || ip_res != s[8].size())
+        throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
+// Fused single-path hotop decode: the opcode and literal streams are pulled on
+// demand (no stream vectors materialized); hot ops execute with one pull +
+// memcpy. The macro streams stay eager (rare tokens). This is the decode leg's
+// win: the hot path has no per-field entropy pulls beyond the opcode itself.
+static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e = p + n;
+    if (p >= e) throw std::runtime_error("truncated hotop header");
+    uint32_t num_states = *p++;
+    if (num_states != 1 && num_states != 2 * kShapeClasses) throw std::runtime_error("bad hotop state count");
+    uint64_t K = get_uvar(p, e);
+    if (K > kHotMaxOps) throw std::runtime_error("bad hotop book size");
+    std::vector<HotOp> book(K);
+    for (uint64_t i = 0; i < K; ++i) {
+        if (p >= e) throw std::runtime_error("truncated hotop book");
+        uint8_t kind = *p++;
+        if (kind > 1) throw std::runtime_error("bad hotop kind");
+        uint64_t len = get_uvar(p, e);
+        if (p >= e) throw std::runtime_error("truncated hotop book");
+        uint8_t shape = *p++;
+        if (len == 0 || len > kSparseMaxLen) throw std::runtime_error("bad hotop len");
+        if (kind == 1 && shape >= 2 * kShapeClasses) throw std::runtime_error("bad hotop shape");
+        book[i] = {kind, static_cast<uint32_t>(len), shape};
+    }
+    const size_t max_sub = 16 * out_len + 64;
+    StreamPull pop, plit;
+    std::array<std::vector<uint8_t>, 4> m; // macro types / ll / ml / dflags+dvar fused? -> keep 4: types,ll,ml,flagsanddvar combined below
+    // macro streams: types / ll / ml / dflags / dvar / masks / resid = 7
+    std::array<StreamPull, 7> mp;
+    std::array<std::vector<uint8_t>, 7> mv; // eager fallback storage (rare; decode eagerly)
+    // parse the 9 substreams: opcodes, macro types, macro ll, macro ml, macro dflags, macro dvar, literals, macro masks, macro resid
+    auto parse_stream = [&](StreamPull& sp, std::vector<uint8_t>& storage, bool eager) {
+        uint64_t zn = get_uvar(p, e);
+        if (zn > uint64_t(e - p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q = p; const uint8_t* qe = p + zn;
+        if (eager) { storage = decode_stream(q, qe, max_sub); if (q != qe) throw std::runtime_error("substream trailing bytes"); }
+        else { sp.parse(q, qe, max_sub); if (q != qe) throw std::runtime_error("substream trailing bytes"); }
+        p += zn;
+    };
+    parse_stream(pop, mv[0], false);    // 0 opcodes (pull)
+    parse_stream(mp[0], mv[0], true);   // 1 macro types (eager)
+    parse_stream(mp[1], mv[1], true);   // 2 macro ll
+    parse_stream(mp[2], mv[2], true);   // 3 macro ml
+    parse_stream(mp[3], mv[3], true);   // 4 macro dflags
+    parse_stream(mp[4], mv[4], true);   // 5 macro dvar
+    parse_stream(plit, mv[5], false);   // 6 literals (pull)
+    parse_stream(mp[5], mv[5], true);   // 7 macro masks
+    parse_stream(mp[6], mv[6], true);   // 8 macro resid
+    if (p != e) throw std::runtime_error("payload trailing bytes");
+    size_t ip_mt = 0, ip_mll = 0, ip_mml = 0, ip_mdf = 0, ip_mdv = 0, ip_mask = 0, ip_res = 0;
+    std::array<uint32_t, 2*kShapeClasses> last{};
+    std::vector<uint8_t> out(out_len);
+    size_t pos = 0;
+    uint8_t op;
+    while (pop.next_byte(op)) {
+        if (pos >= out_len) throw std::runtime_error("too many tokens");
+        if (op < K) {
+            const HotOp& b = book[op];
+            if (b.kind == 0) {
+                if (b.len > out_len - pos) throw std::runtime_error("bad hotop literal run");
+                if (!plit.pull_bytes(out.data() + pos, b.len)) throw std::runtime_error("truncated hotop literals");
+                pos += b.len;
+            } else {
+                uint32_t dist = last[b.shape];
+                if (dist == 0 || dist > pos || b.len > out_len - pos) throw std::runtime_error("bad hotop match");
+                uint8_t* o = out.data();
+                if (dist >= b.len) { std::memcpy(o + pos, o + pos - dist, b.len); }
+                else for (uint64_t k = 0; k < b.len; ++k) o[pos + k] = o[pos + k - dist];
+                pos += b.len;
+            }
+        } else if (op == K) {
+            if (ip_mt >= mv[0].size()) throw std::runtime_error("truncated macro types");
+            uint8_t type = mv[0][ip_mt++];
+            if (type == 0) {
+                uint64_t len = read_varint_bytes(mv[1], ip_mll) + 1;
+                if (len > out_len - pos) throw std::runtime_error("bad macro literal");
+                if (!plit.pull_bytes(out.data() + pos, static_cast<size_t>(len))) throw std::runtime_error("truncated macro literals");
+                pos += static_cast<size_t>(len);
+            } else if (type == 1 || type == 2) {
+                uint64_t len = read_varint_bytes(mv[2], ip_mml) + 4;
+                if (len > kSparseMaxLen || len > out_len - pos) throw std::runtime_error("bad macro match");
+                if (ip_mdf >= mv[3].size()) throw std::runtime_error("truncated macro flags");
+                uint8_t flag = mv[3][ip_mdf++];
+                uint32_t shape = shape_index(type, static_cast<uint32_t>(len), num_states);
+                uint32_t& ld = last[shape];
+                uint32_t dist;
+                if (flag == 0) { uint64_t dv = read_varint_bytes(mv[4], ip_mdv); if (dv >= 0xFFFFFFFFull) throw std::runtime_error("bad macro abs dist"); dist = static_cast<uint32_t>(dv) + 1; }
+                else if (flag == 1) { if (ld == 0) throw std::runtime_error("macro reuse before absolute"); dist = ld; }
+                else if (flag == 2) { if (ld == 0) throw std::runtime_error("macro delta before absolute"); uint64_t zz = read_varint_bytes(mv[4], ip_mdv); int64_t dlt = (zz & 1) ? -int64_t((zz + 1) >> 1) : int64_t(zz >> 1); int64_t dd = int64_t(ld) + dlt; if (dd <= 0 || dd > 0xFFFFFFFFll) throw std::runtime_error("bad macro delta"); dist = static_cast<uint32_t>(dd); }
+                else throw std::runtime_error("bad macro flag");
+                if (dist == 0 || dist > pos) throw std::runtime_error("invalid macro dist");
+                ld = dist;
+                uint8_t* o = out.data();
+                for (uint64_t k = 0; k < len; ++k) o[pos + k] = o[pos + k - dist];
+                pos += static_cast<size_t>(len);
+                if (type == 2) {
+                    uint64_t nwords = (len + 31) / 32;
+                    if (nwords * 4 > mv[5].size() - ip_mask) throw std::runtime_error("truncated macro mask");
+                    std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+                    uint32_t pc = 0;
+                    for (uint64_t w = 0; w < nwords; ++w) {
+                        uint32_t m = uint32_t(mv[5][ip_mask]) | (uint32_t(mv[5][ip_mask+1]) << 8) | (uint32_t(mv[5][ip_mask+2]) << 16) | (uint32_t(mv[5][ip_mask+3]) << 24);
+                        ip_mask += 4;
+                        uint32_t first = uint32_t(w * 32);
+                        if (first + 32 > len) { uint32_t over = first + 32 - len; if ((m >> (32 - over)) != 0) throw std::runtime_error("mask bits beyond copy length"); }
+                        words[w] = m;
+                        pc += std::popcount(m);
+                    }
+                    if (pc > mv[6].size() - ip_res) throw std::runtime_error("truncated macro residual");
+                    size_t start = pos - static_cast<size_t>(len);
+                    for (uint64_t w = 0; w < nwords; ++w) {
+                        uint32_t m = words[w];
+                        while (m) {
+                            uint32_t b = std::countr_zero(m);
+                            out[start + uint32_t(w * 32) + b] = mv[6][ip_res++];
+                            m &= m - 1;
+                        }
+                    }
+                }
+            } else throw std::runtime_error("bad macro type");
+        } else throw std::runtime_error("bad hotop opcode");
+    }
+    if (!pop.at_end() || !plit.at_end()) throw std::runtime_error("substream consumption mismatch");
+    if (pos != out_len || ip_mt != mv[0].size() || ip_mll != mv[1].size() || ip_mml != mv[2].size()
+       || ip_mdf != mv[3].size() || ip_mdv != mv[4].size() || ip_mask != mv[5].size() || ip_res != mv[6].size())
+        throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
+// ---- SHAPE backend (mode 12): shape-book + per-shape displacement ----------
+// Semantic shape vocabulary (kind x len-class) compiled into a decoder-side
+// instruction book: each match token's shape selects a per-shape displacement
+// state, and the distance is coded against that state (first = absolute, then
+// reuse-last or signed delta, zigzag). Decoder = stream lookups + a tiny state
+// table (LZ-class). num_states is transmitted (1 = generic single state, the
+// FLAG-D control; 28 = per-shape (type x 14 len-classes)).
 static std::vector<uint8_t> encode_tokens_shape(const std::vector<uint8_t>& d, const std::vector<SparseToken>& toks,
                                                 uint32_t num_states) {
     std::vector<uint8_t> types, ll, ml, dflags, dvar, lits, masks, resid;
@@ -2322,6 +2646,14 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
             for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
             if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),14};
         }
+        // Mode 15 (HOTOP): compiled hot-op instruction book over the sparse parse.
+        if(opt.parse=="auto" || opt.parse=="hotop") {
+            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels,false); have_sp=true; }
+            auto payload=encode_tokens_hotop(block,sp_toks,opt.shape_states);
+            std::vector<Token> t; t.reserve(sp_toks.size());
+            for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+            if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),15};
+        }
         if(best.mode==0) throw std::runtime_error("no encoder candidate");
 
         auto ps=token_stats(best.toks);
@@ -2371,6 +2703,8 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
             b=decode_tokens_topology(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else if(mode==14) {
             b=decode_tokens_tcopy(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
+        } else if(mode==15) {
+            b=decode_tokens_hotop_fused(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else throw std::runtime_error("unknown block mode");
         if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
         out.insert(out.end(),b.begin(),b.end()); p+=plen;
@@ -2391,10 +2725,10 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
-              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
-              << "  note: sparse->mode 11, shape->mode 12, topology->mode 13 (research), tcopy->mode 14 (implicit Delta=-d); --shape-states=1 is the FLAG-D control\n"
+              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
+              << "  note: sparse->mode 11, shape->mode 12, topology->mode 13 (research), tcopy->mode 14, hotop->mode 15 (compiled instruction book); --shape-states=1 is the FLAG-D control\n"
               << "  note: --surprise=N is the sparse-parser mismatch budget (default 12); --boundary/--negate are C5 adopts\n";
 }
 
@@ -2427,7 +2761,7 @@ int main(int argc,char**argv) {
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
-        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape"&&opt.parse!="topology"&&opt.parse!="tcopy")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl, shape, topology or tcopy");
+        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape"&&opt.parse!="topology"&&opt.parse!="tcopy"&&opt.parse!="hotop")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl, shape, topology, tcopy or hotop");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
         if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans"&&opt.entropy!="sparse")throw std::runtime_error("entropy must be auto, arith, rans or sparse");
         if(opt.shape_states!=1 && opt.shape_states!=28)throw std::runtime_error("shape-states must be 1 or 28");
