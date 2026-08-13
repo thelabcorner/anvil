@@ -595,6 +595,15 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   family. Tied to the rejected lane-transpose control (global
   lane/field transposition destroyed contiguous phrase structure): the
   transform must live INSIDE the reference, not globally before LZ.
+- **Prior-art research (research lane, blackboard arch/priorart-tcopy):**
+  BCJ/E8-E9 = GLOBAL pre-LZ transform (orthogonal; distinction confirmed);
+  Courgette = relocation-aware but TWO-FILE + disassembler-based + global
+  (self-referential implicit-Δ NOT found); no prior art for long-range/
+  overlapping transformed refs. **PATENT CHECK = REQUIRED GATE STEP before
+  any novelty claim** (no patent-database access this session; Microsoft/
+  Qualcomm relocation families flagged). TCOPY = NARROW-to-NEW-INTERACTION,
+  conditional on patent check + isolated Windows ablation; queued
+  post-t2-bench.
 
 ## Iteration-2 sequencing (as scheduled)
 
