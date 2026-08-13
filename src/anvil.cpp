@@ -244,13 +244,15 @@ struct SparseMatch {
     uint32_t dist = 0;
     std::vector<uint32_t> off;  // correction offsets, strictly increasing, < len
     std::vector<uint8_t> val;   // replacement bytes in mask order
+    std::vector<uint32_t> tfo;  // TCOPY: 4-aligned window indices with implicit Delta=-d fields
 };
 
 struct SparseToken {
-    uint8_t type = 0;  // 0 literal run, 1 exact match, 2 sparse-corrected match
+    uint8_t type = 0;  // 0 literal run, 1 exact match, 2 sparse-corrected match, 3 TCOPY match
     uint32_t pos = 0, len = 0, dist = 0;
     std::vector<uint32_t> off;
     std::vector<uint8_t> val;
+    std::vector<uint32_t> tfo;  // TCOPY transform-field window indices (4-aligned)
 };
 
 static inline uint32_t hash4(const uint8_t* p) {
@@ -339,10 +341,14 @@ public:
     // Scan ONE candidate source q against pos; keeps the best prefix in the
     // caller's accumulators. Used by the hash-chain walk and the structural
     // channel check (fixed dist). `work` caps scanned bytes.
+    // TCOPY: a 4-aligned window whose 32-bit target == source - dist (implicit
+    // Delta=-d, the executable-relative relocation algebra) is recorded as a
+    // transform field (tfo window index) and costs only its mask bit.
     void scan_candidate(uint32_t pos, uint32_t q, const std::array<double,256>& litcost,
-                        double avg_lit, uint64_t& work, double dead_band,
+                        double avg_lit, uint64_t& work, double dead_band, bool tcopy,
                         uint32_t& blen, uint32_t& bk, std::array<uint32_t,kSparseScanMax>& boff,
-                        std::array<uint8_t,kSparseScanMax>& bval, double& best_score) const {
+                        std::array<uint8_t,kSparseScanMax>& bval, double& best_score,
+                        std::array<uint32_t,kSparseScanMax/4>& btfo, uint32_t& btfo_n) const {
         const uint8_t* tgt = d_.data() + pos;
         const uint8_t* src = d_.data() + q;
         uint32_t remain = static_cast<uint32_t>(d_.size() - pos);
@@ -351,14 +357,26 @@ public:
         const double match_gain = avg_lit - 0.125;
         const uint32_t dist = pos - q;
         double score = 0.0, local_best = -1e300;
-        uint32_t k = 0, local_len = 0, local_k = 0;
+        uint32_t k = 0, local_len = 0, local_k = 0, local_tfo = 0, local_tfo_snap = 0;
         std::array<uint32_t, kSparseScanMax> off{};
         std::array<uint8_t, kSparseScanMax> val{};
+        std::array<uint32_t, kSparseScanMax/4> tfo{};
         uint32_t j = 0;
         for (; j < cap; ++j) {
             if (++work > kSparseBlockBudget) break;
             uint8_t cpy = (dist > 0) ? src[j % dist] : src[j]; // overlapping copy is periodic
             if (cpy != tgt[j]) {
+                if (tcopy && (j & 3) == 0 && j + 4 <= cap && j + 4 <= dist) {
+                    uint32_t s32, t32;
+                    std::memcpy(&s32, src + j, 4); std::memcpy(&t32, tgt + j, 4);
+                    if (s32 != t32 && t32 == s32 - dist) { // implicit Delta = -dist
+                        tfo[local_tfo++] = j >> 2;
+                        score -= 0.1; // transform field costs only its mask bit
+                        j += 3; // skip the window
+                        if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; local_tfo_snap = local_tfo; }
+                        continue;
+                    }
+                }
                 if (k >= kSparseScanMax) break;
                 off[k] = j; val[k] = tgt[j];
                 score -= litcost[tgt[j]] + 0.125;
@@ -366,18 +384,20 @@ public:
             } else {
                 score += match_gain;
             }
-            if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; }
+            if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; local_tfo_snap = local_tfo; }
             else if (score < local_best - dead_band) break;
         }
         if (local_k >= 1 && local_len >= 8 && local_best > best_score) {
             best_score = local_best; blen = local_len; bk = local_k;
             for (uint32_t i = 0; i < local_k; ++i) { boff[i] = off[i]; bval[i] = val[i]; }
+            btfo_n = local_tfo_snap;
+            for (uint32_t i = 0; i < local_tfo_snap; ++i) btfo[i] = tfo[i];
         }
     }
 
     // Sparse candidate at a FIXED distance (structural channel): q = pos - dist.
     bool find_sparse_at(uint32_t pos, uint32_t dist, SparseMatch& out, const std::array<double,256>& litcost,
-                        double avg_lit, uint64_t& work, double dead_band=32.0) const {
+                        double avg_lit, uint64_t& work, double dead_band=32.0, bool tcopy=false) const {
         out.len = 0;
         if (dist == 0 || dist > pos || pos + 4 > d_.size()) return false;
         uint32_t q = pos - dist;
@@ -386,12 +406,14 @@ public:
         if (src[0] != tgt[0] || src[1] != tgt[1] || src[2] != tgt[2] || src[3] != tgt[3]) return false;
         std::array<uint32_t, kSparseScanMax> boff{};
         std::array<uint8_t, kSparseScanMax> bval{};
-        uint32_t blen = 0, bk = 0; double best_score = -1e300;
-        scan_candidate(pos, q, litcost, avg_lit, work, dead_band, blen, bk, boff, bval, best_score);
+        std::array<uint32_t, kSparseScanMax/4> btfo{};
+        uint32_t blen = 0, bk = 0, btfo_n = 0; double best_score = -1e300;
+        scan_candidate(pos, q, litcost, avg_lit, work, dead_band, tcopy, blen, bk, boff, bval, best_score, btfo, btfo_n);
         if (bk >= 1 && blen >= 8) {
             out.len = blen; out.dist = dist;
             out.off.assign(boff.begin(), boff.begin() + bk);
             out.val.assign(bval.begin(), bval.begin() + bk);
+            out.tfo.assign(btfo.begin(), btfo.begin() + btfo_n);
             return true;
         }
         return false;
@@ -403,7 +425,7 @@ public:
     // i.e. mask+residuals vs the all-literal fallback. Returns the best sparse
     // candidate with >=1 correction, or false. `work` caps scanned bytes.
     bool find_sparse(uint32_t pos, SparseMatch& out, const std::array<double,256>& litcost,
-                     double avg_lit, uint64_t& work, double dead_band=32.0) const {
+                     double avg_lit, uint64_t& work, double dead_band=32.0, bool tcopy=false) const {
         out.len = 0;
         if (pos + 4 > d_.size()) return false;
         const uint8_t* tgt = d_.data() + pos;
@@ -414,7 +436,8 @@ public:
         if (cap < 8) return false;
         std::array<uint32_t, kSparseScanMax> boff{};
         std::array<uint8_t, kSparseScanMax> bval{};
-        uint32_t blen = 0, bk = 0;
+        std::array<uint32_t, kSparseScanMax/4> btfo{};
+        uint32_t blen = 0, bk = 0, btfo_n = 0;
         double best_score = -1e300;
         uint32_t best_q = 0;
         for (uint32_t depth = 0; q != kNoPos && depth < kSparseChainMax; ++depth, q = prev_[q]) {
@@ -422,7 +445,7 @@ public:
             const uint8_t* src = d_.data() + q;
             if (src[0] != tgt[0] || src[1] != tgt[1] || src[2] != tgt[2] || src[3] != tgt[3]) continue;
             double before = best_score;
-            scan_candidate(pos, q, litcost, avg_lit, work, dead_band, blen, bk, boff, bval, best_score);
+            scan_candidate(pos, q, litcost, avg_lit, work, dead_band, tcopy, blen, bk, boff, bval, best_score, btfo, btfo_n);
             if (best_score > before) best_q = q;
             if (work >= kSparseBlockBudget) break;
         }
@@ -431,6 +454,7 @@ public:
             out.dist = pos - best_q;
             out.off.assign(boff.begin(), boff.begin() + bk);
             out.val.assign(bval.begin(), bval.begin() + bk);
+            out.tfo.assign(btfo.begin(), btfo.begin() + btfo_n);
             return true;
         }
         return false;
@@ -537,7 +561,7 @@ struct StructChannel { uint32_t dist = 0; double score = 0.0; uint32_t last = 0;
 static uint64_t g_ch_try = 0, g_ch_win = 0; // R4 channel diagnostics
 
 static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match,
-                                             uint32_t surprise=12, bool boundary=false, bool channels=true) {
+                                             uint32_t surprise=12, bool boundary=false, bool channels=true, bool tcopy=false) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     std::vector<SparseToken> toks;
     if(n==0) return toks;
@@ -581,7 +605,7 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                 chan[c].score *= std::pow(0.9, double(i - chan[c].last) / 128.0);
                 chan[c].last = i;
                 SparseMatch sm;
-                ++g_ch_try; if(mf.find_sparse_at(i,chan[c].dist,sm,litcost,avg_lit,work,dead_band)) { ++g_ch_win;
+                ++g_ch_try; if(mf.find_sparse_at(i,chan[c].dist,sm,litcost,avg_lit,work,dead_band,tcopy)) { ++g_ch_win;
                     double sc=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
                              +0.18*std::log2(double(sm.dist)+1.0);
                     for(size_t k=0;k<sm.off.size();++k) sc+=litcost[sm.val[k]];
@@ -591,7 +615,7 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
         }
         if(exact.len<128 && work<kSparseBlockBudget) {
             SparseMatch sm;
-            if(mf.find_sparse(i,sm,litcost,avg_lit,work,dead_band)) {
+            if(mf.find_sparse(i,sm,litcost,avg_lit,work,dead_band,tcopy)) {
                 double sparse_c=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
                                +0.18*std::log2(double(sm.dist)+1.0);
                 for(size_t k=0;k<sm.off.size();++k) sparse_c+=litcost[sm.val[k]];
@@ -605,8 +629,8 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                 if(exact.len>=4) alt_c=exact_c+(pref[i+sm.len]-pref[i+std::min<uint32_t>(exact.len,sm.len)]);
                 else alt_c=pref[i+sm.len]-pref[i];
                 if(best_c<alt_c) {
-                    SparseToken t; t.type=2; t.pos=i; t.len=sm.len; t.dist=sm.dist;
-                    t.off=std::move(sm.off); t.val=std::move(sm.val);
+                    SparseToken t; t.type=(tcopy && !sm.tfo.empty())?3u:2u; t.pos=i; t.len=sm.len; t.dist=sm.dist;
+                    t.off=std::move(sm.off); t.val=std::move(sm.val); t.tfo=std::move(sm.tfo);
                     toks.push_back(std::move(t));
                     if(boundary) mf.insert_boundary(i);
                     reinforce(sm.dist,i,double(sm.len)*0.5);
@@ -620,8 +644,8 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                 if(exact.len>=4) alt_c=exact_c+(pref[i+ch_sm.len]-pref[i+std::min<uint32_t>(exact.len,ch_sm.len)]);
                 else alt_c=pref[i+ch_sm.len]-pref[i];
                 if(ch_cost<alt_c) {
-                    SparseToken t; t.type=2; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
-                    t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val);
+                    SparseToken t; t.type=(tcopy && !ch_sm.tfo.empty())?3u:2u; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
+                    t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val); t.tfo=std::move(ch_sm.tfo);
                     toks.push_back(std::move(t));
                     if(boundary) mf.insert_boundary(i);
                     reinforce(t.dist,i,double(t.len)*0.5);
@@ -636,8 +660,8 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
             if(exact.len>=4) alt_c=exact_c+(pref[i+ch_sm.len]-pref[i+std::min<uint32_t>(exact.len,ch_sm.len)]);
             else alt_c=pref[i+ch_sm.len]-pref[i];
             if(ch_cost<alt_c) {
-                SparseToken t; t.type=2; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
-                t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val);
+                SparseToken t; t.type=(tcopy && !ch_sm.tfo.empty())?3u:2u; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
+                t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val); t.tfo=std::move(ch_sm.tfo);
                 toks.push_back(std::move(t));
                 if(boundary) mf.insert_boundary(i);
                 reinforce(t.dist,i,double(t.len)*0.5);
@@ -1319,6 +1343,183 @@ static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, siz
     }
     if(out.size()!=out_len||ip_ll!=s[1].size()||ip_ml!=s[2].size()||ip_ds!=s[3].size()
        ||ip_lit!=s[4].size()||ip_mask!=s[5].size()||ip_res!=s[6].size())
+        throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
+// ---- TCOPY backend (mode 14): implicit Delta=-d transformed copy -----------
+// Token type 3 = transformed copy: copy a prior phrase (NON-overlapping, dist>=len)
+// and, at 4-aligned windows where the 32-bit target equals source - dist (the
+// executable-relative relocation algebra, implicit Delta=-d, zero bits), rewrite
+// the field; other corrections are residuals as in mode 11. Transform fields and
+// residuals live in SEPARATE streams (the isolated-domain ablation requirement).
+// 8 streams: types / ll / ml / ds / lits / residual-mask / residuals / transform-mask.
+static std::vector<uint8_t> encode_tokens_tcopy(const std::vector<uint8_t>& d, const std::vector<SparseToken>& toks) {
+    std::vector<uint8_t> types, ll, ml, ds, lits, masks, resid, tmask;
+    types.reserve(toks.size());
+    std::array<uint32_t,(kSparseScanMax+31)/32> words{};
+    std::array<uint32_t,(kSparseScanMax+31)/128> twords{}; // one bit per 4-byte window
+    for(auto&t:toks) {
+        types.push_back(t.type);
+        if(t.type==0) {
+            append_varint_bytes(ll,t.len-1);
+            lits.insert(lits.end(),d.begin()+t.pos,d.begin()+t.pos+t.len);
+        } else if(t.type==1) {
+            append_varint_bytes(ml,t.len-4);
+            append_varint_bytes(ds,t.dist-1);
+        } else {
+            append_varint_bytes(ml,t.len-4);
+            append_varint_bytes(ds,t.dist-1);
+            std::fill(words.begin(),words.end(),0u);
+            for(size_t k=0;k<t.off.size();++k) {
+                words[t.off[k]/32]|=(1u<<(t.off[k]%32));
+                resid.push_back(t.val[k]);
+            }
+            uint32_t nwords=(t.len+31)/32;
+            for(uint32_t w=0;w<nwords;++w) {
+                uint32_t m=words[w];
+                masks.push_back(static_cast<uint8_t>(m));
+                masks.push_back(static_cast<uint8_t>(m>>8));
+                masks.push_back(static_cast<uint8_t>(m>>16));
+                masks.push_back(static_cast<uint8_t>(m>>24));
+            }
+            if(t.type==3) {
+                std::fill(twords.begin(),twords.end(),0u);
+                for(size_t k=0;k<t.tfo.size();++k) twords[t.tfo[k]/32]|=(1u<<(t.tfo[k]%32));
+                uint32_t nwin=t.len/4;
+                uint32_t twn=(nwin+31)/32;
+                for(uint32_t w=0;w<twn;++w) {
+                    uint32_t m=twords[w];
+                    tmask.push_back(static_cast<uint8_t>(m));
+                    tmask.push_back(static_cast<uint8_t>(m>>8));
+                    tmask.push_back(static_cast<uint8_t>(m>>16));
+                    tmask.push_back(static_cast<uint8_t>(m>>24));
+                }
+            }
+        }
+    }
+    std::vector<uint8_t> out;
+    for(const auto* v:{&types,&ll,&ml,&ds,&lits,&masks,&resid,&tmask}) {
+        auto z=encode_stream(*v);
+        put_uvar(out,z.size());
+        out.insert(out.end(),z.begin(),z.end());
+    }
+    return out;
+}
+
+static std::vector<uint8_t> decode_tokens_tcopy(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e=p+n;
+    std::array<std::vector<uint8_t>,8> s;
+    const size_t max_sub=16*out_len+64;
+    for(int i=0;i<8;++i) {
+        uint64_t zn=get_uvar(p,e);
+        if(zn>uint64_t(e-p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q=p; const uint8_t* qe=p+zn;
+        s[i]=decode_stream(q,qe,max_sub);
+        if(q!=qe) throw std::runtime_error("substream trailing bytes");
+        p+=zn;
+    }
+    if(p!=e) throw std::runtime_error("payload trailing bytes");
+    size_t ip_ll=0,ip_ml=0,ip_ds=0,ip_lit=0,ip_mask=0,ip_res=0,ip_tmask=0;
+    std::vector<uint8_t> out; out.reserve(out_len);
+    for(uint8_t type:s[0]) {
+        if(out.size()>=out_len) throw std::runtime_error("too many tokens");
+        if(type==0) {
+            uint64_t len=read_varint_bytes(s[1],ip_ll)+1;
+            if(len>out_len-out.size()||len>s[4].size()-ip_lit) throw std::runtime_error("bad literal run");
+            out.insert(out.end(),s[4].begin()+ip_lit,s[4].begin()+ip_lit+len);
+            ip_lit+=len;
+        } else if(type==1) {
+            uint64_t len=read_varint_bytes(s[2],ip_ml)+4;
+            uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
+            if(dist==0||dist>out.size()||len>out_len-out.size()) throw std::runtime_error("bad tcopy match");
+            for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]);
+        } else if(type==2) {
+            uint64_t len=read_varint_bytes(s[2],ip_ml)+4;
+            uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
+            if(dist==0||dist>out.size()||len>out_len-out.size()) throw std::runtime_error("bad tcopy sparse");
+            if(len>kSparseMaxLen) throw std::runtime_error("tcopy sparse too long");
+            size_t start=out.size();
+            uint64_t nwords=(len+31)/32;
+            if(nwords*4>s[5].size()-ip_mask) throw std::runtime_error("truncated mask stream");
+            std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+            uint32_t pc=0;
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=uint32_t(s[5][ip_mask])|(uint32_t(s[5][ip_mask+1])<<8)
+                          |(uint32_t(s[5][ip_mask+2])<<16)|(uint32_t(s[5][ip_mask+3])<<24);
+                ip_mask+=4;
+                uint32_t first=uint32_t(w*32);
+                if(first+32>len) { uint32_t over=first+32-len; if((m>>(32-over))!=0) throw std::runtime_error("mask bits beyond copy length"); }
+                words[w]=m;
+                pc+=std::popcount(m);
+            }
+            if(pc>s[6].size()-ip_res) throw std::runtime_error("truncated residual stream");
+            for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]);
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=words[w];
+                while(m) {
+                    uint32_t b=std::countr_zero(m);
+                    out[start+uint32_t(w*32)+b]=s[6][ip_res++];
+                    m&=m-1;
+                }
+            }
+        } else if(type==3) {
+            uint64_t len=read_varint_bytes(s[2],ip_ml)+4;
+            uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
+            if(dist==0||dist>out.size()||len>out_len-out.size()) throw std::runtime_error("bad tcopy transform");
+            if(len>kSparseMaxLen) throw std::runtime_error("tcopy transform too long");
+            size_t start=out.size();
+            for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]); // copy (overlap allowed; transform fields are non-overlap by construction)
+            // transform fields: rewrite 32-bit fields with implicit Delta=-d
+            uint64_t nwin=len/4;
+            uint64_t twn=(nwin+31)/32;
+            if(twn*4>s[7].size()-ip_tmask) throw std::runtime_error("truncated transform mask");
+            for(uint64_t w=0;w<twn;++w) {
+                uint32_t m=uint32_t(s[7][ip_tmask])|(uint32_t(s[7][ip_tmask+1])<<8)
+                          |(uint32_t(s[7][ip_tmask+2])<<16)|(uint32_t(s[7][ip_tmask+3])<<24);
+                ip_tmask+=4;
+                uint32_t first=uint32_t(w*32);
+                if(first+32>nwin) { uint32_t over=first+32-nwin; if((m>>(32-over))!=0) throw std::runtime_error("transform mask bits beyond windows"); }
+                while(m) {
+                    uint32_t b=std::countr_zero(m);
+                    size_t o=start+(w*32+b)*4;
+                    if (o + 4 > start + dist) throw std::runtime_error("transform field beyond non-overlap region");
+                    uint32_t v=uint32_t(out[o])|(uint32_t(out[o+1])<<8)|(uint32_t(out[o+2])<<16)|(uint32_t(out[o+3])<<24);
+                    v-=static_cast<uint32_t>(dist); // implicit Delta = -dist
+                    out[o]=static_cast<uint8_t>(v);
+                    out[o+1]=static_cast<uint8_t>(v>>8);
+                    out[o+2]=static_cast<uint8_t>(v>>16);
+                    out[o+3]=static_cast<uint8_t>(v>>24);
+                    m&=m-1;
+                }
+            }
+            // residual corrections (same as type 2)
+            uint64_t nwords=(len+31)/32;
+            if(nwords*4>s[5].size()-ip_mask) throw std::runtime_error("truncated mask stream");
+            std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+            uint32_t pc=0;
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=uint32_t(s[5][ip_mask])|(uint32_t(s[5][ip_mask+1])<<8)
+                          |(uint32_t(s[5][ip_mask+2])<<16)|(uint32_t(s[5][ip_mask+3])<<24);
+                ip_mask+=4;
+                uint32_t first=uint32_t(w*32);
+                if(first+32>len) { uint32_t over=first+32-len; if((m>>(32-over))!=0) throw std::runtime_error("mask bits beyond copy length"); }
+                words[w]=m;
+                pc+=std::popcount(m);
+            }
+            if(pc>s[6].size()-ip_res) throw std::runtime_error("truncated residual stream");
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=words[w];
+                while(m) {
+                    uint32_t b=std::countr_zero(m);
+                    out[start+uint32_t(w*32)+b]=s[6][ip_res++];
+                    m&=m-1;
+                }
+            }
+        } else throw std::runtime_error("unknown tcopy token type");
+    }
+    if(out.size()!=out_len||ip_ll!=s[1].size()||ip_ml!=s[2].size()||ip_ds!=s[3].size()
+       ||ip_lit!=s[4].size()||ip_mask!=s[5].size()||ip_res!=s[6].size()||ip_tmask!=s[7].size())
         throw std::runtime_error("substream consumption mismatch");
     return out;
 }
@@ -2113,6 +2314,14 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
             for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
             if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),13};
         }
+        // Mode 14 (TCOPY): implicit Delta=-d transformed copy over the sparse parse.
+        if(opt.parse=="auto" || opt.parse=="tcopy") {
+            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels,true); have_sp=true; }
+            auto payload=encode_tokens_tcopy(block,sp_toks);
+            std::vector<Token> t; t.reserve(sp_toks.size());
+            for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+            if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),14};
+        }
         if(best.mode==0) throw std::runtime_error("no encoder candidate");
 
         auto ps=token_stats(best.toks);
@@ -2160,6 +2369,8 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
                                : decode_tokens_shape(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else if(mode==13) {
             b=decode_tokens_topology(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
+        } else if(mode==14) {
+            b=decode_tokens_tcopy(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else throw std::runtime_error("unknown block mode");
         if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
         out.insert(out.end(),b.begin(),b.end()); p+=plen;
@@ -2180,10 +2391,10 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
-              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
-              << "  note: sparse->mode 11, shape->mode 12 (per-shape displacement), topology->mode 13 (modal residuals); --shape-states=1 is the FLAG-D control\n"
+              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
+              << "  note: sparse->mode 11, shape->mode 12, topology->mode 13 (research), tcopy->mode 14 (implicit Delta=-d); --shape-states=1 is the FLAG-D control\n"
               << "  note: --surprise=N is the sparse-parser mismatch budget (default 12); --boundary/--negate are C5 adopts\n";
 }
 
@@ -2216,7 +2427,7 @@ int main(int argc,char**argv) {
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
-        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape"&&opt.parse!="topology")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl, shape or topology");
+        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape"&&opt.parse!="topology"&&opt.parse!="tcopy")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl, shape, topology or tcopy");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
         if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans"&&opt.entropy!="sparse")throw std::runtime_error("entropy must be auto, arith, rans or sparse");
         if(opt.shape_states!=1 && opt.shape_states!=28)throw std::runtime_error("shape-states must be 1 or 28");

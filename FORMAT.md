@@ -31,8 +31,41 @@ Block modes:
 - `11`: SPARSE-REF backend (approximate self-reference with sparse correction)
 - `12`: SHAPE backend (per-shape displacement prediction; arch, iteration 2)
 - `13`: TOPOLOGY backend (per-slot modal residual + exception mask; arch, iteration 2 — MEASURED NOT-ADOPTED, retained as a research mode)
+- `14`: TCOPY backend (implicit Delta=-d transformed copy; arch, iteration 3 — prototype)
 
 Unknown modes are rejected.
+
+## TCOPY token backend (mode 14)
+
+Mode 14 (landed by `arch` during iteration 3) is the SPARSE-REF token model plus
+token type 3: a transformed copy. Token type 3 = copy a prior phrase (overlap
+allowed; the copy is periodic as in modes 11-13) and, at 4-aligned windows where
+the 32-bit little-endian target equals the source value minus the match distance
+(the executable-relative relocation algebra, implicit `Delta = -dist`, zero
+bits), rewrite the field; all other corrections are residuals as in mode 11.
+Transform fields are constrained to the non-overlapping region of the reference
+(`field_end <= dist`), so they are excluded first for overlapping refs.
+
+Payload = 8 separated streams (each serialized with the per-stream suite):
+token types (0-3) / lit-run len / match len / match dist / literals /
+residual mask (flat 32-bit words per 32 B, as mode 11) / residual values /
+transform mask (one 32-bit word per 32 four-byte windows; bit j of word w marks
+window 32w+j as a transform field).
+
+Decoder strictness: type-3 requires `dist in [1, out.size()]`, `len <= 65536`,
+`field_end <= dist` per transform window (rejected otherwise), transform-mask
+bits beyond the window count rejected, residual invariants as mode 11, full
+substream consumption, CRC. Transform fields and residuals live in separate
+streams (isolated statistical domains).
+
+**Measured status (arch, Windows): prototype. Round-trip verified on the corpus
+and on real PE executables; TCOPY beats plain sparse (mode 11, same greedy
+parse) by ~0.1-0.6% on executables (transform fields fire: 519 fields in
+`anvil.exe` block 0) and is neutral on non-binary data. Exact-LZ MDL (mode 10)
+still wins on the executables — the greedy approximate parse is the limiting
+factor, not the transform. The implicit-parameter claim (Delta derived from the
+distance, zero bits) is the implemented mechanism; the explicit-Delta control is
+a follow-up per the t3-patent narrowed-claim contract.
 
 ## TOPOLOGY token backend (mode 13)
 
