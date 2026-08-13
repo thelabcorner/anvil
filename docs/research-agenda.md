@@ -604,6 +604,27 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   Qualcomm relocation families flagged). TCOPY = NARROW-to-NEW-INTERACTION,
   conditional on patent check + isolated Windows ablation; queued
   post-t2-bench.
+- **PATENT GATE RESULT (research, t3-patent — blackboard
+  research/patent-tcopy): CONDITIONAL PASS (narrowed).** The relocation-
+  algebra delta (Δ = position difference for relative fields) is
+  DISCLOSED: US7676506B2 (Reinsch/Qualcomm, priority 2003) explicitly
+  recomputes branch displacements as
+  (targetV2−addrV2) = (targetV1−addrV1) + (targetStartV2−targetStartV1)
+  − (startV2−startV1) — the same math as TCOPY's Δ=−d — but in a TWO-FILE
+  delta with transmitted map-file/symbol hints and global pre-processing.
+  Microsoft's "Minimum delta generator" family (US7058941/7681190/7685590,
+  priority 2000) is CFG-based two-file binary delta; IBM (US6374250B2,
+  1997) is exact-match block-move. **The SELF-REFERENTIAL single-file
+  implicit-parameter formulation (Δ derived from the match distance
+  itself, zero bits, no external hints, inside a match) is NOT FOUND in
+  any surveyed family.** Defensible novelty claim is now precisely:
+  *self-referential implicit-parameter transformed copy*. The isolated
+  Windows ablation must demonstrate the gain is from the implicit-parameter
+  self-reference, not from transformed copy per se — if the gain is mostly
+  "transformed copy helps binaries", the novelty is NARROW-to-NONE (flag
+  for the binary-lane gate). Freedom-to-operate attorney review recommended
+  before any commercial claim (this is a classification gate, not legal
+  advice).
 
 ## Iteration-2 sequencing (as scheduled)
 

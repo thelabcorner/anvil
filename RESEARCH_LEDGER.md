@@ -715,6 +715,46 @@ lesson: the transform lives INSIDE the reference, not globally before LZ.
   the TCOPY claim is CONDITIONAL on it (NARROW-to-NEW-INTERACTION pending
   patent check + isolated Windows ablation).
 
+**PATENT GATE RESULT (research, t3-patent — blackboard
+research/patent-tcopy): CONDITIONAL PASS (narrowed).** Formal web search
+performed (Google Patents + Scholar patent records, 2026-08-13). Findings:
+
+- **US7676506B2** (Reinsch; Innopath→Qualcomm; priority 2003-06-20;
+  expired 2023) — **the closest prior art.** Discloses the relocation-
+  algebra delta explicitly: transformation G(x)=x+f(x) with f piece-wise
+  constant, and Formula 1 recomputing branch displacements as
+  (targetAddrV2−addrV2) = (targetAddrV1−addrV1) +
+  (targetStartAddrV2−targetStartAddrV1) − (startAddrV2−startAddrV1).
+  This is the SAME math as TCOPY's Δ=−distance for PC/RIP-relative fields.
+  Distinguishers: TWO-FILE delta (original+new version), TRANSMITTED
+  map-file/symbol hints (compiler/linker HintTable — explicit side
+  information), GLOBAL pre-processing of whole images, requires map files.
+- **Microsoft "Minimum delta generator"** (US7058941B1 + US7681190B2 +
+  US7685590B2, Venkatesan & Sinha, priority 2000-11-14, cited 39×) — CFG-
+  based two-file binary delta; basic-block matching + edge edits +
+  register/immediate normalization; no implicit Δ at sparse offsets.
+- **IBM** (US6374250B2 / US20020010702A1, Ajtai/Burns/Fagin/Stockmeyer,
+  priority 1997, cited 270×) — block-move + add/copy delta primitives;
+  exact-match copy, no transformed copy. **Microsoft US6216175B1** (cited
+  247×) — relocation normalization across installs, two-file update.
+  **US20050281469A1** (Anderson 2005) — "Difference Engine" finds pointer
+  data, two-file. **US11789708B2** (Mallat 2023) — firmware patch
+  transforms, two-file.
+
+**Gate decision:** CONDITIONAL PASS (narrowed). The relocation algebra and
+the transformed-copy primitive are PRIOR ART (US7676506B2, 2003). The
+defensible novelty claim is now precisely: *self-referential (single-file,
+no external reference) lossless compression using an implicit-parameter
+transformed copy whose additive delta is derived from the match distance
+itself (zero transmitted bits for executable-relative fields)* — NOT FOUND
+in any surveyed family. Implications: (1) agenda I2-5 + this ledger entry
+cite US7676506B2 as closest prior art; (2) the isolated Windows ablation
+must separate the implicit-parameter self-reference gain from transformed-
+copy-per-se; if the gain is mostly "transformed copy helps binaries", the
+novelty is NARROW-to-NONE — flag for the binary-lane gate; (3) this is a
+literature/patent-classification gate, NOT legal advice — freedom-to-operate
+attorney review recommended before any commercial claim.
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — CORRECTED (v2): FULL PASS at pre-registered λ=0.01
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-
