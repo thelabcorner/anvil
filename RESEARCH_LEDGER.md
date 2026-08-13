@@ -1432,3 +1432,47 @@ ANVIL's defensible lane = cheap deterministic programs (tiny VM + copy +
 sparse stores + integer adds), encoder-side intelligence only (decoder
 stays LZ4-class), invariant-based search formulation. **2026 citations are
 operator-reported — verify each before citing in the ledger.**
+
+## Experiment R — Compiled hot-op instruction book (t4-hotop, I4-1, mode 15) — PARTIAL PASS, ≥2x target NOT met
+
+**Gate pre-registration (agenda PART IV I4-1):** encoder-synthesized
+decoder instruction book (kind/len/dist/patch-sel), hot-opcode-index
+stream, rare-token macro-op fallback (Linux modes 26-28 pattern).
+**Falsifiable target: ≥2x decode on record files at preserved ratio vs
+the fused mode-12 baseline.**
+
+**Mechanism (arch, mode 15):** v2 design per the Linux correction — hot
+commands COEXIST with per-shape displacement state; the shape-state index
+is compiled into each book entry; macro fallback updates the SAME state;
+decoder is fused pull-based. Round-trip all 10 files + PEs; fuzzed 490 +
+canonical PASS; one dev bug fixed (out.resize zeroing clobbered memcpy).
+Independently re-measured: round-trip OK; J-agreement 825/825 (jsonl) and
+600/600 (log) maintained.
+
+**Results (arch, median-5, vs fused mode-12 baseline):**
+
+| file | hot-op (m15) | fused (m12) | ×decode | ratio Δ vs sparse |
+|---|---:|---:|---:|---:|
+| generated.log | 274 | 234 | **1.17x** | −0.1% (BETTER) |
+| generated.json | 194 | 157 | 1.23x | +0.6% |
+| generated.jsonl | 284 | 226 | 1.25x | +0.35% |
+| generated.sqlite | 157 | 118 | 1.34x | +0.7% |
+
+Small files pay the book header. Absolute: ~1.6-1.9x vs the t3-fuse start.
+
+**Gate verdict (honest):**
+
+- **Real hot-path win: YES** — 1.17-1.34x vs the fused baseline, ~1.6-1.9x
+  vs the t3-fuse start, at near-preserved ratio (log even slightly better).
+  The compiled-book interaction is validated as a decode accelerator.
+- **The pre-registered ≥2x I4-1 target is NOT met.** The floor is now
+  opcode-stream entropy decode + copy throughput — not the per-field pulls
+  fusion removed.
+- **The recorded lever:** reaching the Linux 0.87-0.99 GB/s regime requires
+  the whole-codec J-selection + raw-stream budget for the shape-delta
+  stream (the 22-stream architecture) — i.e., I4-3's economics applied to
+  the hot-opcode stream itself. Recorded as the next step, not this
+  task's failure.
+- **Verdict: PARTIAL PASS.** Recorded as a result, not a claim. No Pareto
+  claim (decode still ~3-4x behind brotli q9). Bench: mode-15 decode rows
+  shift ~1.2-1.3x (re-baseline noted).
