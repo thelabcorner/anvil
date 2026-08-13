@@ -878,6 +878,11 @@ within the 5-19% timing noise band; no conflict). J-agreement 660/660 at
   1.76x on identical records) at preserved ratio, but the pre-registered
   target is unmet. Recorded as a result, not a claim. Bench: mode-12 decode
   rows shift ~1.2x (re-baseline noted); FLAG-D/J-suite A/B unaffected.
+- **Supplementary (arch, t3-r4 closeout):** the sqlite flag from the fused
+  measurement (0.84x — sparse-heavy binary, short matches dominated) was
+  investigated; a short-match memcpy threshold was added (0.78x → 0.84x),
+  noted honestly. Record files stay 1.1-1.27x; the sqlite deficit is
+  recorded as an open minor item, not a claim.
 
 ## Experiment N — R4 structural-distance propagation (t3-r4) — NOT ADOPTED (honest negative)
 
