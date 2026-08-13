@@ -468,11 +468,34 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
 
 - **Lineage:** rANS/ANS precision (Duda; ryg_rans; FSE); Brotli/zstd block
   type selection. Per-stream codec choice is partly explored.
-- **NEW (as a claim):** joint cost J = L_stream + λC_decode + μC_model-build
-  + νW_cache selecting per stream among 256/512-state rANS (cache-resident
-  tables) × stream suite (Huffman / default-with-sparse-exceptions /
-  pair-rANS / raw). "Smallest wins, but the objective includes decode and
-  model-build cost."
+- **Prior-art honesty (coordinator, Linux v2 — RFC 7932):** **context
+  clustering is EXPLICITLY NOT novel.** Brotli itself maps decoded literal
+  context to several literal prefix trees via a compact context map driven
+  by previous decoded bytes (RFC 7932). Any I2-2 claim that leans on
+  "decoder-visible context modeling" must NOT be framed as new. The narrow,
+  defensible contribution is the **~1.65 ms sparse-support quantizer**
+  (K≈8–12 learned probability classes, one physical rANS stream, previous
+  byte selects class at decode, context identity costs zero bits/literal)
+  making decoder-visible context modeling *economical inside ANVIL's
+  rANS/semantic architecture* — **treat as enabling infrastructure unless
+  an ablation shows a genuinely new interaction.**
+- **Measured Linux verdicts (record — do not re-derive):**
+  - Context-switched rANS = a **RATIO mechanism, not the missing throughput
+    primitive**: SQLite depth-2/K12 ≈ 404.7 KB, depth-3 ≈ 379.3 KB vs
+    brotli q4 ~422.1 KB (huge ratio headroom) but decoder falls to
+    **~0.6–0.74 GB/s** — not a decode win by itself.
+  - Context-switched table **Huffman/direct variant: REJECTED** (~143.8 KB
+    at K=12, same size as clustered rANS, but the context-dependent prefix
+    machinery is SLOWER once model/table setup is counted).
+  - Keep the K≈8–12 quantizer as reusable infrastructure.
+- **NEW (as a claim — narrowed):** joint cost J = L_stream + λC_decode +
+  μC_model-build + νW_cache selecting per stream among 256/512-state rANS
+  (cache-resident tables) × stream suite (Huffman / default-with-sparse-
+  exceptions / pair-rANS / raw). "Smallest wins, but the objective includes
+  decode and model-build cost." **The I2-2 novelty, if any, is the
+  J-selection interaction itself** (predicting the measured winner on ≥80%
+  of streams) — not context clustering; and it must clear the I2 Pareto
+  target (EXTENDS_FRONT), not just add ratio.
 - **Falsifiable ablation:** fixed-rANS vs stream-suite per stream; report
   Δratio, Δdecode, Δmodel-build; verify the J-cost predicts the winner on
   ≥80% of streams. Decode win must be real (FLAG-A), not just ratio.
@@ -493,7 +516,10 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   real cost-model finding recorded even if the aggregate passes.
 - **Why Pareto:** stream anatomy shows 22 streams dominated by pair/Huffman
   on the big residual streams; precision-adaptive coding makes rich
-  multi-model coding cheap to initialize/execute.
+  multi-model coding cheap to initialize/execute. But per the Linux
+  verdicts, the suite must earn its throughput claim — clustered rANS alone
+  is a ratio mechanism; the decode win must come from the J-selection +
+  cache-resident-tables interaction.
 
 ## I2-3. Cheap adopts (C5): surprise-budget sweep + boundary candidates + negative gate
 

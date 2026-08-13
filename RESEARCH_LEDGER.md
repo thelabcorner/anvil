@@ -621,3 +621,38 @@ propagation (R4/R5 in agenda v1 — persistent channels)**. Revisit after R4
 lands; the pre-registered contract stays valid, and the target is unchanged.
 Flat-A remains the measured baseline (repeat control 0.0013). The router
 recovers the control (auto = 0.0009), so no shipped-config regression.
+
+## Experiment J — Context-switched rANS / context clustering (Linux v2, prior-art honesty) — infra-only, not novel
+
+**Coordinator injection (Linux frontier, docs/CONTEXT.md):** prior-art
+honesty update for the I2-2 gate. Recorded here so the framing is durable:
+
+- **Context clustering is EXPLICITLY NOT novel.** Brotli RFC 7932 maps
+  decoded literal context to several literal prefix trees via a compact
+  context map driven by previous decoded bytes. Any ANVIL claim leaning on
+  decoder-visible context modeling must not be framed as new.
+- **The narrow, defensible contribution** is the **~1.65 ms sparse-support
+  quantizer** (K≈8–12 learned probability classes; ONE physical literal rANS
+  stream; previous byte selects the class/table at decode; context identity
+  costs zero bits per literal; encoder mirrors in reverse). Treat as
+  **enabling infrastructure** unless an ablation shows a genuinely new
+  interaction.
+- **Measured verdicts (Linux, directional — do not re-derive):**
+  1. **Context-switched rANS = RATIO mechanism, not the missing throughput
+     primitive.** SQLite depth-2/K12 ≈ 404.7 KB, depth-3 ≈ 379.3 KB vs
+     brotli q4 ~422.1 KB (large ratio headroom) but decoder falls to
+     **~0.6–0.74 GB/s** — no decode win by itself.
+  2. **Context-switched table Huffman/direct variant: REJECTED.** ~143.8 KB
+     at K=12 (same size as clustered rANS) but context-dependent prefix
+     machinery is SLOWER than clustered rANS once model/table setup is
+     counted.
+  3. Keep the K≈8–12 quantizer as **reusable infrastructure**.
+- **K=12 numbers for reference (SQLite literal subsystem):** 141,833 B total
+  (data 137,624 + meta 4,209), enc ~199 / dec ~289 MB/s, 4-way rANS64, ONE
+  physical stream, previous byte selects class table; knee at K 8–12
+  (K=8 → 146,207 B, K=16 → 141,140 B).
+- **Gate implication:** the I2-2 claim narrows to the **J-selection
+  interaction** (predicting the measured winner on ≥80% of streams across
+  the stream suite) + cache-resident-tables decode interaction — and must
+  clear the I2 Pareto target (EXTENDS_FRONT), not merely add ratio. Clustered
+  rANS alone is recorded as ratio-only.
