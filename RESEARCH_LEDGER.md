@@ -1476,3 +1476,48 @@ Small files pay the book header. Absolute: ~1.6-1.9x vs the t3-fuse start.
 - **Verdict: PARTIAL PASS.** Recorded as a result, not a claim. No Pareto
   claim (decode still ~3-4x behind brotli q9). Bench: mode-15 decode rows
   shift ~1.2-1.3x (re-baseline noted).
+
+## Experiment S — Single context-switched literal coder (t4-entropy, I4-3) — RATIO PASS (strongest single mechanism to date)
+
+**Gate pre-registration (agenda PART IV I4-3):** ONE physical
+context-switched literal coder (previous byte selects the class table via
+sparse-support Lloyd quantizer, K≤12, ~1.65 ms) integrated into the
+J-selection; NOT multi-stream fan-out (rejected). Falsifiable targets:
+(a) ratio improvement vs fixed-rANS at equal-or-better decode; (b)
+J-faithfulness ≥80% per-class; (c) no-regression controls.
+
+**Mechanism (arch, stream mode 6):** a single rANS state whose table is
+selected per symbol by a sparse-support Lloyd quantizer (256 → K≤12
+contexts on the previous symbol, ~1.65 ms), integrated into the J-selection.
+Round-trip all 12 files; fuzzed 490 + canonical PASS; two dev bugs fixed
+(seed OOB, StreamPull dispatch/dn-order).
+
+**Results (--parse=auto, suite — independently re-measured: jsonl ctx-on
+183,506 B vs ctx-off 218,553 B = −16.0% (arch −16.2%, rounding); json
+89,158 B = −12.3%; round-trip OK; J-agreement 825/825 + 300/300):**
+
+| file | ctx-on | ctx-off (I3) | Δ |
+|---|---:|---:|---:|
+| generated.json | 0.1077 | 0.1230 | **−12.4%** |
+| generated.jsonl | 0.0652 | 0.0778 | **−16.2%** |
+| generated.log | 0.0668 | 0.0756 | **−11.6%** |
+| generated.sqlite | 0.1856 | 0.2025 | −8.3% |
+
+**The largest single-mechanism ratio win in the project** — literal/residual
+streams compress ~44-46% under the context model. Decode ~3-10% slower
+(per-symbol context lookup; flattened symtab recovered from −15%).
+
+**Gate verdict (matches the coordinator's framing exactly):**
+
+- **RATIO PASS — strongly.** −8.3% to −16.2% on record files, the
+  strongest single mechanism yet. The context-switched rANS is a RATIO
+  mechanism, confirmed as pre-registered (RFC 7932 §7 lineage; the
+  quantizer is enabling infra, not standalone novelty).
+- **DECODE PARTIAL** — ~3-10% slower, not the throughput primitive
+  (coordinator's framing holds). FLAG-A decode-plane co-arbiter not
+  satisfied.
+- **J-faithfulness preserved** (825/825, 300/300 — the J-contract's ≥80%
+  per-class bar held under the new coder).
+- **No Pareto claim.** Bench: suite rows shift materially (ratio down
+  8-16% on record files) — re-baseline needed; `--stream-ctx=off` gives
+  the old sizes.
