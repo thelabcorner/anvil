@@ -178,8 +178,8 @@ rows (median 3) to the full-corpus regression before any further claim.
 
 **Median-3 confirmation (bench, live in tests/benchmark-suite.csv +
 benchmark-summary.csv):** anvil-sparse-rans aggregate **0.141308 /
-22.1 MB/s enc / 195.5 MB/s dec** vs anvil-dp-rans 0.137795 / 1.08 / 209.5
-and brotli-q9 0.111795 / 32.0 / 837.9. Aggregate: +2.5% bytes vs dp-rans at
+23.6 MB/s enc / 197.4 MB/s dec** vs anvil-dp-rans 0.137795 / 1.06 / 214.7
+and brotli-q9 0.111795 / 32.0 / 848.0. Aggregate: +2.5% bytes vs dp-rans at
 **~20x encode speed** with comparable decode — a real trade-off point on the
 ratio-vs-encode plane, but aggregate decode ~195 MB/s is still ~4.3x below
 brotli q9, so **no Pareto claim (FLAG-A binds)**. Per-file (median 3):
@@ -298,9 +298,13 @@ full substream consumption, CRC). Malformed-input audit
 raw_n → ~1 GiB alloc on a 65 KB file, and unbounded declared total — both
 closed by arch's landed fixes (max_n=16*out_len+64; total ≤ (in.size()/7+2)·
 2^26), re-verified as instant rejects. Fuzz strengthened (mutations phase
-asserting reject-or-identical; 6200+ variants, 15700+ mutations across two
-seeds, all PASS; all 10 corpus files round-trip on --parse=auto and
---parse=sparse). This is the safety gate's evidence for mode 11 — a
+asserting reject-or-identical; documented runs — format/audit: seeds 0xA11E
+650 roundtrip variants + 5200 mutations and 0xBEEF 1050 + 10500, plus 800
+roundtrip variants + 6400 mutations in the F1 re-verification
+(docs/decoder-audit.md); arch: 480 ASan/UBSan + 350 canonical (sparse) +
+390 mdl variants + 350 roundtrip / 2100 mutations (mdl) — all PASS; all 10
+corpus files round-trip on --parse=auto and --parse=sparse). This is the
+safety gate's evidence for mode 11 — a
 precondition for any Pareto claim, since a decodable-but-unsafe wire would
 disqualify the mechanism regardless of ratio.
 
