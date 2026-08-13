@@ -175,3 +175,17 @@ agenda claim 3 (structural-distance propagation), in its R1 minimal form.
 the measured baseline — 1182 vs 1157 B shows the headroom), mask==0 shortcut,
 structural-distance channel reuse (R5). `bench` will add anvil-sparse-rans
 rows (median 3) to the full-corpus regression before any further claim.
+
+**Decoder safety (t-format closure, `format`):** FORMAT.md now specs mode 11
+exactly as landed (7 substreams S0-S6, flat 32-bit mask words, strict type-2
+invariants incl. mask-bits-beyond-len rejection, len(residuals)==popcount(mask),
+full substream consumption, CRC). Malformed-input audit
+(`docs/decoder-audit.md`) found two shared-machinery gaps: unbounded substream
+raw_n → ~1 GiB alloc on a 65 KB file, and unbounded declared total — both
+closed by arch's landed fixes (max_n=16*out_len+64; total ≤ (in.size()/7+2)·
+2^26), re-verified as instant rejects. Fuzz strengthened (mutations phase
+asserting reject-or-identical; 6200+ variants, 15700+ mutations across two
+seeds, all PASS; all 10 corpus files round-trip on --parse=auto and
+--parse=sparse). This is the safety gate's evidence for mode 11 — a
+precondition for any Pareto claim, since a decodable-but-unsafe wire would
+disqualify the mechanism regardless of ratio.
