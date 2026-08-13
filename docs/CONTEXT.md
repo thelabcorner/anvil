@@ -263,6 +263,27 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   to the transformed reference itself, not a better entropy coder. If it
   gains density, overlap/periodic transformed references are the later
   extension. (Strong novelty candidate — pre-register at the gate.)
+  **TCOPY first ablation (Linux, .text, directional):** round-trip passed
+  after fixing a genuine search-index bug (hash-bucket collision mistaken for
+  a verified 8-byte anchor — caught before any number was counted). At the
+  same search depth/backend: experimental exact stream 1,962,808 → 1,889,719 B
+  (~73 KB / 3.7%) using ~5,070 transformed phrases with ~16,500 implicit
+  relocation-field corrections. Still does not beat brotli q4 in the crude
+  wire, but the existing EAM .text representation was only ~77 KB behind q4 —
+  the transform gain is approximately the right magnitude to close that lane
+  once integrated with the stronger syntax coder. Encoder search is
+  intentionally awful (single-digit MB/s at deeper probes) — representation
+  value is now separated from discovery cost; next: check .eh_frame/.rodata
+  generalization, then attack near-LZ-cost discovery.
+  **TCOPY section boundary (clean):** .text — implicit Δ=−distance TCOPY is
+  useful. .eh_frame — ZERO TCOPY phrases survive. .rodata — essentially zero
+  useful implicit-relocation phrases survive. This matches the anatomy:
+  executable code has a displacement-derived transform; .eh_frame/.rodata
+  showed common additive deltas NOT tied to reference distance. Generalization
+  (smallest evidence-backed family): TCOPY(d,L,Δ,M,R) with TWO submodes —
+  (a) implicit Δ=−d (zero bits), (b) one transmitted 32-bit additive Δ, which
+  survives only when multiple fields amortize transmitting Δ. No "arbitrary
+  transforms".
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
