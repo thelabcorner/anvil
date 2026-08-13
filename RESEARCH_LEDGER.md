@@ -927,6 +927,67 @@ alignment, so:
   this task's failure.
 - `--channels` kept as the SRR baseline for the future probe work.
 
+## Experiment O — TCOPY implicit-Δ prototype (t3-tcopy, mode 14) — mechanism validated, narrowed-claim test INCOMPLETE
+
+**Gate pre-registration (agenda I2-5 + research/patent-tcopy four-pass
+record + research/tcopy-ablation-contract):** implicit Δ=−distance
+transformed copy for executables; isolated ablation with separate
+statistical domains (transform fields vs residuals); exclude overlapping
+refs first; round-trip strict. **The narrowed-claim test** (the decisive
+ablation from the patent gate): implicit-Δ (zero bits) vs transmitted-Δ
+(same representation, delta coded explicitly) vs exact-LZ — implicit ≈
+transmitted ⇒ novelty NARROW-to-NONE (transformed copy is prior art per
+US7676506B2); implicit materially beats transmitted ⇒ the
+self-referential implicit-parameter claim stands. Plus the binding Intel
+US 7,111,148 / US 7,010,665 full-text review closeout item.
+
+**Mechanism (arch, mode 14):** implicit Δ=−d transformed copy; transform
+fields detected on real PE executables (519 fields in anvil.exe block 0).
+Round-trip all 10 corpus files + both executables; fuzzed 540 + canonical
+PASS. Two dev bugs fixed: len≤dist gate too strict (decoder now validates
+per-field field_end≤dist with overlap allowed); transform detection gated
+by the tcopy flag.
+
+**Results (isolated ablation, mode 14 vs mode 11, SAME greedy parse —
+independently re-measured: anvil.exe 0.4056 ratio, round-trip OK):**
+
+| input | tcopy (m14) | sparse (m11) | Δ |
+|---|---:|---:|---:|
+| anvil.exe | 0.4056 | 0.4081 | **−0.6%** |
+| anvil_bench.exe | 0.4438 | 0.4442 | −0.1% |
+| non-binary corpus | — | — | neutral |
+
+**Gate position per the narrowed-claim contract:**
+
+1. **Isolated ablation: ✓** (transform isolated from the parse).
+2. **Separate statistical domains: ✓** (transform-mask stream S7 vs
+   residual streams S5/S6).
+3. **Overlap excluded for transform fields first: ✓** (field_end ≤ dist).
+4. **IMPLICIT Δ=−d implemented (zero bits): ✓** — BUT **the explicit-Δ
+   control is NOT implemented.** The mode-11 sparse control shows the
+   transform's TOTAL effect only; separating implicit-derivation value
+   from transformed-copy-per-se REQUIRES the explicit-Δ variant. Recorded
+   follow-up for the full gate.
+5. **vs exact-LZ: TCOPY loses to mdl on these executables** (0.406 vs
+   0.402) — the greedy approximate parse is the limiting factor, not the
+   transform; the Linux density leg used the SRR structural-channel parser
+   (R4's unbuilt probe prerequisite, Experiment N).
+
+**Verdict: mechanism VALIDATED, headline density NOT reproduced on Windows
+executables, narrowed-claim test INCOMPLETE.** Recorded honestly:
+
+- The transform mechanism works (fields detected, small but real gains on
+  executables, neutral on non-binary, round-trip strict).
+- **The TCOPY novelty claim is NOT YET DECIDABLE** — the decisive
+  implicit-vs-transmitted-Δ ablation is unbuilt. Gate condition: the
+  explicit-Δ control is a REQUIRED follow-up before any novelty claim,
+  alongside the Intel full-text review.
+- The Linux density leg (1,761,776 B vs q4) is not reproducible with the
+  greedy parser — consistent with R4's finding: the SRR synchronized
+  structural probe is the missing prerequisite for the binary density too.
+- FORMAT.md carries the mode-14 spec (arch-documented). No Pareto claim;
+  no EXTENDS_FRONT expected at this prototype status.
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — CORRECTED (v2): FULL PASS at pre-registered λ=0.01
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-
