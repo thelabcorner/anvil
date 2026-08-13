@@ -242,6 +242,27 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   masks) before defining any transformed-copy opcode — candidate residual
   types for a field-aware patch reference (e.g. additive-delta on aligned
   32-bit fields as a residual class in the SPARSE-REF family).
+  **TCOPY — transformed-copy self-reference (NEW, strongest signal of the
+  iteration):** ELF mismatch anatomy: among sampled .text approximate-repeat
+  candidates (8-byte anchor match, ≤~33% byte mismatch over ≤256 B), ~81%
+  contain ≥2 32-bit fields whose destination differs from source by exactly
+  −distance — the algebra of PC/RIP-relative relocation when the same
+  instruction template appears at a different file position; those fields
+  explain ~46% of mismatch bytes. A single repeated 32-bit additive delta
+  explains ~59% of mismatch bytes (.text), ~49% (.eh_frame), ~61% (.rodata).
+  Proposed reference family: TCOPY(d,L,Δ,M,R) — copy a prior phrase, add a
+  common 32-bit delta at sparse field offsets M, then apply sparse residual
+  bytes R. For executable-relative fields Δ=−d is IMPLICIT (zero bits for the
+  transform parameter). Ordinary LZ = special case M=R=∅. Prototype plan:
+  isolated enabling-primitive ablation (not premature integration);
+  falsifiable question — can phrase-level transformed self-reference explain
+  ELF .text mismatches materially better than exact LZ at decoder cost ≈ copy
+  + sparse 32-bit adds + sparse stores? First prototype EXCLUDES overlapping
+  TCOPY refs (dist<len) so semantics stay unambiguous; transform fields and
+  residual bytes get SEPARATE statistical domains so the gain is attributable
+  to the transformed reference itself, not a better entropy coder. If it
+  gains density, overlap/periodic transformed references are the later
+  extension. (Strong novelty candidate — pre-register at the gate.)
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
