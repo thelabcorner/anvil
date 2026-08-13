@@ -453,6 +453,13 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   equivalent-size generic context-map vs global recency, everything else
   fixed. KEEP only if per-shape beats context-map-equivalent end-to-end —
   otherwise it is a renamed context map and FAILS the gate.
+  **Measurement contract (bench lane):** `bench/flag-d-ablation-contract`
+  — claim row `anvil-shape-rans` (per-shape persistent state) vs control
+  `anvil-shape-ctxmap-rans` (same shape vocabulary, generic
+  context-map-equivalent, NO per-shape state), everything else fixed; pass
+  = claim beats control on record-structured files (generated.json/jsonl/
+  log/sqlite) with the Pareto verdict vs the all-DOMINATED iteration-1
+  baseline; claim == control on structured files ⇒ FLAG-D fails.
 - **Evidence to match:** Linux 0.1046 @ 957 MB/s decode on generated.json;
   per-shape log-proxy ~9.4 bits vs ~13 unconditional. Windows A/B is the
   arbiter (FLAG-B).
