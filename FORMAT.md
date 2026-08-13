@@ -30,8 +30,46 @@ Block modes:
 - `10`: separated-stream static rANS backend
 - `11`: SPARSE-REF backend (approximate self-reference with sparse correction)
 - `12`: SHAPE backend (per-shape displacement prediction; arch, iteration 2)
+- `13`: TOPOLOGY backend (per-slot modal residual + exception mask; arch, iteration 2 — MEASURED NOT-ADOPTED, retained as a research mode)
 
 Unknown modes are rejected.
+
+## TOPOLOGY token backend (mode 13)
+
+Mode 13 (landed by `arch` during iteration 2) is mode 12's token/dist coding with
+residuals coded against a per-slot modal value. Payload = 1 byte `num_states`
+(1 or 28), a modal table, then 9 substreams:
+
+1. token types (0 literal run, 1 exact match, 2 sparse-corrected match)
+2. literal-run length varints
+3. match length varints
+4. distance flags (0 first-absolute, 1 reuse-last, 2 signed delta)
+5. distance varints (absolute or zigzag delta)
+6. literal bytes
+7. correction masks (flat 32-bit words, as mode 11)
+8. exception masks: per type-2 token, ceil(k/8) bytes; bit j set = correction j is
+   an exception (its value is in stream 9)
+9. exception residual values
+
+Modal table: `uvarint` count then per entry `(k, slot, value)` where k =
+correction count and slot = correction index within the token's mask; only
+contexts with >= 2 observations get an entry. Decode: non-exception corrections
+use `modal[k][slot]` (rejected if absent), exceptions read stream 9. All other
+strictness mirrors modes 11/12 (dist bounds, mask-bits-beyond-len, full
+substream consumption, CRC).
+
+**Measured status (arch ablation, single-rep Windows): NOT ADOPTED.** Modal
+accuracy of the (k, slot) context on this corpus/parser is 17-23% (generated.log
+23.5%, json 17.0%, jsonl 22.5%), so exception coding costs more than flat
+residuals; and correction masks are ~90% unique (top-32 masks cover 7-12% of
+type-2 tokens), so there is no recurring topology to exploit. The Linux 86.5%
+modal accuracy / 128 recurring masks came from a structural-channel parser that
+aligns corrections to a record frame; ANVIL's greedy sparse parser lets
+correction positions drift with varying field lengths. Topology coding is
+retained as a research mode (`--parse=topology`) and as the measured flat-A
+baseline for the future structural-distance (R4) work that would create the
+recurring topology. The flat-A repeat-control headroom is recovered by the block
+router, not by topology coding.
 
 ## SHAPE token backend (mode 12)
 

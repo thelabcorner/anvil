@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -953,6 +954,191 @@ static std::vector<uint8_t> decode_tokens_shape(const uint8_t* p, size_t n, size
     return out;
 }
 
+// ---- TOPOLOGY backend (mode 13): per-slot modal residual + exception mask -----
+// R2 correction-topology coding. Same token/dist coding as mode 12 (shape
+// per-shape displacement), but sparse residuals are coded against a per-slot
+// modal value: context = (k, slot) where k = correction count and slot = the
+// correction's index within the token's mask. The modal table (context ->
+// most common value, for contexts with >= 2 observations) is transmitted once.
+// Per type-2 token, an exception mask (ceil(k/8) bytes, bit j = exception for
+// correction j) marks which residuals differ from the modal; only exceptions
+// are coded in the residual stream. Corrections are identical, so topology
+// coding is pure ratio win when residuals recur (Linux: modal accuracy 86.5%).
+static std::vector<uint8_t> encode_tokens_topology(const std::vector<uint8_t>& d, const std::vector<SparseToken>& toks,
+                                                   uint32_t num_states) {
+    // Pass 1: count (k, slot) -> value to find modal residuals.
+    std::map<std::pair<uint8_t,uint8_t>, std::array<uint32_t,256>> hist; // (k, slot) -> value counts
+    std::array<std::array<uint8_t,64>,64> modal{};
+    std::array<std::array<bool,64>,64> has_modal{};
+    for (auto& t : toks) {
+        if (t.type == 2 && t.off.size() <= 64)
+            for (uint32_t j = 0; j < t.off.size(); ++j) ++hist[{uint8_t(t.off.size()), uint8_t(j)}][t.val[j]];
+    }
+    for (auto& [ks, counts] : hist) {
+        uint32_t tot = 0; uint8_t best = 0; uint32_t bcnt = 0;
+        for (int v = 0; v < 256; ++v) { tot += counts[v]; if (counts[v] > bcnt) { bcnt = counts[v]; best = uint8_t(v); } }
+        if (tot >= 2) { modal[ks.first][ks.second] = best; has_modal[ks.first][ks.second] = true; }
+    }
+    // Serialize the modal table.
+    std::vector<uint8_t> mtab;
+    uint32_t mcount = 0;
+    for (auto& [ks, c] : hist) if (has_modal[ks.first][ks.second]) ++mcount;
+    append_varint_bytes(mtab, mcount);
+    for (auto& [ks, c] : hist)
+        if (has_modal[ks.first][ks.second]) { mtab.push_back(ks.first); mtab.push_back(ks.second); mtab.push_back(modal[ks.first][ks.second]); }
+
+    // Pass 2: encode tokens.
+    std::vector<uint8_t> types, ll, ml, dflags, dvar, lits, masks, exc, resid;
+    types.reserve(toks.size());
+    std::array<uint32_t, 2 * kShapeClasses> last{};
+    std::array<uint32_t,(kSparseScanMax+31)/32> words{};
+    for (auto& t : toks) {
+        types.push_back(t.type);
+        if (t.type == 0) {
+            append_varint_bytes(ll, t.len - 1);
+            lits.insert(lits.end(), d.begin() + t.pos, d.begin() + t.pos + t.len);
+        } else {
+            append_varint_bytes(ml, t.len - 4);
+            uint32_t shape = shape_index(t.type, t.len, num_states);
+            uint32_t& lastd = last[shape];
+            if (lastd == 0) { dflags.push_back(0); append_varint_bytes(dvar, t.dist - 1); lastd = t.dist; }
+            else if (t.dist == lastd) dflags.push_back(1);
+            else { dflags.push_back(2); int64_t dlt = int64_t(t.dist) - int64_t(lastd); uint64_t zz = dlt >= 0 ? uint64_t(dlt) * 2 : uint64_t(-dlt) * 2 - 1; append_varint_bytes(dvar, zz); lastd = t.dist; }
+            if (t.type == 2) {
+                std::fill(words.begin(), words.end(), 0u);
+                std::vector<uint8_t> excbits((t.off.size() + 7) / 8, 0);
+                for (size_t k = 0; k < t.off.size(); ++k) {
+                    words[t.off[k] / 32] |= (1u << (t.off[k] % 32));
+                    bool m = (t.off.size() <= 64 && has_modal[t.off.size()][k] && modal[t.off.size()][k] == t.val[k]);
+                    if (!m) { excbits[k / 8] |= uint8_t(1u << (k % 8)); resid.push_back(t.val[k]); }
+                }
+                exc.insert(exc.end(), excbits.begin(), excbits.end());
+                uint32_t nwords = (t.len + 31) / 32;
+                for (uint32_t w = 0; w < nwords; ++w) {
+                    uint32_t m = words[w];
+                    masks.push_back(static_cast<uint8_t>(m));
+                    masks.push_back(static_cast<uint8_t>(m >> 8));
+                    masks.push_back(static_cast<uint8_t>(m >> 16));
+                    masks.push_back(static_cast<uint8_t>(m >> 24));
+                }
+            }
+        }
+    }
+    std::vector<uint8_t> out;
+    out.push_back(static_cast<uint8_t>(num_states));
+    put_uvar(out, mtab.size()); out.insert(out.end(), mtab.begin(), mtab.end());
+    for (const auto* v : {&types, &ll, &ml, &dflags, &dvar, &lits, &masks, &exc, &resid}) {
+        auto z = encode_stream(*v);
+        put_uvar(out, z.size());
+        out.insert(out.end(), z.begin(), z.end());
+    }
+    return out;
+}
+
+static std::vector<uint8_t> decode_tokens_topology(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e = p + n;
+    if (p >= e) throw std::runtime_error("truncated topology header");
+    uint32_t num_states = *p++;
+    if (num_states != 1 && num_states != 2 * kShapeClasses) throw std::runtime_error("bad shape state count");
+    uint64_t mtlen = get_uvar(p, e);
+    if (mtlen > uint64_t(e - p)) throw std::runtime_error("truncated modal table");
+    const uint8_t* mt = p; p += mtlen;
+    std::array<std::array<uint8_t,64>,64> modal{};
+    std::array<std::array<bool,64>,64> has_modal{};
+    {
+        const uint8_t* q = mt; const uint8_t* qe = mt + mtlen;
+        uint64_t mcount = get_uvar(q, qe);
+        if (mcount > 4096) throw std::runtime_error("bad modal count");
+        for (uint64_t i = 0; i < mcount; ++i) {
+            if (qe - q < 3) throw std::runtime_error("truncated modal entry");
+            uint8_t k = *q++, j = *q++, v = *q++;
+            if (k == 0 || k > 64 || j >= k) throw std::runtime_error("bad modal context");
+            modal[k][j] = v; has_modal[k][j] = true;
+        }
+        if (q != qe) throw std::runtime_error("modal table trailing bytes");
+    }
+    std::array<std::vector<uint8_t>, 9> s;
+    const size_t max_sub = 16 * out_len + 64;
+    for (int i = 0; i < 9; ++i) {
+        uint64_t zn = get_uvar(p, e);
+        if (zn > uint64_t(e - p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q = p; const uint8_t* qe = p + zn;
+        s[i] = decode_stream(q, qe, max_sub);
+        if (q != qe) throw std::runtime_error("substream trailing bytes");
+        p += zn;
+    }
+    if (p != e) throw std::runtime_error("payload trailing bytes");
+    size_t ip_ll = 0, ip_ml = 0, ip_df = 0, ip_dv = 0, ip_lit = 0, ip_mask = 0, ip_exc = 0, ip_res = 0;
+    std::array<uint32_t, 2 * kShapeClasses> last{};
+    std::vector<uint8_t> out; out.reserve(out_len);
+    for (uint8_t type : s[0]) {
+        if (out.size() >= out_len) throw std::runtime_error("too many tokens");
+        if (type == 0) {
+            uint64_t len = read_varint_bytes(s[1], ip_ll) + 1;
+            if (len > out_len - out.size() || len > s[5].size() - ip_lit) throw std::runtime_error("bad literal run");
+            out.insert(out.end(), s[5].begin() + ip_lit, s[5].begin() + ip_lit + len);
+            ip_lit += len;
+        } else if (type == 1 || type == 2) {
+            uint64_t len = read_varint_bytes(s[2], ip_ml) + 4;
+            if (len > kSparseMaxLen || len > out_len - out.size()) throw std::runtime_error("bad topology match");
+            if (ip_df >= s[3].size()) throw std::runtime_error("truncated dist flags");
+            uint8_t flag = s[3][ip_df++];
+            uint32_t shape = shape_index(type, static_cast<uint32_t>(len), num_states);
+            uint32_t& lastd = last[shape];
+            uint32_t dist;
+            if (flag == 0) { uint64_t dv = read_varint_bytes(s[4], ip_dv); if (dv >= 0xFFFFFFFFull) throw std::runtime_error("bad absolute distance"); dist = static_cast<uint32_t>(dv) + 1; }
+            else if (flag == 1) { if (lastd == 0) throw std::runtime_error("dist reuse before first absolute"); dist = lastd; }
+            else if (flag == 2) { if (lastd == 0) throw std::runtime_error("dist delta before first absolute"); uint64_t zz = read_varint_bytes(s[4], ip_dv); int64_t dlt = (zz & 1) ? -int64_t((zz + 1) >> 1) : int64_t(zz >> 1); int64_t dd = int64_t(lastd) + dlt; if (dd <= 0 || dd > 0xFFFFFFFFll) throw std::runtime_error("bad distance delta"); dist = static_cast<uint32_t>(dd); }
+            else throw std::runtime_error("bad dist flag");
+            if (dist == 0 || dist > out.size()) throw std::runtime_error("invalid topology distance");
+            lastd = dist;
+            size_t start = out.size();
+            for (uint64_t k = 0; k < len; ++k) out.push_back(out[out.size() - dist]);
+            if (type == 2) {
+                uint64_t nwords = (len + 31) / 32;
+                if (nwords * 4 > s[6].size() - ip_mask) throw std::runtime_error("truncated mask stream");
+                std::array<uint32_t,(kSparseMaxLen+31)/32> words{};
+                uint32_t pc = 0;
+                for (uint64_t w = 0; w < nwords; ++w) {
+                    uint32_t m = uint32_t(s[6][ip_mask]) | (uint32_t(s[6][ip_mask+1]) << 8)
+                              | (uint32_t(s[6][ip_mask+2]) << 16) | (uint32_t(s[6][ip_mask+3]) << 24);
+                    ip_mask += 4;
+                    uint32_t first = uint32_t(w * 32);
+                    if (first + 32 > len) { uint32_t over = first + 32 - len; if ((m >> (32 - over)) != 0) throw std::runtime_error("mask bits beyond copy length"); }
+                    words[w] = m;
+                    pc += std::popcount(m);
+                }
+                uint64_t excb = (pc + 7) / 8;
+                if (excb > s[7].size() - ip_exc) throw std::runtime_error("truncated exception mask");
+                uint32_t ex = 0;
+                for (uint64_t w = 0; w < nwords; ++w) {
+                    uint32_t m = words[w];
+                    while (m) {
+                        uint32_t b = std::countr_zero(m);
+                        uint32_t j = ex++;
+                        uint32_t val;
+                        uint32_t byte = s[7][ip_exc + j / 8];
+                        if ((byte >> (j % 8)) & 1) {
+                            if (ip_res >= s[8].size()) throw std::runtime_error("truncated exception residual");
+                            val = s[8][ip_res++];
+                        } else {
+                            if (pc > 64 || j >= 64 || !has_modal[pc][j]) throw std::runtime_error("missing modal residual");
+                            val = modal[pc][j];
+                        }
+                        out[start + uint32_t(w * 32) + b] = uint8_t(val);
+                        m &= m - 1;
+                    }
+                }
+                ip_exc += excb;
+            }
+        } else throw std::runtime_error("unknown topology token type");
+    }
+    if (out.size() != out_len || ip_ll != s[1].size() || ip_ml != s[2].size() || ip_df != s[3].size()
+       || ip_dv != s[4].size() || ip_lit != s[5].size() || ip_mask != s[6].size() || ip_exc != s[7].size() || ip_res != s[8].size())
+        throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
 // ---- R3: measured-cost single-pass MDL parser (--parse=mdl) ---------------
 // Replaces the global DP's heuristic costs with costs MEASURED from the actual
 // downstream rANS stream construction: after each single-pass greedy parse we
@@ -1280,6 +1466,15 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
             for(auto&x:mdl_toks) st2.push_back({static_cast<uint8_t>(x.match?1:0), x.pos, x.len, x.dist, {}, {}});
             try_shape(st2);
         }
+        // Mode 13 (TOPOLOGY): per-slot modal residual + exception mask over the
+        // sparse parse (types 0/1/2). R2 correction-topology coding.
+        if(opt.parse=="auto" || opt.parse=="topology") {
+            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary); have_sp=true; }
+            auto payload=encode_tokens_topology(block,sp_toks,opt.shape_states);
+            std::vector<Token> t; t.reserve(sp_toks.size());
+            for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+            if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),13};
+        }
         if(best.mode==0) throw std::runtime_error("no encoder candidate");
 
         auto ps=token_stats(best.toks);
@@ -1324,6 +1519,8 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
             b=decode_tokens_sparse(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else if(mode==12) {
             b=decode_tokens_shape(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
+        } else if(mode==13) {
+            b=decode_tokens_topology(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
         } else throw std::runtime_error("unknown block mode");
         if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
         out.insert(out.end(),b.begin(),b.end()); p+=plen;
@@ -1344,10 +1541,10 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
-              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
-              << "  note: sparse->mode 11, shape->mode 12 (per-shape displacement prediction); --shape-states=1 is the FLAG-D control\n"
+              << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
+              << "  note: sparse->mode 11, shape->mode 12 (per-shape displacement), topology->mode 13 (modal residuals); --shape-states=1 is the FLAG-D control\n"
               << "  note: --surprise=N is the sparse-parser mismatch budget (default 12); --boundary/--negate are C5 adopts\n";
 }
 
@@ -1374,7 +1571,7 @@ int main(int argc,char**argv) {
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
-        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl or shape");
+        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape"&&opt.parse!="topology")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl, shape or topology");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
         if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans"&&opt.entropy!="sparse")throw std::runtime_error("entropy must be auto, arith, rans or sparse");
         if(opt.shape_states!=1 && opt.shape_states!=28)throw std::runtime_error("shape-states must be 1 or 28");
