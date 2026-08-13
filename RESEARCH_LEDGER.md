@@ -795,6 +795,58 @@ separator. Residual gaps: 18-month publication blackout; paywalled
 corpora; US 6,466,999 full claims. CONDITIONAL-PASS strongly supported by
 three-pass convergence; FTO attorney review still recommended.
 
+## Experiment M — Fused shape-stream decode (t3-fuse, I3 target) — REAL GAIN, 2x TARGET NOT MET
+
+**Gate pre-registration (agenda PART II + coordinator I3 mission):** port
+Linux stream economics to mode 12 — single fused instruction/decode path
+(entropy + reconstruction in one LZ-class pass); target **decode ≥ 2x
+current at preserved ratio**; FLAG-D control + J-suite for A/B; round-trip
++ fuzz before claims. Pre-registered ablation: fusion vs separated-stream
+mode-12 on the same wire, so the gain is attributable to fusion, not
+entropy changes.
+
+**Mechanism (arch):** fused single-pass path — pull-based substream readers
+(raw/rANS-4096/512/256/Huffman/defexc) + inline reconstruction into a
+pos-buffer with bulk memcpy; no stream vectors, no second pass. Shared
+improvements: 12-bit table-driven Huffman; memcpy for dist≥len matches.
+Round-trip verified all 10 files; fuzzed 910 variants + canonical PASS
+(fuzz caught a defexc pull mask-direction bug — fixed, verified
+byte-identical per substream).
+
+**Results (arch, median-5, fused vs separated, same wire):**
+
+| file | fused | separated | ratio |
+|---|---:|---:|---:|
+| generated.json | 148 | 124 | 1.19x |
+| generated.log | 222 | 183 | 1.21x |
+| generated.jsonl | 227 | 188 | 1.21x |
+| generated.repeat.jsonl | 385 | 219 | 1.76x |
+| generated.sqlite | 121 | 122 | 0.99x |
+| src.cpp | 55 | 59 | 0.93x |
+
+Absolute vs t3-fuse start: json +11%, log +27%, jsonl +47%. Research
+single-rep directional re-measure: jsonl ~197 MB/s (arch median-5: 227 —
+within the 5-19% timing noise band; no conflict). J-agreement 660/660 at
+λ=0.01 preserved; round-trip OK.
+
+**Gate verdict (honest):**
+
+- **Fusion gain REAL and attributable** — byte-identical output, clean A/B
+  on the same wire: ~1.2x on the primary record files, 1.76x on the
+  repeat control. The pre-registered ablation isolates fusion as the cause.
+- **The 2x falsifiable target is NOT MET** on the primary record files
+  (~1.2x). Root cause (arch, measured): the token loop's per-field entropy
+  pulls are the decode floor in BOTH paths — fusion removes the stream
+  assembly overhead but not the per-symbol entropy decode itself.
+- **The 2x+ regime requires the compiled hot-op instruction book** (Linux
+  modes 26-28: encoder-synthesized decoder instructions, small opcode index
+  for hot tokens, rare-token macro-op fallback) — flagged as the remaining
+  lever, not this task.
+- **Verdict: PARTIAL PASS** — real, attributable decode win (~1.2x, up to
+  1.76x on identical records) at preserved ratio, but the pre-registered
+  target is unmet. Recorded as a result, not a claim. Bench: mode-12 decode
+  rows shift ~1.2x (re-baseline noted); FLAG-D/J-suite A/B unaffected.
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — CORRECTED (v2): FULL PASS at pre-registered λ=0.01
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-
