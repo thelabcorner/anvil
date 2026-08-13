@@ -293,7 +293,28 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
   stronger case: IMPLICIT displacement-derived transformation in executable
   code only (Δ=−d, zero parameter bits, clear causal interpretation). Next:
   couple implicit TCOPY to the shape/displacement instruction representation
-  (the crude 10-stream prototype leaves ~100 KB of syntax efficiency vs EAM).
+  (  the crude 10-stream prototype leaves ~100 KB of syntax efficiency vs EAM).
+  **TCOPY milestones (Linux, .text, directional):** (1) Block-local
+  reset (64–256 KiB) makes .text WORSE — useful transformed phrases are not
+  local; TCOPY wants a longer temporal horizon (do not bolt on Brotli-style
+  block locality). (2) Correction-stream ablation: TCOPY CANNOT be bolted
+  onto the existing sparse-reference wire — the old approximate matcher finds
+  <0.6% of correction bytes reinterpretable as implicit −distance fields; the
+  capability must live inside candidate verification/search, not just
+  serialization (enabling-technology case: representation useful, old matcher
+  can't see it). (3) Fast wordwise verifier (skip equal 64-bit spans, examine
+  first differing byte — RCM-analogous): ONE temporal candidate already finds
+  ~4,200 transformed phrases at ~38–40 MB/s parse; deeper chains buy
+  diminishing density at large cost. (4) Confound fixed: control parser only
+  recognized exact matches ≥8 B while production ANVIL uses 4–7 B phrases —
+  short-match sidecar added so the A/B no longer penalizes TCOPY's exact
+  representation. (5) DENSITY LEG CROSSED: strongest .text point = ANVIL
+  TCOPY prototype **1,761,776 B vs brotli q4 1,781,130 B (−1.1%)**; encode
+  ~16 MB/s vs ~60, decode ~208 vs ~267 — still not a win, but density beats
+  q4 on .text. Next optimization (quantitative): most decoder work is
+  hundreds of thousands of tiny 4–7 B exact tokens from the sidecar; with
+  ~19 KB of q4 rate headroom, sweep the minimum exact-match length to spend
+  surplus on fewer decoder instructions/search updates.
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
