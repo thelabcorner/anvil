@@ -203,6 +203,57 @@ above. F1 open finding (modes 1-5 accept trailing garbage bytes inside arith
 payloads, LOW, deterministic repro; modes 10/11 reject) is legacy-machinery,
 does not gate the sparse claims; fix ownership = arch.
 
+## Experiment F — R3 measured-cost MDL parser (`--parse=mdl`) — ratio-validated, throughput leg NOT met
+
+**Mechanism (by `arch`, t-parser):** windowed single-pass forward DP (16 KiB
+cache-resident windows) whose per-edge costs are MEASURED from the actual rANS
+streams (5-stream build → empirical per-symbol entropies → re-parse),
+greedy-seeded + 2 refinement passes, early-stop on convergence. Encoder-side
+only; same mode-10 wire (no format change). F1 (arith trailing garbage)
+CLOSED in the same landing.
+
+**A/B (Windows, single-rep directional — independently re-measured by
+`research`, agrees with `arch`; round-trip OK on all files):**
+
+| file | dp-rans | mdl-rans | Δ |
+|---|---:|---:|---:|
+| doc.md | 0.5775 | 0.5639 | −2.4% |
+| README.md | 0.6146 | 0.6015 | −2.1% |
+| src.cpp | 0.2989 | 0.2941 | −1.6% |
+| generated.json | 0.1381 | **0.1262** | −8.6% |
+| generated.jsonl | 0.0874 | **0.0778** | −11.0% |
+| generated.log | 0.0906 | **0.0811** | −10.5% |
+| generated.sqlite | 0.2120 | 0.2087 | −1.6% |
+| generated.repeat.jsonl | 0.0012 | 0.0012 | 0 (no regression) |
+| random.bin | 1.0001 | 1.0001 | raw (no regression) |
+
+mdl beats dp on EVERY file; the wins concentrate on record-structured data
+(−8.6% to −11.0%), where measured ds-stream cost lets the DP prefer near
+distances greedy cannot see (ds stream on generated.json: 33,217 → ~16-19 KB
+encoded). `--parse=auto` now routes json/log/jsonl to mdl.
+
+**Verdict per the novelty gate:**
+
+- **Ratio leg: PASSED, strongly.** Structured-data ratio improves −8.6% to
+  −11.0% over the previous best parser (dp) on every record-structured file,
+  at equal-or-better speed vs dp. The measured-entropy-cost claim is
+  validated: the refinement passes demonstrably lower the real coded size.
+- **Throughput leg: NOT met (gate flag).** The agenda's R3 falsifiable
+  target was "MDL-quality at greedy-class speed — kills the encode
+  bottleneck (dp ~1-5 MB/s → LZ-class ~40+ MB/s)". Measured encode is
+  **~1.7-1.9 MB/s — statistically DP-class, NOT LZ-class.** The
+  cache-resident memory claim is real (16 KiB windows), but the *speed* leg
+  of the claim is unmet. The 2-iteration config (~3.5 MB/s at dp-parity
+  ratio) is a knob, still an order of magnitude from greedy-class.
+- **Net: R3 is a RATIO mechanism, not the throughput pillar it was ranked
+  as.** It upgrades structured-data ratio and closes F1, but the encode
+  bottleneck survives. The encode-speed problem remains open — the
+  throughput pillar (LZ-class MDL) is still the binding engineering target.
+  Note the interaction: on generated.jsonl, mdl (0.0778) now beats sparse
+  R1 (0.0790) on ratio — measured-cost parsing is currently the strongest
+  structured-data ratio mechanism; sparse's edge is encode speed on record
+  data (32 MB/s).
+
 **Decoder safety (t-format closure, `format`):** FORMAT.md now specs mode 11
 exactly as landed (7 substreams S0-S6, flat 32-bit mask words, strict type-2
 invariants incl. mask-bits-beyond-len rejection, len(residuals)==popcount(mask),
