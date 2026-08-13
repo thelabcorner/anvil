@@ -625,6 +625,16 @@ Inner-loop iterate against brotli q1/q4/q6/q9; q11 only for final validation.
   for the binary-lane gate). Freedom-to-operate attorney review recommended
   before any commercial claim (this is a classification gate, not legal
   advice).
+- **Isolated ablation contract (research, t3-tcopy prep — blackboard
+  research/tcopy-ablation-contract):** (a) separate statistical domains
+  for transform fields vs residuals; (b) exclude overlapping refs first;
+  (c) round-trip strict (verify + fuzz); (d) **narrowed-claim test**:
+  A/B implicit Δ=−d (zero bits) vs transmitted Δ (same representation,
+  delta coded explicitly) vs exact-LZ — if implicit ≈ transmitted on
+  ELF/PE .text, novelty is NARROW-to-NONE (transformed copy is prior art
+  per US7676506B2) and the claim FAILS the gate; if implicit materially
+  beats transmitted, the self-referential implicit-parameter claim
+  stands. Windows A/B is the arbiter (FLAG-B).
 
 ## Iteration-2 sequencing (as scheduled)
 
