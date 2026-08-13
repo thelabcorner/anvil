@@ -699,6 +699,22 @@ density, overlap/periodic transformed references are the later extension.
 references exploit — every tested ELF section grew). TCOPY respects that
 lesson: the transform lives INSIDE the reference, not globally before LZ.
 
+**Prior-art research (research lane, blackboard arch/priorart-tcopy):**
+- BCJ/E8-E9 (LZMA SDK/xz, UPX): GLOBAL pre-LZ file-wide transform, fixed
+  E8/E9 opcode set — orthogonal to TCOPY's match-level implicit transform;
+  distinction confirmed in writing.
+- Courgette (Chromium): relocation-aware but TWO-FILE delta, disassembler-
+  based (format-specific), global; self-referential single-file transformed
+  copy with implicit reference-derived Δ NOT FOUND in Courgette/bsdiff/Zdelta.
+- Long-range/overlapping transformed references: no prior art found;
+  exclude-overlap-first prototype plan is the safe route.
+- **PATENT CHECK = REQUIRED GATE STEP before any TCOPY novelty claim.**
+  No patent-database access in this session; formal search not possible.
+  Known relocation/delta families (Microsoft, Qualcomm) flagged. This
+  requirement must be satisfied by whoever schedules the binary lane —
+  the TCOPY claim is CONDITIONAL on it (NARROW-to-NEW-INTERACTION pending
+  patent check + isolated Windows ablation).
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — decode win REAL, J-agreement partial, no Pareto
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-
