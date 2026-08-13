@@ -879,6 +879,49 @@ within the 5-19% timing noise band; no conflict). J-agreement 660/660 at
   target is unmet. Recorded as a result, not a claim. Bench: mode-12 decode
   rows shift ~1.2x (re-baseline noted); FLAG-D/J-suite A/B unaffected.
 
+## Experiment N — R4 structural-distance propagation (t3-r4) — NOT ADOPTED (honest negative)
+
+**Gate pre-registration (agenda I2-4/R4 + coordinator I3 mission):** R4 was
+the structural-channel mechanism meant to UNBLOCK R2 topology coding —
+persistent displacement channels (SRR/SSCM-style) producing aligned record
+periods so correction positions stabilize (the missing precondition for
+the per-slot modal-residual coding that measured 86.5% accuracy on Linux
+but only 17-23% here).
+
+**Mechanism (arch):** structural channel bank (8 persistent displacement
+channels + reinforcement, `--channels` knob) implemented in parse_sparse
+with a fixed-distance sparse scan (find_sparse_at). Round-trip verified +
+fuzzed (490 + canonical PASS).
+
+**Result (independently re-measured by research — agrees with arch):**
+channels on/off produce BYTE-IDENTICAL output on generated.log (179,583 B
+both; ch_try=36670, ch_win=892 — the bank is tried but never changes a
+parse). **Mask recurrence (the R2-unblocking metric): top-32 masks cover
+12.3% of type-2 tokens on log — IDENTICAL with channels on/off AND with
+the channel FORCED.**
+
+**Root cause (arch, measured — the valuable finding):** the greedy sparse
+parser's matches are **69% far-distance (dist > 16384)** — the hash finder
+prefers far near-identical occurrences, so the bank can only reinforce the
+distances the parser TAKES (all far) and can never discover the record
+period. **Linux's SRR/SSCM "synchronized residual reference" works because
+it PROBES structural distances (synchronized discovery), not
+reinforce-taken — that probe mechanism is the unbuilt remainder.**
+
+**Gate verdict: NOT ADOPTED.** R4-as-implemented does not produce
+alignment, so:
+- R2 topology retest on the channels parse still loses to flat-A (no
+  recurring masks to exploit) — **the t2-topology verdict STANDS (BLOCKED
+  on alignment)**. The pre-registered R2 contract remains valid; the
+  unblocking precondition (aligned record periods) is unmet.
+- **The corrective insight is durable:** reinforcement-of-taken is
+  insufficient; the missing mechanism is the SRR/SSCM *structural-distance
+  probe* (discover the record period by probing candidate structural
+  distances, not by reinforcing what the parser already chose). That probe
+  mechanism is the genuine R4 remainder — recorded as the next step, not
+  this task's failure.
+- `--channels` kept as the SRR baseline for the future probe work.
+
 ## Experiment L — Precision/work-adaptive entropy stream suite (I2-2) — CORRECTED (v2): FULL PASS at pre-registered λ=0.01
 
 **Gate pre-registration:** agenda PART II I2-2 + `bench/jcost-validation-
