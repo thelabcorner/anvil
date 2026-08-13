@@ -377,7 +377,33 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
     economics test. (d) The event-driven inversion stands as the algorithmic
     step: search work proportional to structural events (~115k relocation
     pairs in 3.26 MB .text) rather than input length (~1.4M parser
-    positions); parser does O(1) candidate lookup at phrase starts.
+    positions);     parser does O(1) candidate lookup at phrase starts.
+- **HOT-OP HYBRID + STREAM BUDGET (Linux log corpus, directional — the
+  closest thing to a three-axis crossing yet):** (1) WRONG FORMULATION
+  exposed: a fully concrete opcode book reaches ~935 MB/s decode but bloats
+  the log to ~652 KB (absolute-distance specialization destroys the
+  excellent shape-conditioned distance coding) — Pareto rejection, not a
+  hot-op failure. (2) CORRECTED INTERACTION: hot concrete instructions
+  COEXIST with the per-shape displacement state; only commands whose
+  concrete semantics save enough metadata get compiled; the long tail keeps
+  shape-predict coding; hot commands still update the same shape state so
+  future distance deltas stay cheap. Log 466,579 B → ~452 KB. (3) A
+  self-inflicted O(127) linear shape lookup on every hot instruction was the
+  remaining decoder cost — fix: compile the shape-state index directly into
+  each hot-book entry → constant-time opcode → semantics → state update →
+  copy/patch. (4) First corrected run: 80–112-entry hybrid ~0.87 GB/s decode
+  vs same-run q9 ~0.84 GB/s at ~452 KB vs 513 KB — potentially the first
+  three-axis crossing, but timing moved with CPU state (not called yet).
+  (5) PAIRED FULL-CODEC TEST (incl. parse + book synthesis + entropy
+  encode): encode ~33 MB/s vs q9 ~19.6 MB/s, winning ALL 61 paired encode
+  trials, at 452,548 B vs 512,901 B. Decode is the only uncertain axis
+  (allocator + stream-materialization details matter). (6) STREAM-BUDGET
+  SWEEP: the dominant trade is storing the SHAPE-DISTANCE-DELTA stream raw —
+  costs only ~19.8 KB (ANVIL at 472,356 B, still ~7.9% smaller than q9) and
+  raises hot-book decode to ~0.99 GB/s (microbench). Other raw-stream choices
+  buy far fewer cycles per byte. This is J-selection at the WHOLE-CODEC
+  budget level, not per-stream. ~60 KB rate surplus = explicit compute
+  budget.
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
