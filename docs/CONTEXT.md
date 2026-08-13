@@ -154,6 +154,46 @@ on these results, not re-derive them. All ratios below are Linux-host numbers
 
 ### Measured highlights (Linux, directional)
 
+- **Context-switched rANS / context-distribution clustering (current Linux
+  frontier, anvil_frontier tree)** — the answer to the literal-model
+  fan-out penalty. The old unconditional-o1 rejection was about PHYSICAL
+  MODEL MULTIPLICITY (hundreds of cold adaptive models), not the information
+  signal: predecessor-byte conditioning is real, and only a small subset of
+  contexts carries most of the gain. Formulation: cluster the 257
+  decoder-visible predecessor-byte contexts into a small learned set (Pareto
+  knee 8–12 classes) of probability classes; keep ONE physical literal rANS
+  stream; the already-reconstructed previous byte selects the class/table at
+  decode; context identity costs zero bits per literal (encoder mirrors in
+  reverse). Results on SQLite's 268,873 literal bytes: K=12 ≈ 140,990 B total
+  (~141.6–141.8 KB with models) vs ~205 KB zero-order — essentially matching
+  the 32-context model while the physical coder jumps ~60→200 MB/s encode and
+  ~250→300–320 MB/s decode. K=20 ~140.4 KB, K=32 ~139.3 KB (extra cost not
+  worth it). The 0.4 s hard-EM learner was the blocker; sparse-support hard
+  assignment with precomputed per-class log-cost tables cut K=12 learning from
+  ~408 ms → ~15 ms → ~1.65 ms (≈250x) with no measured rate loss. Full-codec
+  caps: clustered literals make depth-2/3 SQLite comfortably smaller than
+  brotli q4, but the linked match finder still caps full encode ~77–78 MB/s vs
+  q4 ~130 MB/s — literal entropy alone does not complete the lane; combine
+  with shallow/direct history (depth-1 direct temporal head is 1.4–1.8x faster
+  than chain-based depth-1; chain is pure overhead when one predecessor is
+  consulted) or cache-line set-associative history if shallow quality is
+  insufficient. Do NOT re-burn: reciprocal-rANS (precomputed reciprocal
+  multiply division replacement) was measured SLOWER than the hardware divide.
+  **Refined learner + numbers (anvil_frontier, later same day):** the K=12
+  learner now runs in ~14–18 ms (was 0.4 s) with 3 restarts — inits: sorted-
+  stripe / mode-byte / conditional-entropy-stripe; EM with precomputed float
+  log-cost tables, ~12 iters, sparse-support over count[c][v]>0. Restart
+  quality on SQLite: nllB 145,542 → 139,320 → 137,017 (conditional-entropy-
+  stripe init wins). Final K=12 bits=12: data=137,624 + meta=4,209 =
+  **141,833 B total**, enc ~199 MB/s, dec ~289 MB/s (literal subsystem;
+  4-way rANS64, ONE physical stream, previous byte selects class table).
+  K=8 bits=12 → 146,207 B; K=16 → 141,140 B (knee 8–12). Fast model builder:
+  floor(count·2^bits/n) + largest-remainder redistribution (both sum< and
+  sum> directions), O(alphabet log alphabet) — this replaced the per-model
+  256-symbol rescan normalization and is worth ~3.3x literal encode vs the
+  weaker prototype. Set-associative EAM sweeps: eam_setassoc_sqlite bits=18-20
+  K=2-8 → 418–498 KB @ up to ~1,207 MB/s decode; setassoc_context_fine JSON
+  bits=18-19 K=3-7 → 234–259 KB.
 - **Parser economics — surprise-budget sweep (current frontier)**: the
   hand-tuned local score / mismatch budget ("surprise budget", default 6)
   inherited from the generalized parser does NOT suit the shape-predict
