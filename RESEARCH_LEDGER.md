@@ -452,19 +452,33 @@ passes on measured engineering value.
 find_sparse dead-band + max corrections per sparse candidate). Swept
 {3,5,6,8,12,16,24,32} on the record corpus.
 
+**CORRECTION (arch v2, verified by research):** the v1 sweep was
+confounded — the knob also imposed a per-candidate correction cap (8*N)
+that changed the search space and REGRESSED jsonl (0.0790 → 0.0862 at
+budget 6, even 12 only 0.0821). Decoupled: `--surprise=N` now scales ONLY
+the dead-band tolerance (dead_band = 32*N/6), corrections unbounded.
+Re-swept:
+
 | budget | json | jsonl | log | sqlite |
 |---|---:|---:|---:|---:|
-| 6 (old default) | 0.1638 | 0.0862 | 0.0952 | 0.2261 |
-| **12 (new default)** | **0.1522** | **0.0821** | **0.0920** | **0.2185** |
-| Δ | −7.1% | −4.8% | −3.4% | −3.4% |
+| 6 (orig) | 0.1635 | 0.0790 | 0.0942 | 0.2262 |
+| 9 | 0.1526 | 0.0790 | 0.0921 | 0.2211 |
+| **12 (winner)** | **0.1521** | **0.0790** | **0.0921** | **0.2188** |
+| 18 | 0.1584 | 0.0790 | 0.0982 | 0.2226 |
+| 24 | 0.1674 | 0.0790 | 0.0986 | 0.2286 |
+| 32 | 0.1863 | 0.0790 | 0.1093 | 0.2471 |
 
-Aggregate **−4.24%** on the 4 record files; +1.3% on src.cpp (expected —
-code is not record-structured). **Direction note (semantic, not a
-contradiction):** Linux reported budget 5/3 beating 6, but their budget is
-the shape-predict *mismatch budget*; arch's is the sparse-match
-tolerance/max-corrections — different quantities, both moving their own
-cost model correctly. Verdict: **ADOPTED** (default 12, knob stays exposed
-— "sweep, don't hand-tune" honored). Round-trip verified + fuzzed.
+Corrected G1: budget 12 vs 6 → json **−7.0%**, log −2.2%, sqlite −3.3%,
+**jsonl FLAT (0.0790 at every budget — no regression anywhere; the v1
+jsonl deltas were the cap artifact)**. Aggregate on the 4 record files
+**−2.82%** (not the v1 −4.24%). Independent re-measure on this box agrees:
+jsonl budget 12 = 0.079001 vs budget 6 = 0.079026 (flat). Verdict
+**UNCHANGED: ADOPTED** (default 12, knob stays exposed — "sweep, don't
+hand-tune" honored; the confound is recorded so the knob's true scope is
+clear). **Direction note (semantic, not a contradiction):** Linux reported
+budget 5/3 beating 6, but their budget is the shape-predict *mismatch
+budget*; arch's is the sparse-match *dead-band tolerance* — different
+quantities. Round-trip verified + fuzzed.
 
 **G2 — Boundary-aligned candidate generation:** boundary-indexed hash (token
 starts ±8, per the 66-92% Linux claim) unioned with the full hash.
@@ -486,4 +500,7 @@ fires inside compress(), so bench_native picks it up for free.
 **I2-3 gate result:** 2 of 3 adopts pass (G1, G3 — real encode/ratio value,
 no regression); G2 is an honest measured non-result recorded with its
 reason. All round-trip verified + fuzzed (350 canonical + 270 sparse + 270
-mdl variants PASS) before claims.
+mdl variants PASS) before claims. **Truthfulness note:** the G1 figures in
+this entry are the corrected v2 sweep (dead-band-only knob); the v1 sweep
+(correction-cap confound) was superseded and its numbers replaced — the
+confound is documented above so the knob's true scope is unambiguous.
