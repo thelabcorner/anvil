@@ -113,3 +113,114 @@ transform — PROVISIONAL given incomplete coverage.
   targeted queries; Apple chained-fixup patent number; formal FTO attorney
   review remains recommended before any commercial claim (research's gate
   record already states this).
+
+---
+
+# External Research Pass 2 — TCOPY (independent, additional citations)
+
+Second independent pass. Verdict again: NO prior art teaches the
+single-file self-referential implicit-Δ transformed copy. New entries not in
+pass 1 (all CLOSE-BUT-DIFFERENT unless noted):
+
+## 1. Relocation-aware compression patents
+- **Red Bend Software — US 6,546,552 B1 (priority 1998):** disassembly +
+  pointer normalization across TWO executable versions (two-file differential
+  update); no in-stream single-file LZ match primitive.
+- **Microsoft — US 6,374,250 B1 / MS-RDC (Remote Differential Compression):**
+  chunking + global address fixups across files (two-file); no per-reference
+  implicit Δ=−d arithmetic inside a self-referential LZ decoder.
+- **Apple — US 10,229,282 B2 (Dyld Shared Cache):** page-level compression +
+  pointer-stub fixup tables; no per-match relative-offset transform during
+  single-file decompression.
+- **Qualcomm — US 9,300,320 B2:** cache-line code compression via dictionary
+  lookups and bit-removal; lacks match-distance-derived relocation algebra.
+
+## 2. Transformed-copy / "copy with edit" single-file
+- Single-file LZ match with distance-implicit arithmetic (Δ=−d): NOT-FOUND.
+
+## 3. Sparse-offset correction streams
+- **Zdelta (Trendafilov/Memon/Suel 2002):** byte-level mismatch lists in LZ77
+  copy commands, but strictly two-file; no PC-relative relocation arithmetic.
+- **DNA/sequence compression — FaStore / US 9,223,794 B2:** edit-distance
+  operations (substitutions/indels) inside single-file LZ match references,
+  but symbol-level edits on character alphabets, not 32-bit additive
+  relocation adjustments.
+
+## 4. Academic literature
+- **ZPAQ/PCOMP (Matt Mahoney, 2016):** global pre-transform replacing x86
+  CALL/JMP (E8/E9) relative offsets with absolute file offsets before LZ
+  context modeling — a GLOBAL filter, not a per-reference LZ primitive.
+- **Self-referential LZ77 with edit distance (Gawrychowski et al. 2011/2021;
+  Kreft & Navarro 2013):** theoretical bounds for self-referential LZ77
+  parses with Hamming/Levenshtein errors; does not disclose machine-code
+  relocation transforms or implicit parameter derivation.
+
+## 5. BCJ/E8-E9 filings
+- **7-Zip / LZMA SDK Bra86.c (Igor Pavlov):** EXISTS — placed in the public
+  domain in 2008 (matches pass 1: LZMA SDK 4.62). Global stream-level
+  pre-transform converting relative offsets to absolute offsets across the
+  entire binary before LZMA.
+
+## Boundary / verdict
+- BCJ, PCOMP, Courgette, Red Bend rely on GLOBAL pre-transforms or TWO-FILE
+  differential patching. TCOPY as an in-stream, per-reference match primitive
+  with an implicit distance-derived parameter (Δ=−d) remains UNCLAIMED in the
+  searched record.
+
+## Gaps (pass 2)
+- Non-public applications within the 18-month publication blackout.
+- Unindexed proprietary game-console / embedded packers (custom
+  demoscene/console crunchers).
+- Paywalled corporate repositories not indexed by public search.
+- Source domains consulted (trail): lwn.net, mozilla.org, uspto.gov,
+  microsoft.com, computer.org, google.com, github.io, ijcs.net, tdx.cat,
+  mattmahoney.net, researchgate.net, dtu.dk, europa.eu, github.com,
+  googlesource.com, hostingadvice.com, quora.com.
+
+---
+
+# External Research Pass 3 — TCOPY (13 Aug 2026, independent scan)
+
+Third independent pass. Verdict again: NO — the implicit-Δ self-referential
+formulation does not exist in the searched record. New entries (all
+CLOSE-BUT-DIFFERENT unless noted):
+
+1. **Microsoft delta-patching family — WO 2005/071542 / US 7,509,636 B2
+   (prio 15-Dec-2003):** two-file (basis vs target) LZ-style delta; literals,
+   COPY-from-basis, per-copy mismatch lists. No self-referential matches, no
+   per-match arithmetic on copied bytes.
+2. **Microsoft "Index correlating uncompressed/compressed content" — EP
+   4,154,406 B1 (prio 18-May-2020):** single-file LZ4-like codec, per-segment
+   COPY, verbatim copy only. No field-wise adjustments, no distance-derived
+   delta.
+3. **IBM "Computer instruction compression" — US 6,564,314 (prio
+   6-Apr-1999):** instruction streams compressed after GLOBAL relocation
+   normalization; relocation handled once, not per match; file-wide pre-pass.
+4. **Approximate-match / LZ with mismatches — US 12,373,439 (prio
+   31-Jan-2019):** masking/"don't-care" bits and early abort on excessive
+   mismatch; no arithmetic transform, no implicit Δ.
+5. **Zdelta (TR-CIS-2002-02):** two-file delta; copy-with-patch mismatch
+   lists; no self-reference, no Δ=−d rule.
+6. **Relocation-aware executable compressors (survey):** NOT-FOUND for a
+   single-file per-phrase transform — all located material is global branch
+   conversion (BCJ/E8-E9) or multi-file delta.
+7. **Transformed-copy LZ patents ("copy instruction AND add
+   constant/XOR/transform"):** NOT-FOUND — no patent embeds an arithmetic
+   addend inside an LZ match, implicit or explicit.
+8. **Sparse-offset correction streams (DNA, image, mask-based — e.g. US
+   2024/0211132 A1):** mismatch masks exist, but no distance-derived additive
+   corrections.
+
+**Boundary confirmation (3rd pass):** Wikipedia + xz/BCJ docs confirm BCJ is
+a global pre-LZ pass rewriting branch immediates before any LZ copy; no
+source claims per-phrase implicit Δ.
+
+**Gaps (pass 3):** corporate intranet disclosures behind paywalls; none
+accessible in Espacenet/Google Patents at search time.
+
+**Three-pass convergence:** passes 1-3 are independent and agree: closest
+art is either (a) global once-per-file relocation/branch adjustment, or
+(b) two-file copy-with-edits. The single-file self-referential implicit-Δ
+transformed copy remains unclaimed in the searched record.
+
+
