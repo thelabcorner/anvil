@@ -24,7 +24,7 @@ struct Diag {
     std::array<uint32_t, 256> dist_buckets{};    // log2 buckets
 };
 
-static Diag run(const std::vector<uint8_t>& d, bool channels) {
+static Diag run(const std::vector<uint8_t>& d, bool channels, uint32_t plo, uint32_t phi) {
     Diag di;
     // options: max_chain=48 matches CLI default (block-size 256KB splits apply
     // in the real codec; diag parses whole file — directional)
@@ -33,7 +33,7 @@ static Diag run(const std::vector<uint8_t>& d, bool channels) {
         if (t.type != 2) continue;
         ++di.t2; di.t2_bytes += t.len;
         if (t.dist <= 16384) ++di.near_d; else ++di.far_d;
-        if (t.dist >= 220 && t.dist <= 260) ++di.period_hit;
+        if (t.dist >= plo && t.dist <= phi) ++di.period_hit;
         bool sl = t.len >= t.dist && t.len <= t.dist + 8;
         if (sl) ++di.span_like;
         int b = 0; uint32_t x = t.dist; while (x >>= 1) ++b;
@@ -74,7 +74,7 @@ static void report(const char* label, const Diag& d) {
     double smodal = sm_tot ? 100.0 * double(sm_hits) / double(sm_tot) : 0.0;
     double t2 = d.t2 ? 100.0 : 0.0;
     printf("%s: t2=%llu t2bytes=%llu\n", label, (unsigned long long)d.t2, (unsigned long long)d.t2_bytes);
-    printf("  dist: near(<=16384)=%llu (%.1f%%) far=%llu (%.1f%%) period[220,260]=%llu (%.1f%%)\n",
+    printf("  dist: near(<=16384)=%llu (%.1f%%) far=%llu (%.1f%%) period[lo,hi]=%llu (%.1f%%)\n",
         (unsigned long long)d.near_d, t2 ? 100.0*d.near_d/d.t2 : 0, (unsigned long long)d.far_d,
         t2 ? 100.0*d.far_d/d.t2 : 0, (unsigned long long)d.period_hit, t2 ? 100.0*d.period_hit/d.t2 : 0);
     printf("  masks: unique=%zu top32_coverage=%.1f%% (of %llu)\n", d.mask_hist.size(),
@@ -86,10 +86,14 @@ static void report(const char* label, const Diag& d) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) { fprintf(stderr, "usage: srr_diag <file>\n"); return 2; }
+    if (argc < 2) { fprintf(stderr, "usage: srr_diag <file> [period_lo period_hi]\n"); return 2; }
     auto d = anvil::read_file(argv[1]);
-    auto off = run(d, false);
-    auto on  = run(d, true);
+    // default window matches the original jsonl-record-period target (Experiment T);
+    // pass explicit bounds for corpora with a different record stride.
+    uint32_t plo = argc >= 4 ? (uint32_t)atoi(argv[2]) : 220;
+    uint32_t phi = argc >= 4 ? (uint32_t)atoi(argv[3]) : 260;
+    auto off = run(d, false, plo, phi);
+    auto on  = run(d, true, plo, phi);
     report("channels=OFF", off);
     report("channels=ON ", on);
     return 0;

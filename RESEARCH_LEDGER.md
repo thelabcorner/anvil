@@ -2229,3 +2229,151 @@ integration, no entropy coding, no Pareto evidence yet exists. Recorded
 files: `prototypes/pnra/tcopy_flat_hot_lib.inc` (new),
 `prototypes/pnra/tcopy_pnra{,_event,_pair}.cpp` (one-line `lit()` fix each,
 all other logic untouched).
+
+## Experiment W — synthetic structural corpus + fair SRR/finite-difference retest — NOT ADOPTED confirmed (stronger), finite-difference PARTIALLY VINDICATED (detector works, no codec path exists)
+
+**Gate pre-registration:** Experiments T (SRR probe, I4-2) and U (finite-
+difference invariant, I4-4) both found near-zero periodic/arithmetic signal
+in `tests/corpus/` — but that corpus (json/jsonl/log/sqlite, semi-structured
+text) was never built to have tight, low-noise periodic or arithmetic
+structure. This is a genuine methodological gap: a negative result on a
+corpus that may lack the targeted structure is not the same as a negative
+result on data that has it. **Falsifiable target:** build 2-3 small,
+deterministic, purpose-built files with real periodic/arithmetic/jittered-
+periodic structure; re-run the exact same tools (mode 13 topology vs mode 11
+sparse, `--channels=on/off`, `tools/srr_diag.cpp`/`srr_diag2.cpp`, and
+`prototypes/pnra/orbit_density_bench.cpp`'s finite-difference family) against
+them. Either the negative verdicts hold under favorable conditions (closes
+the "maybe it's just weak corpus" hypothesis with much stronger confidence),
+or real signal appears that the real corpus was masking (reopens I4-2/I4-4).
+
+**Corpus built (`tests/make_synth_corpus.py`, new, deterministic/fixed
+seeds, added to `tests/corpus/` + `CHECKSUMS.txt` + `README.md`):**
+
+- `synth-timeseries.bin` (280,000 B) — 20,000 fixed-stride 14 B records
+  (`u64` timestamp +1000±50 ms jitter per record, `f32` value small random
+  walk, `u16` cyclic id). Zero record-length drift — the maximally favorable
+  case for SRR's period discovery.
+- `synth-arith.bin` (256,000 B) — 8 columnar `u32` arithmetic progressions
+  (own base+stride, ±1 noise), 8,000 values each, concatenated block-wise —
+  a long unbroken near-constant-first-difference run per column, the direct
+  target of the finite-difference invariant.
+- `synth-jitter.bin` (974,920 B) — 15,000 near-duplicate 64 B records with a
+  0-2 B random pad inserted before each record (period drifts ~64-66 B, mean
+  ~65 B) — deliberately reproduces the "jsonl record period drifts ±2 B"
+  condition Experiment T noted incidentally, as a controlled, strong-signal
+  test of SRR's synchronized drift-window logic specifically.
+
+Round-trip verified for all three files across `--parse=sparse|topology` x
+`--channels=on|off` (8 encode/decode pairs, all byte-identical to source;
+`build/anvil.exe c`/`d`, SHA-256 compared) — no regression risk to the main
+codec (only `tools/srr_diag.cpp` was touched, adding an optional
+`period_lo period_hi` CLI override so the diagnostic isn't hardcoded to
+jsonl's ~235 B record; `src/anvil.cpp` itself is untouched by this session).
+
+**Results — SRR probe, token-discovery level (`tools/srr_diag.exe`,
+channels off vs on, period window matched to each file's true record size):**
+
+| file | t2 tokens off→on | near-dist off→on | top32 mask coverage off→on | period-window hits off→on |
+|---|---:|---:|---:|---:|
+| synth-timeseries.bin (period=14, no jitter) | 3984→3983 | 98.7%→98.7% | 97.1%→97.1% (flat) | 1134→1134 (28.5%, flat) |
+| synth-arith.bin (no byte-periodicity by design) | 1135→1135 | 1.1%→1.1% | 89.0%→89.0% (flat) | 0→0 |
+| synth-jitter.bin (period≈65±1, jittered) | 4999→5234 | 25.6%→25.6% | 69.2%→**71.8%** | 34→**270 (8x)** |
+
+On the zero-jitter file the probe is a complete no-op (channels=on produces
+token counts within noise of channels=off) — the ordinary greedy chain
+search already finds a 14 B period trivially, so the probe never needs to
+activate. On the jittered file, **channels=on measurably increases discovery
+for the first time in the project's history**: period-window hits rise 8x
+(34→270) and top32 mask coverage rises 2.6 points (69.2%→71.8%) — a real,
+non-trivial signal increase, exactly the condition (genuine jitter around a
+strong period) Experiment T's drift-window logic was built for but never
+had a fair test case for.
+
+**Results — full compressed-output level (`build/anvil.exe c`, mode 11
+sparse vs mode 13 topology, `--channels=off|on`, real bytes):**
+
+| file (orig) | sparse, ch=off | sparse, ch=on | topology, ch=off | topology, ch=on |
+|---|---:|---:|---:|---:|
+| synth-timeseries.bin (280,000 B) | 143,132 (51.1%) | 143,132 (51.1%, byte-identical) | 152,499 (54.5%) | 152,499 (54.5%, byte-identical) |
+| synth-arith.bin (256,000 B) | 256,022 (100.0%) | 256,022 (100.0%, byte-identical) | 256,022 (100.0%) | 256,022 (100.0%, byte-identical) |
+| synth-jitter.bin (974,920 B) | **97,384 (10.0%, best)** | 98,557 (10.1%, +1.2%) | 104,491 (10.7%) | 106,040 (10.9%, worst) |
+
+**Gate verdict — SRR probe (a)/(b): NOT ADOPTED, confirmed with materially
+stronger confidence than Experiment T.** On `synth-jitter.bin` — the file
+purpose-built to be the fairest possible test of the drift-window mechanism
+— the probe's own token-discovery metrics genuinely improve (8x more
+period-window hits, +2.6 points mask coverage), reproducing at the discovery
+layer what Experiment T also saw on the real corpus (2-7x more span-like
+tokens). But exactly as in Experiment T, **that discovery gain does not
+survive contact with either the topology coder or the final compressed
+size**: `channels=on` is a **measured regression** on this file too (+1.2%
+sparse, and topology+channels=on is the single worst combination of all
+four, +8.9% vs best). On `synth-timeseries.bin` — the maximally favorable
+zero-jitter case — topology still loses to flat-sparse by 6.5% even though
+the periodic structure is about as clean and strong as synthetic data can
+make it, and the probe is inert (never needed). This closes the "maybe the
+real corpus just lacks the structure" hypothesis for the SRR/topology
+combination with much higher confidence than Experiment T alone could: even
+under deliberately ideal and deliberately jittered synthetic conditions, the
+topology coder still loses and the probe still regresses ratio when it does
+find more structure. The root cause identified in Experiment T (extra
+discovery-layer evidence does not propagate into the (k,slot)/mask-recurrence
+coding layer used by mode 13) is now confirmed on data engineered
+specifically to make that propagation as easy as possible, and it still
+doesn't happen.
+
+**Results — finite-difference invariant retest (`prototypes/pnra/
+orbit_density_bench.exe`, same tool/methodology as Experiment U, run against
+the new synthetic files):**
+
+| file | family | candidates | hits | hit rate |
+|---|---|---:|---:|---:|
+| synth-arith.bin (genuine arithmetic structure) | dense-finite-diff (every 4B) | 64,000 | 1,643 | **2.57%** |
+| synth-timeseries.bin (genuine per-field deltas, but 14 B/non-4-aligned records) | dense-finite-diff (every 4B) | 70,000 | 7 | 0.01% |
+| synth-jitter.bin (no arithmetic structure by design) | dense-finite-diff (every 4B) | 243,730 | 52 | 0.02% |
+
+**Gate verdict — finite-difference invariant (c): PARTIALLY VINDICATED at
+the detector level, still no codec path.** On `synth-arith.bin`, the
+detector's hit rate (2.57%) is **2-18x above** the 0.14-1.1% hash-noise
+floor Experiment U measured on the real corpus — genuine, above-noise signal
+is detectable when the underlying data actually has arithmetic-progression
+structure. This confirms Experiment U's near-zero result was corpus-driven
+(the real corpus genuinely lacks this structure), not a detector defect —
+the detector does its job when given real signal to find. **But two honest
+caveats limit how far this vindication goes:** (1) `synth-timeseries.bin`
+— also built with genuine, deliberate per-field arithmetic structure (the
+`u64` timestamp field increments by a near-constant step every record) — is
+detected even *worse* than the null-structure jitter file (0.01% vs 0.02%),
+because the generic detector's fixed 4-byte-aligned scan stride does not
+line up with the file's 14 B, mixed-width record layout; hit rate is highly
+sensitive to matching the scanner's alignment assumption to the true record
+structure, a real engineering gap for any future invariant-family detector,
+not just a corpus-weakness question. (2) Even on `synth-arith.bin` where the
+detector genuinely fires, `anvil.exe`'s actual LZ-based parse (mode 11/13,
+channels on/off) compresses the file to ~100.0% of its original size — LZ
+matching cannot exploit arithmetic-progression structure at all, regardless
+of channel/topology settings, because no current ANVIL token type encodes a
+"delta from an arithmetic relation" — only byte-identical and (in TCOPY/PNRA)
+translation-invariant copies. Detecting the structure and having a codec
+mechanism that converts detection into compressed bytes are two different,
+still-separate problems; only the first is now positively demonstrated.
+
+**Overall Experiment W verdict:** the fair retest **sharpens rather than
+reverses** Iteration 4's negative findings for the SRR probe/topology coder
+(NOT ADOPTED holds, now demonstrated under deliberately ideal conditions,
+closing off the corpus-weakness counter-hypothesis with much higher
+confidence) and gives the finite-difference invariant a genuine, honest
+partial positive (the detector works on real signal) while identifying two
+precise, previously-unknown remainder items for any future attempt: (i) a
+dense invariant detector's hit rate is highly alignment-sensitive, not just
+density-sensitive (new finding, not previously measured); (ii) no ANVIL
+token/parse mechanism currently exists that could convert a detected
+arithmetic relation into a compression gain even where the detector fires
+correctly — building one is a separate, larger, not-yet-attempted task, out
+of scope for this diagnostic session. No Pareto/EXTENDS_FRONT claim from
+either result. Recorded files: `tests/make_synth_corpus.py` (new),
+`tests/corpus/synth-{timeseries,arith,jitter}.bin` (new, committed),
+`tests/corpus/CHECKSUMS.txt` + `tests/corpus/README.md` (updated),
+`tools/srr_diag.cpp` (optional `period_lo period_hi` CLI args added, default
+unchanged at 220/260 so existing invocations are unaffected).
