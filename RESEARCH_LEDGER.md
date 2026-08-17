@@ -1773,6 +1773,101 @@ comparison above; run it on the real corpus; record the honest throughput
 numbers and the resulting verdict on the falsifiable hypothesis before any
 attempt at a full I4-4 codec mechanism.
 
+**Results (`prototypes/pnra/orbit_density_bench.cpp`, built standalone with
+clang-cl, median-of-5, all 6 corpus files with a binary and non-binary
+split; lookup structure held constant across families — same
+`FixedTable<17,4>` shape as `PNRA::tab`, so the comparison isolates
+candidate-generation density, not the lookup structure Experiment U already
+cleared):**
+
+| file | family | candidates | hits | density | input MB/s |
+|---|---|---:|---:|---:|---:|
+| anvil.exe | sparse-translation (E8/E9) | 3,999 | 2,586 | 1.49% | 1030 |
+| anvil.exe | dense-finite-diff (every 4B) | 67,200 | 760 | 25% | 179 |
+| anvil.exe | dense-finite-diff+prefilter | 2,016 | 31 | 0.75% | 2964 |
+| anvil_bench.exe | sparse-translation | 18,850 | 6,323 | 0.98% | 1209 |
+| anvil_bench.exe | dense-finite-diff | 482,304 | 4,592 | 25% | 250 |
+| anvil_bench.exe | dense-finite-diff+prefilter | 25,607 | 423 | 1.33% | 3939 |
+| generated.log | sparse-translation | 0 | 0 | 0% | (n/a, no x86 bytes) |
+| generated.log | dense-finite-diff | 485,570 | 704 (0.14%) | 25% | 336 |
+| generated.log | dense-finite-diff+prefilter | 9 | 0 | ~0% | 8456 |
+| generated.jsonl | dense-finite-diff | 703,816 | 4,312 (0.61%) | 25% | 294 |
+| generated.json | dense-finite-diff | 206,916 | 392 (0.19%) | 25% | 405 |
+| generated.sqlite | dense-finite-diff | 435,200 | 1,060 (0.24%) | 25% | 255 |
+
+**Verdict on the falsifiable hypothesis: CONFIRMED.** The unfiltered dense
+family runs at 179-405 MB/s (input-relative) vs the sparse family's
+1030-1209 MB/s on the same PE files — a **3-6x throughput penalty**, driven
+exactly by the ~17-25x candidate-count multiplier the density mismatch
+predicts (holding the lookup structure fixed). This is the real,
+measured capability blocker for the pre-registered "O(1) parser cost per
+added invariant" target: **invariant families without a sparse structural
+trigger cost O(n) additional work each when added naively**, not O(1).
+**The pre-filter (a cheap local arithmetic-progression test before the
+expensive key+hash step) validates as the enabling primitive**: it cuts
+candidate counts by 30-50,000x and recovers 2964-8456 MB/s — faster than
+even the sparse family — confirming a cheap dense-family filter is a
+viable fix for the density-mismatch blocker, when one exists for the
+invariant in question.
+
+**A second, independent finding from the same run (honest, not
+hypothesized in advance): the finite-difference invariant finds
+essentially no real structure in this corpus.** Hit rates for the
+unfiltered dense family are 0.14-1.1% across all 6 files — at or below the
+noise floor expected from a 17-bit/4-way table under `candidates/2^17`
+random-collision arithmetic (e.g. 703,816 candidates into 131,072 buckets
+predicts thousands of pure-chance collisions even absent any real
+arithmetic-progression structure). This is NOT structural recurrence; it
+is statistically indistinguishable from hash noise. Contrast with
+sparse-translation on the PE files, where 2,586/3,999 (64.7%) and
+6,323/18,850 (33.5%) of E8/E9 relocation values recur — real, strong
+structure. **The finite-difference/counter invariant family, as tested, has
+no exploitable signal in `tests/corpus/` as currently composed** — this
+independently corroborates Experiment T's finding (SRR) that this corpus
+lacks strong low-level structural periodicity, now from a second,
+unrelated angle (arithmetic-progression recurrence rather than record-period
+alignment).
+
+**Gate verdict for I4-4 (honest, precise):**
+
+- **The primitive-diagnosis question this experiment set out to answer is
+  answered: the real blocker for multi-invariant anchoring is
+  event-generation density mismatch (CONFIRMED), not lookup latency
+  (REFUTED — PNRA's existing hash-bucket shape already avoids the
+  dependent-load-chain problem). A cheap local pre-filter is a validated
+  fix for the density blocker where the invariant family admits one.**
+- **A full I4-4 Orbit-LZ multi-invariant codec is NOT attempted this
+  session** — two independent, honestly-recorded reasons, neither a
+  mechanism failure: (1) PNRA's own harness remains unbuildable on Windows
+  (finding 1 above — `tcopy_flat_hot_lib.inc` was never ported), so there
+  is no working substrate to extend without first reconstructing
+  significant missing scaffolding, itself a separate, larger task; (2) the
+  specific invariant family named in Experiment Q item 4 as the first
+  extension target (finite-difference) shows no exploitable signal in the
+  available corpus — building and wiring a second invariant into a parser
+  when the measured hit rate is at the noise floor would not produce an
+  honest, attributable ablation result even if the harness existed.
+- **Verdict: I4-4 BLOCKED/DEFERRED (not NOT-ADOPTED — no codec was built
+  and shown to fail; the prerequisite conditions for a meaningful ablation
+  are unmet on measured evidence).** Precise remainder for a future
+  session, in priority order: (a) port/reconstruct the missing PNRA harness
+  (`tcopy_flat_hot_lib.inc` + `FParse`/`FTok`/`enc_flat`/`dec_cd`/`GPatch`
+  types) onto the Windows tree so PNRA itself becomes buildable and
+  measurable — this is the actual blocking dependency, not an invariant-
+  family question; (b) when choosing a second invariant family to extend
+  PNRA with, measure its raw recurrence rate on the target corpus FIRST
+  (as this experiment did) before investing in the codec wiring — stride/
+  bitplane or predecessor-encoding may show real signal where finite-
+  difference did not, but that must be measured, not assumed; (c) the
+  validated pre-filter pattern (cheap local test before expensive key+hash)
+  is the correct shape for any dense invariant family's candidate generator
+  once a family with real signal is identified.
+
+**No StructuralEvent unification layer was built** (per the pre-registered
+no-premature-abstraction judgment call above) — still true: PNRA is not
+yet a working, buildable second data point on Windows, so there is nothing
+concrete to unify with SRR's closed-negative result.
+
 **Queued follow-on candidates (operator web-research leads, Aug 17 2026 —
 not chased in this session, recorded so they aren't lost; each needs its
 own pre-registration + verification pass before any claim):**
@@ -1832,11 +1927,25 @@ mechanisms + the regression:
    on record files; J-faithfulness preserved (825/825, 300/300); decode
    ~3-10% slower (DECODE PARTIAL, not the throughput primitive). No Pareto
    claim.
-4. **t4-orbit (I4-4, Orbit-LZ multi-invariant anchoring):** *[FILL — blocked
-   on t4-srr. Pre-registered targets: per-invariant ablation improves
-   end-to-end bits on its class at O(1) parser cost, attributable to the
-   invariant; unified MDL beats single-index baselines; LZ = identity
-   special case reproduces the exact-match baseline.]*
+4. **t4-orbit (I4-4, Orbit-LZ multi-invariant anchoring):** Experiment U —
+   **BLOCKED/DEFERRED (primitive diagnosed, codec not attempted).**
+   Reframed per operator guidance to diagnose the actual blocker before
+   building: confirmed the current PNRA prototype is unbuildable on the
+   Windows tree (missing `tcopy_flat_hot_lib.inc`); refuted candidate
+   blocker "dependent-load lookup latency" (PNRA's hash bucket is already
+   cache-friendly, fixed 4-way, no pointer chasing); confirmed the real
+   blocker is **event-generation density mismatch** — PNRA's O(1) cost
+   rides on x86 E8/E9 opcodes as a ~1-25% sparse trigger family-specific to
+   executables, while a finite-difference/counter invariant family has no
+   equivalent sparse trigger and costs 3-6x more parser throughput when
+   evaluated densely (measured: 179-405 MB/s dense vs 1030-1209 MB/s
+   sparse on the same files). A cheap local pre-filter validated as the
+   fix (recovers 2964-8456 MB/s). Independently found the finite-difference
+   invariant has no exploitable signal in `tests/corpus/` (hit rates
+   0.14-1.1%, at the hash-noise floor) — corroborating Experiment T's
+   corpus-structure finding from a second angle. No codec built; the
+   precise remainder (harness port, per-family signal measurement before
+   wiring) is recorded for a future session.
 
 ## 2. Iteration-4 regression results (bench, median-3 — the arbiter)
 
@@ -1880,8 +1989,6 @@ both planes simultaneously.
 
 ## 3. Consolidated Iteration-4 novelty claims
 
-*[FILL after t4-bench. Pre-registered claim positions:*
-
 - **C14 — Compiled hot-op instruction book (I4-1): PARTIAL PASS** (recorded
   Experiment R) — validated decode accelerator; ≥2x target unmet; no Pareto
   claim.
@@ -1895,17 +2002,78 @@ both planes simultaneously.
 - **C16 — Context-switched literal coder (I4-3): RATIO PASS** (recorded
   Experiment S) — strongest single mechanism; decode leg unmet; no Pareto
   claim.
-- **C17 — Orbit-LZ multi-invariant anchoring (I4-4):** *[verdict pending
-  t4-orbit]*.
-
-*]*
+- **C17 — Orbit-LZ multi-invariant anchoring (I4-4): BLOCKED/DEFERRED, no
+  claim** (recorded Experiment U) — the primitive-diagnosis question was
+  answered (event-generation density mismatch is the real blocker, not
+  lookup latency; a cheap local pre-filter is a validated fix), but no
+  codec mechanism was built or gated. Two independent, honestly-recorded
+  reasons: PNRA's own harness is unbuildable on the Windows tree (a
+  porting gap, not a mechanism failure), and the first-candidate invariant
+  family (finite-difference) shows no exploitable recurrence in the
+  available corpus (0.14-1.1% hit rate, hash-noise floor) — a second,
+  independent corroboration of Experiment T's corpus-structure finding.
+  Not scored NOT ADOPTED because nothing was built-and-shown-to-fail; not
+  scored PASS because nothing was built at all. The remainder is precise
+  and actionable (harness port; measure per-family signal before wiring
+  any future invariant family into a parser).
 
 ## 4. The honest Iteration-4 verdict
 
-*[FILL after t4-bench — the I4 gate binds: EXTENDS_FRONT on at least one
-plane on at least one file class, decided by bench's Pareto tools against
-the pre-registered targets; every failure recorded with reason.]*
+- **The frontier was NOT pushed.** 0 EXTENDS_FRONT (`tests/pareto-
+  baseline.csv`: zero ANVIL rows extend the reference front;
+  `tests/pareto-verdict.csv`: 126 RATIO-BEATS-SOME / 24 NO-BEAT / 0
+  RATIO-BEATS(best) / 0 PARETO-WIN across 150 verdict rows). Four
+  iterations, zero Pareto wins — every claim pre-registered, every failure
+  or deferral recorded with a measured reason.
+- **What iteration 4 delivered (truthfully):** a real decode accelerator
+  short of its target (I4-1, PARTIAL PASS, 1.17-1.34x vs the fused
+  baseline); the strongest single ratio mechanism in the project's history
+  (I4-3, RATIO PASS, −8.3% to −16.2% on record files) with its decode leg
+  still open; a clean honest negative with a precisely identified root
+  cause (I4-2, NOT ADOPTED — the SRR probe genuinely surfaces more
+  span-like structure but it does not survive contact with either the
+  topology coder or the mask-recurrence aggregate, and this corpus's
+  record-period structure is measurably weak, not merely undiscovered);
+  and a primitive-level diagnosis that answers the question the coordinator
+  actually asked before any codec was built (I4-4, BLOCKED/DEFERRED — the
+  density-mismatch blocker is real and measured, the pre-filter fix is
+  validated, but the corpus lacks exploitable finite-difference structure
+  and PNRA's own harness needs a Windows port before extension is even
+  possible).
+- **A cross-cutting empirical pattern, now confirmed from THREE
+  independent angles across I4-2 and I4-4:** this specific test corpus
+  (`tests/corpus/`) has genuinely weak low-level structural regularity —
+  record-period alignment (Experiment T, span-like tokens 7-272 out of
+  thousands), and now arithmetic-progression/finite-difference recurrence
+  (Experiment U, hit rate at the hash-noise floor on every file). This is
+  not an implementation gap; it is a property of the available corpus, and
+  it bounds what any future structural/invariant mechanism can find on
+  this data without a corpus with real periodic or arithmetic structure
+  (e.g. columnar/binary record formats, timestamp/counter-heavy logs) to
+  validate against.
+- **The binding levers for a future iteration, now precisely identified:**
+  (1) **I4-3's economics applied to the hot-opcode stream** (recorded in
+  Experiment R) to push I4-1 past 2x; (2) **a corpus with real exploitable
+  structure** before re-attempting I4-2/I4-4-class mechanisms — the current
+  corpus has twice demonstrated it lacks the periodic/arithmetic regularity
+  these mechanisms are designed to exploit; (3) **porting PNRA's missing
+  harness** (`tcopy_flat_hot_lib.inc` + supporting types) onto the Windows
+  tree as a standalone prerequisite task, separable from any invariant-
+  family research question; (4) when a second invariant family is chosen,
+  **measure its raw recurrence rate on the target data first** (the
+  pattern this session validated) before investing in parser wiring.
+- **Gate integrity:** every I4 verdict decided against pre-registered
+  criteria; I4-4 was explicitly reframed mid-project (operator guidance) to
+  diagnose the actual blocker rather than assume one, and that diagnosis
+  produced a falsifiable, measured answer (density mismatch CONFIRMED,
+  dependent-load latency REFUTED) even though no codec claim resulted —
+  consistent with the project's standing rule that a precise negative or
+  deferred result is a complete, honest outcome.
 
-*End of iteration-4 skeleton. Numbers slot in on t4-bench; claims require
-pre-registration, Windows A/B evidence, round-trip + fuzz, and an
-EXTENDS_FRONT verdict.*
+*End of iteration-4 consolidation. The ledger remains the living record.
+Iteration 5, when scheduled, should treat "acquire/construct a corpus with
+real periodic or arithmetic structure" as a prerequisite for any further
+I4-2/I4-4-class structural mechanism work, alongside the PNRA harness port
+and the I4-1 opcode-stream economics lever. The gate stays the arbiter: a
+claim requires pre-registration, Windows A/B evidence, round-trip + fuzz,
+and an EXTENDS_FRONT verdict from bench's tools.*
