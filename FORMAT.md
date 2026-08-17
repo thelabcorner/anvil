@@ -103,6 +103,21 @@ factor, not the transform. The implicit-parameter claim (Delta derived from the
 distance, zero bits) is the implemented mechanism; the explicit-Delta control is
 a follow-up per the t3-patent narrowed-claim contract.
 
+**`--pnra=on` (Experiment X, mode 14 only, off by default):** an additional,
+invariant-anchored candidate SOURCE for the SAME token type 3 — no wire-format
+change. Indexes x86 `E8`/`E9` (near call/jmp) relocation fields by their
+translation-invariant absolute target (`field_pos+4+rel32`, constant across the
+`Delta=-dist` transform), gated on the opcode byte only (~0.1-0.4% density on
+real PE `.text`, keeping the index O(1) amortized per opcode occurrence — see
+Experiment U's density-mismatch finding). This lets the parser find and cost-
+compare transform candidates whose raw bytes never byte-match anywhere (so the
+ordinary byte-hash chain search structurally cannot reach them), competing
+against the existing exact/literal alternatives via the same bits-based cost
+model already used for every other candidate. **Measured (Experiment X): a
+wash to a small regression once wired through the real cost-model parser and
+entropy coder** — see RESEARCH_LEDGER.md for the honest numbers; NOT ADOPTED,
+kept off by default.
+
 ## TOPOLOGY token backend (mode 13)
 
 Mode 13 (landed by `arch` during iteration 2) is mode 12's token/dist coding with

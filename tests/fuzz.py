@@ -56,15 +56,16 @@ def mutate(rng: random.Random, blob: bytes, n: int):
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--exe',default=str(Path(__file__).parents[1]/'anvil')); ap.add_argument('--cases',type=int,default=120); ap.add_argument('--seed',type=int,default=0xA11E); ap.add_argument('--mutations',type=int,default=6,help='mutations per valid file (0 to disable)'); args=ap.parse_args()
     exe=Path(args.exe); rng=random.Random(args.seed)
-    combos=[('greedy','arith'),('dp','arith'),('greedy','rans'),('dp','rans'),('sparse','rans')]
+    combos=[('greedy','arith',[]),('dp','arith',[]),('greedy','rans',[]),('dp','rans',[]),('sparse','rans',[]),
+            ('tcopy','rans',[]),('tcopy','rans',['--pnra=on'])]
     total=0; mutated=0
     with tempfile.TemporaryDirectory(prefix='anvil-fuzz-') as td:
         td=Path(td)
         for idx,data in enumerate(patterns(rng,args.cases)):
             src=td/'in.bin'; src.write_bytes(data)
-            for parse,entropy in combos:
+            for parse,entropy,extra in combos:
                 packed=td/'x.anv'; dec=td/'out.bin'
-                run([exe,'c',src,packed,f'--parse={parse}','--literal=o0',f'--entropy={entropy}','--quiet'])
+                run([exe,'c',src,packed,f'--parse={parse}','--literal=o0',f'--entropy={entropy}','--quiet',*extra])
                 run([exe,'d',packed,dec,'--quiet'])
                 got=dec.read_bytes()
                 if hashlib.sha256(got).digest()!=hashlib.sha256(data).digest(): raise RuntimeError(f'roundtrip mismatch case={idx} {parse}/{entropy}')

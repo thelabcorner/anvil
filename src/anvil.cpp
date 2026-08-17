@@ -13,6 +13,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -344,18 +345,26 @@ public:
     // TCOPY: a 4-aligned window whose 32-bit target == source - dist (implicit
     // Delta=-d, the executable-relative relocation algebra) is recorded as a
     // transform field (tfo window index) and costs only its mask bit.
+    // `allow_tfo_only`/`min_len`: PNRA (Experiment X) needs a SEPARATE, narrower
+    // acceptance path — a single isolated transform field (len=4, zero literal
+    // corrections) is exactly the minimal, common case an invariant-anchored
+    // candidate produces, but the default acceptance below (`local_k>=1 &&
+    // local_len>=8`, tuned for byte-hash-anchored sparse/tcopy candidates) drops
+    // it. Default parameters reproduce the EXACT prior behavior for every
+    // existing caller (find_sparse/find_sparse_at); only find_pnra_at passes
+    // allow_tfo_only=true, min_len=4.
     void scan_candidate(uint32_t pos, uint32_t q, const std::array<double,256>& litcost,
                         double avg_lit, uint64_t& work, double dead_band, bool tcopy,
                         uint32_t& blen, uint32_t& bk, std::array<uint32_t,kSparseScanMax>& boff,
                         std::array<uint8_t,kSparseScanMax>& bval, double& best_score,
                         std::array<uint32_t,kSparseScanMax/4>& btfo, uint32_t& btfo_n,
-                        uint32_t max_len=0) const {
+                        uint32_t max_len=0, bool allow_tfo_only=false, uint32_t min_len=8) const {
         const uint8_t* tgt = d_.data() + pos;
         const uint8_t* src = d_.data() + q;
         uint32_t remain = static_cast<uint32_t>(d_.size() - pos);
         uint32_t cap = std::min({remain, max_match_, kSparseScanMax});
         if (max_len) cap = std::min(cap, max_len);
-        if (cap < 8) return;
+        if (cap < min_len) return;
         const double match_gain = avg_lit - 0.125;
         const uint32_t dist = pos - q;
         double score = 0.0, local_best = -1e300;
@@ -389,7 +398,9 @@ public:
             if (score > local_best) { local_best = score; local_len = j + 1; local_k = k; local_tfo_snap = local_tfo; }
             else if (score < local_best - dead_band) break;
         }
-        if (local_k >= 1 && local_len >= 8 && local_best > best_score) {
+        bool accept = (local_k >= 1 && local_len >= 8)
+                    || (allow_tfo_only && local_tfo_snap >= 1 && local_len >= min_len);
+        if (accept && local_best > best_score) {
             best_score = local_best; blen = local_len; bk = local_k;
             for (uint32_t i = 0; i < local_k; ++i) { boff[i] = off[i]; bval[i] = val[i]; }
             btfo_n = local_tfo_snap;
@@ -416,6 +427,33 @@ public:
         scan_candidate(pos, q, litcost, avg_lit, work, dead_band, tcopy, blen, bk, boff, bval, best_score, btfo, btfo_n, max_len);
         if (bk >= 1 && blen >= 8) {
             out.len = blen; out.dist = dist;
+            out.off.assign(boff.begin(), boff.begin() + bk);
+            out.val.assign(bval.begin(), bval.begin() + bk);
+            out.tfo.assign(btfo.begin(), btfo.begin() + btfo_n);
+            return true;
+        }
+        return false;
+    }
+
+    // PNRA (Experiment X): invariant-anchored candidate at an EXPLICIT source q
+    // supplied by the caller's invariant index (no first-4-byte prefilter — the
+    // whole point is q's raw bytes need NOT match at pos; only the transform-field
+    // algebra at the anchor itself does). Reuses scan_candidate verbatim so the
+    // resulting SparseMatch is cost-model-identical in shape to a normal sparse
+    // candidate; only the SOURCE of q differs (invariant hash, not byte hash).
+    bool find_pnra_at(uint32_t pos, uint32_t q, SparseMatch& out, const std::array<double,256>& litcost,
+                      double avg_lit, uint64_t& work, double dead_band=32.0) const {
+        out.len = 0;
+        if (q >= pos || pos + 4 > d_.size()) return false;
+        std::array<uint32_t, kSparseScanMax> boff{};
+        std::array<uint8_t, kSparseScanMax> bval{};
+        std::array<uint32_t, kSparseScanMax/4> btfo{};
+        uint32_t blen = 0, bk = 0, btfo_n = 0; double best_score = -1e300;
+        scan_candidate(pos, q, litcost, avg_lit, work, dead_band, /*tcopy=*/true, blen, bk, boff, bval, best_score, btfo, btfo_n,
+                       /*max_len=*/0, /*allow_tfo_only=*/true, /*min_len=*/4);
+        if (btfo_n == 0) return false; // PNRA candidates without a transform field bring nothing the ordinary hash search doesn't already find
+        if (bk <= btfo_n && blen >= 4) { // require the transform field itself to be covered, not just a chance literal run
+            out.len = blen; out.dist = pos - q;
             out.off.assign(boff.begin(), boff.begin() + bk);
             out.val.assign(bval.begin(), bval.begin() + bk);
             out.tfo.assign(btfo.begin(), btfo.begin() + btfo_n);
@@ -564,10 +602,12 @@ static std::vector<Token> parse_dp(const std::vector<uint8_t>& d, uint32_t max_c
 static constexpr uint32_t kChannels = 8;
 struct StructChannel { uint32_t dist = 0; double score = 0.0; uint32_t last = 0; };
 static uint64_t g_ch_try = 0, g_ch_win = 0; // R4 channel diagnostics
+static uint64_t g_pnra_gate = 0, g_pnra_idxhit = 0, g_pnra_verify = 0, g_pnra_commit = 0; // Experiment X diagnostics
 static uint64_t g_ch_chosen = 0, g_ch_span_win = 0, g_ch_span_emit = 0; // SRR emit diagnostics
 
 static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match,
-                                             uint32_t surprise=12, bool boundary=false, bool channels=true, bool tcopy=false) {
+                                             uint32_t surprise=12, bool boundary=false, bool channels=true, bool tcopy=false,
+                                             bool pnra=false) {
     const uint32_t n=static_cast<uint32_t>(d.size());
     std::vector<SparseToken> toks;
     if(n==0) return toks;
@@ -586,6 +626,29 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
     const double dead_band=32.0*double(surprise)/6.0;
     MatchFinder mf(d,max_chain,max_match,boundary);
     uint64_t work=0;
+    // PNRA (Experiment X, I4-4 successor): transformation-invariant index over
+    // x86 E8/E9 (near call/jmp) relocation fields. I(v,p) = p+4+v (the absolute
+    // branch target, i.e. rip-after-instruction + rel32) is INVARIANT under the
+    // Delta=-dist relocation transform TCOPY's mode-14 field already codes
+    // implicitly: moving the field to position p'=p-dist changes v by +dist to
+    // keep the same target, so two occurrences of the SAME target are exact hash
+    // hits in invariant space even though their raw bytes (opcode + differing
+    // rel32) never byte-match and so are invisible to the ordinary 4-byte hash
+    // chain in MatchFinder. Gated on the E8/E9 opcode byte only (a ~1-2% sparse
+    // trigger on real PE .text, per Experiment U/V measurement) so this stays
+    // O(1) amortized per opcode occurrence, not O(n) dense — the density-mismatch
+    // blocker Experiment U diagnosed for ungated dense invariant families.
+    std::unordered_map<uint32_t, std::vector<uint32_t>> pnra_idx;
+    if (pnra && tcopy) {
+        for (uint32_t p = 0; p + 5 <= n; ++p) {
+            uint8_t op = d[p];
+            if (op != 0xE8 && op != 0xE9) continue;
+            uint32_t field_pos = p + 1;
+            int32_t rel32; std::memcpy(&rel32, d.data() + field_pos, 4);
+            uint32_t target = field_pos + 4u + static_cast<uint32_t>(rel32);
+            pnra_idx[target].push_back(field_pos);
+        }
+    }
     std::array<StructChannel, kChannels> chan{};
     size_t nchan = 0;
     auto reinforce=[&](uint32_t dist, uint32_t at, double gain) {
@@ -716,6 +779,53 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
             for(uint32_t p=i;p<end;++p) mf.insert(p);
             i=end;
             continue;
+        }
+        // PNRA candidate (Experiment X): fires ONLY right after an E8/E9 opcode
+        // byte (the sparse structural trigger) — an invariant-space hash hit
+        // supplies a candidate source q whose raw bytes need not byte-match at
+        // all, which is exactly the class of copy opportunity the ordinary
+        // hash-chain search (mf.find/find_sparse, both anchored on a byte-equal
+        // 4-byte prefix) structurally cannot reach. Competes against the SAME
+        // exact-match alternative via the SAME bits-based cost model as every
+        // other candidate here; only committed if it's cheaper.
+        if (pnra && tcopy && i >= 1 && i + 4 <= n && (d[i-1]==0xE8 || d[i-1]==0xE9) && work<kSparseBlockBudget) {
+            ++g_pnra_gate;
+            auto it = pnra_idx.find([&]{
+                int32_t rel32; std::memcpy(&rel32, d.data()+i, 4);
+                return i + 4u + static_cast<uint32_t>(rel32);
+            }());
+            if (it != pnra_idx.end()) {
+                auto& v = it->second;
+                auto ub = std::upper_bound(v.begin(), v.end(), i - 1);
+                if (ub != v.begin()) {
+                    ++g_pnra_idxhit;
+                    uint32_t q = *(ub - 1);
+                    if (q < i && (i - q) >= 4) {
+                        SparseMatch pm;
+                        if (mf.find_pnra_at(i, q, pm, litcost, avg_lit, work, dead_band)) {
+                            ++g_pnra_verify;
+                            double pnra_c = 1.5+varint_cost(pm.len-4)+varint_cost(pm.dist-1)+double(pm.len)/8.0
+                                          +0.18*std::log2(double(pm.dist)+1.0);
+                            for (size_t k=0;k<pm.off.size();++k) pnra_c += litcost[pm.val[k]];
+                            double alt_c=std::numeric_limits<double>::infinity();
+                            if(exact.len>=4) alt_c=exact_c+(pref[i+pm.len]-pref[i+std::min<uint32_t>(exact.len,pm.len)]);
+                            else alt_c=pref[i+pm.len]-pref[i];
+                            if (pnra_c < alt_c) {
+                                ++g_pnra_commit;
+                                SparseToken t; t.type=3u; t.pos=i; t.len=pm.len; t.dist=pm.dist;
+                                t.off=std::move(pm.off); t.val=std::move(pm.val); t.tfo=std::move(pm.tfo);
+                                toks.push_back(std::move(t));
+                                if(boundary) mf.insert_boundary(i);
+                                reinforce(pm.dist,i,double(pm.len)*0.5); note_span(pm.dist, pm.len);
+                                uint32_t end=i+pm.len;
+                                for(uint32_t p=i;p<end;++p) mf.insert(p);
+                                i=end;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
         }
         if(exact.len<128 && work<kSparseBlockBudget) {
             SparseMatch sm;
@@ -2863,6 +2973,7 @@ struct Options {
     bool boundary=false;   // boundary-aligned candidate generation (C5; measured neutral on corpus)
     bool negate=true;      // difference-cover negative gate for incompressible blocks (C5)
     bool channels=false;   // R4 structural channels (measured not-aligned on corpus; SRR follow-up) (persistent displacement bank)
+    bool pnra=false;       // Experiment X: PNRA invariant-anchored candidate source for mode 14 (TCOPY); off by default
     bool stream_suite=true; // stream codec suite (huffman/defexc/256-512 rANS); off = fixed rANS-4096+raw
     bool stream_ctx=true;     // context-switched rANS (mode 6) in the suite
     double stream_lambda=0.01; // J-cost decode-weight (pre-registered binding value 0.01)
@@ -2981,10 +3092,18 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
         }
         // Mode 14 (TCOPY): implicit Delta=-d transformed copy over the sparse parse.
         if(opt.parse=="auto" || opt.parse=="tcopy") {
-            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels,true); have_sp=true; }
-            auto payload=encode_tokens_tcopy(block,sp_toks);
-            std::vector<Token> t; t.reserve(sp_toks.size());
-            for(auto&s:sp_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+            // PNRA (opt.pnra) needs its OWN tcopy-aware parse into a separate
+            // variable, never reusing/overwriting the shared sp_toks — under
+            // --parse=auto, sp_toks (tcopy=false) is also reused by mode 15
+            // (HOTOP), which does not understand type-3 tokens; sharing would
+            // silently corrupt that mode's input.
+            const std::vector<SparseToken>* tc_toks = &sp_toks;
+            std::vector<SparseToken> tc_local;
+            if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels,true,opt.pnra); have_sp=true; tc_toks=&sp_toks; }
+            else if(opt.pnra) { tc_local=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels,true,true); tc_toks=&tc_local; }
+            auto payload=encode_tokens_tcopy(block,*tc_toks);
+            std::vector<Token> t; t.reserve(tc_toks->size());
+            for(auto&s:*tc_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
             if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),14};
         }
         // Mode 15 (HOTOP): compiled hot-op instruction book over the sparse parse.
@@ -3066,7 +3185,7 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
               << "  note: sparse->mode 11, shape->mode 12, topology->mode 13 (research), tcopy->mode 14, hotop->mode 15 (compiled instruction book); --shape-states=1 is the FLAG-D control\n"
@@ -3095,6 +3214,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--boundary=",0)==0)opt.boundary=(a.substr(11)!="off");
             else if(a.rfind("--negate=",0)==0)opt.negate=(a.substr(9)!="off");
             else if(a.rfind("--channels=",0)==0)opt.channels=(a.substr(11)!="off");
+            else if(a.rfind("--pnra=",0)==0)opt.pnra=(a.substr(7)!="off");
             else if(a.rfind("--stream-suite=",0)==0)opt.stream_suite=(a.substr(15)!="off");
             else if(a.rfind("--stream-ctx=",0)==0)opt.stream_ctx=(a.substr(13)!="off");
             else if(a.rfind("--fused-decode=",0)==0)g_fused_decode=(a.substr(15)!="off");
@@ -3111,7 +3231,8 @@ int main(int argc,char**argv) {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(opt.stream_log) for(auto&e:g_stream_log_entries) std::cout<<"stream_log chosen="<<e.chosen<<" l_winner="<<e.l_winner<<" chosen_L="<<e.chosen_L<<" min_L="<<e.min_L<<"\n";
-            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<" ch_try="<<g_ch_try<<" ch_win="<<g_ch_win<<" ch_chosen="<<g_ch_chosen<<" span_win="<<g_ch_span_win<<" span_emit="<<g_ch_span_emit<<"\n";}
+            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<" ch_try="<<g_ch_try<<" ch_win="<<g_ch_win<<" ch_chosen="<<g_ch_chosen<<" span_win="<<g_ch_span_win<<" span_emit="<<g_ch_span_emit
+              <<" pnra_gate="<<g_pnra_gate<<" pnra_idxhit="<<g_pnra_idxhit<<" pnra_verify="<<g_pnra_verify<<" pnra_commit="<<g_pnra_commit<<"\n";}
         } else if(cmd=="d") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}
