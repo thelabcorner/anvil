@@ -2377,3 +2377,55 @@ either result. Recorded files: `tests/make_synth_corpus.py` (new),
 `tests/corpus/CHECKSUMS.txt` + `tests/corpus/README.md` (updated),
 `tools/srr_diag.cpp` (optional `period_lo period_hi` CLI args added, default
 unchanged at 220/260 so existing invocations are unaffected).
+
+## Note — discrepancy-minimizing tANS table construction (queued follow-on, Experiment U): investigated, NOT APPLICABLE as literally proposed
+
+Per Experiment U's queued follow-on list (arXiv 2504.18541, "optimal
+tables for asymmetric numeral systems," operator-reported/unverified): before
+attempting a gate, the paper's claim was checked against ANVIL's actual
+entropy-coder architecture, per this session's explicit instruction to
+"verify the paper's claims yourself before trusting them."
+
+**Finding (reading `src/anvil.cpp:813-923`, `build_rans_model` +
+`build_ctx_model`, the machinery under Experiment S's context-switched
+coder):** ANVIL's entropy coder is **direct/byte-oriented rANS** (Subbotin-
+style cumulative-frequency range coding — each symbol occupies a contiguous
+range `[start[s], start[s]+freq[s])` of the `tot`-slot table, decoded by a
+single flat `slot -> symbol` lookup array built directly from `start`/`freq`
+in `rans_decode`/`ctx rANS decode`). It is **not** a tANS finite-state-
+machine coder (no per-state symbol/next-state transition table, no
+`state -> (symbol, next_state)` structure). The paper's actual subject —
+discrepancy-minimizing *placement* of symbols across tANS states, i.e. a
+specific spread/permutation function analogous to Duda's original tANS
+table-fill algorithm — has **no counterpart in ANVIL's design**: there is no
+permutation freedom to optimize in a direct-rANS symtab (symbol placement
+order within the contiguous ranges is arbitrary and provably does not affect
+compressed size — only which slots a symbol occupies as a set matters, not
+their order, since decode is a flat lookup, not a state-transition walk).
+
+**The only actual lever in ANVIL's coder that resembles the paper's target
+domain is `build_rans_model`'s frequency-quantization step** (floor each
+symbol's `count*tot/n`, then greedy largest-shortfall/largest-excess fixup
+until the integer frequencies sum exactly to `tot`) — a different, older,
+well-studied problem (fractional-to-integer histogram quantization under a
+fixed-total constraint, sometimes called "largest remainder" allocation),
+not what arXiv 2504.18541 addresses. Swapping in the paper's tANS
+table-build algorithm here would not be applying the paper's actual
+contribution — it would be building a different thing and mislabeling it,
+which this project's honesty standard does not permit.
+
+**Verdict: NOT APPLICABLE as proposed — no gate pre-registered, nothing
+built.** This is a precise, verified negative (the queued lead was checked,
+not assumed), not a shortcut: adopting the paper's technique would first
+require ANVIL to have (or gain) a tANS-style state-machine coder, which it
+currently does not, and building one from scratch to host an unrelated
+table-construction technique is a much larger undertaking than the "small,
+contained, encoder-only change" the gate criteria called for — out of scope
+for this session and not recommended as a near-term lever. If a genuine
+tANS-family coder is ever built for ANVIL for other reasons, this paper
+becomes directly relevant again and should be re-evaluated then. Separately,
+if better frequency quantization (the lever that *does* exist here) is
+wanted, that is a different, smaller, legitimate future gate item — but it
+should be pre-registered and lineage-cited on its own terms (e.g. FSE-style
+normalization variants), not attributed to a tANS-table paper it does not
+implement.
