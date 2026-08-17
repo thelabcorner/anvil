@@ -69,7 +69,7 @@ int main(int argc,char**argv) {
         rows.push_back(bench_anvil(src,"anvil-shape-rans","shape","o0","rans",reps,28));
         rows.push_back(bench_anvil(src,"anvil-shape-rans-l0","shape","o0","rans",reps,28,0.0));
         rows.push_back(bench_anvil(src,"anvil-shape-ctxmap-rans","shape","o0","rans",reps,1));
-        rows.push_back(bench_anvil(src,"anvil-tcopy-rans","tcopy","o0","rans",reps));
+        rows.push_back(bench_anvil(src,"anvil-hotop-rans","hotop","o0","rans",reps));
         for(int q: {1,4,6,9,11}) rows.push_back(bench_brotli(src,q,reps));
         for(int l: {1,3,9,19}) rows.push_back(bench_zstd(src,l,reps));
         std::cout<<"input_bytes,"<<src.size()<<"\n";

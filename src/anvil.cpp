@@ -348,11 +348,13 @@ public:
                         double avg_lit, uint64_t& work, double dead_band, bool tcopy,
                         uint32_t& blen, uint32_t& bk, std::array<uint32_t,kSparseScanMax>& boff,
                         std::array<uint8_t,kSparseScanMax>& bval, double& best_score,
-                        std::array<uint32_t,kSparseScanMax/4>& btfo, uint32_t& btfo_n) const {
+                        std::array<uint32_t,kSparseScanMax/4>& btfo, uint32_t& btfo_n,
+                        uint32_t max_len=0) const {
         const uint8_t* tgt = d_.data() + pos;
         const uint8_t* src = d_.data() + q;
         uint32_t remain = static_cast<uint32_t>(d_.size() - pos);
         uint32_t cap = std::min({remain, max_match_, kSparseScanMax});
+        if (max_len) cap = std::min(cap, max_len);
         if (cap < 8) return;
         const double match_gain = avg_lit - 0.125;
         const uint32_t dist = pos - q;
@@ -396,8 +398,11 @@ public:
     }
 
     // Sparse candidate at a FIXED distance (structural channel): q = pos - dist.
+    // `max_len` (0 = uncapped) caps the candidate at one record span: the SRR
+    // probe uses dist+8 so a record-aligned hit returns exactly one record's
+    // corrections instead of scanning on into the next record.
     bool find_sparse_at(uint32_t pos, uint32_t dist, SparseMatch& out, const std::array<double,256>& litcost,
-                        double avg_lit, uint64_t& work, double dead_band=32.0, bool tcopy=false) const {
+                        double avg_lit, uint64_t& work, double dead_band=32.0, bool tcopy=false, uint32_t max_len=0) const {
         out.len = 0;
         if (dist == 0 || dist > pos || pos + 4 > d_.size()) return false;
         uint32_t q = pos - dist;
@@ -408,7 +413,7 @@ public:
         std::array<uint8_t, kSparseScanMax> bval{};
         std::array<uint32_t, kSparseScanMax/4> btfo{};
         uint32_t blen = 0, bk = 0, btfo_n = 0; double best_score = -1e300;
-        scan_candidate(pos, q, litcost, avg_lit, work, dead_band, tcopy, blen, bk, boff, bval, best_score, btfo, btfo_n);
+        scan_candidate(pos, q, litcost, avg_lit, work, dead_band, tcopy, blen, bk, boff, bval, best_score, btfo, btfo_n, max_len);
         if (bk >= 1 && blen >= 8) {
             out.len = blen; out.dist = dist;
             out.off.assign(boff.begin(), boff.begin() + bk);
@@ -559,6 +564,7 @@ static std::vector<Token> parse_dp(const std::vector<uint8_t>& d, uint32_t max_c
 static constexpr uint32_t kChannels = 8;
 struct StructChannel { uint32_t dist = 0; double score = 0.0; uint32_t last = 0; };
 static uint64_t g_ch_try = 0, g_ch_win = 0; // R4 channel diagnostics
+static uint64_t g_ch_chosen = 0, g_ch_span_win = 0, g_ch_span_emit = 0; // SRR emit diagnostics
 
 static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match,
                                              uint32_t surprise=12, bool boundary=false, bool channels=true, bool tcopy=false) {
@@ -591,27 +597,125 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
         if (gain > chan[worst].score * 0.25) chan[worst] = {dist, gain, at};
     };
     uint32_t i=0;
+    // SRR synchronized state: the last observed record span (distance of a
+    // taken span-like match) and the next expected record-boundary position.
+    // The probe tracks this span (with a drift window) instead of sweeping a
+    // fixed grid — record periods drift (jsonl 235 B +-2), so a fixed-distance
+    // probe can never stay locked.
+    uint32_t last_span = 0;
+    uint32_t phase = 0;          // next expected record-boundary position (0 = unknown)
+    bool took_ch = false;
+    // A span-like match (len ~= dist) covers one whole record span: the next
+    // position i+len is the next record boundary. Record it so the probe can
+    // fire at the synchronized phase and keep consecutive records aligned.
+    auto note_span = [&](uint32_t dist, uint32_t len) {
+        if (dist > 0 && dist <= 16384) { last_span = dist; phase = i + len; }
+    };
+    auto note_ch_emit = [&](uint32_t dist) {
+        ++g_ch_chosen;
+        if (last_span > 4 && dist >= last_span - 4 && dist <= last_span + 4) ++g_ch_span_emit;
+    };
+    // Discovery sweep: dense step-4 in the plausible record band (24..128),
+    // then coarser beyond. Log's 108-byte lines fall between a coarse grid's
+    // 96/112 and would never be found — the dense band is required.
+    static const uint32_t kSweep[] = {
+        24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92,96,100,104,108,112,116,120,124,128,
+        136,144,152,160,168,176,184,192,200,208,216,224,232,240,248,256,272,288,304,320,336,352,368,384,
+        416,448,480,512,576,640,704,768,832,896,960,1024
+    };
+    static constexpr size_t kSweepN = sizeof(kSweep)/sizeof(kSweep[0]);
     while(i<n) {
         auto ms=mf.find(i);
         Match exact{0,0};
         for(auto&m:ms) if(m.len>exact.len || (m.len==exact.len && m.dist<exact.dist)) exact=m;
         double exact_c=std::numeric_limits<double>::infinity();
         if(exact.len>=4) exact_c=0.6+varint_cost(exact.len-4)+varint_cost(exact.dist-1)+0.18*std::log2(double(exact.dist)+1.0);
-        // R4: structural channel candidates first (persistent record period)
+        // SRR: synchronized structural probe — ACTIVELY TEST candidate record
+        // periods (the channel bank's missing discovery), then sync-lock the
+        // winner so consecutive records align (R2/TCOPY prerequisite).
+        // The probe runs at EVERY position: find_sparse_at early-rejects on a
+        // 4-byte anchor mismatch (near-free), so probing is cheap. It tests
+        // locked channels plus a tight drift window around the last observed
+        // record span; a fixed-grid discovery sweep runs only until the first
+        // channel locks. A probe hit whose length ~= its distance is a
+        // full-record-span match — the strongest alignment signal — and is
+        // locked with a large reinforcement so consecutive records align.
         SparseMatch ch_sm; bool has_ch=false; double ch_cost=0.0;
-        if(channels && work<kSparseBlockBudget) {
-            for(size_t c=0;c<nchan;++c) {
-                if(chan[c].dist==0 || chan[c].dist>i) continue;
-                chan[c].score *= std::pow(0.9, double(i - chan[c].last) / 128.0);
-                chan[c].last = i;
+        bool ch_span=false;
+        // Probe gate: fire at the expected record boundary (i near phase, drift
+        // +-2 to absorb length drift) OR during the discovery phase (no phase
+        // yet: probe a bounded prefix of the block). find_sparse_at
+        // early-rejects on a 4-byte anchor mismatch, so the per-position probe
+        // cost is small; gating keeps it from running at every byte.
+        bool at_phase = (phase != 0 && i + 2 >= phase && i <= phase + 2);
+        // If the generic parse overshot the expected boundary, the lock is
+        // stale: reset so the probe can re-lock on the next clean prefix
+        // instead of going dead forever.
+        if (phase != 0 && i > phase + 2) { phase = 0; }
+        bool discovery = (phase == 0 && i < 65536 && nchan == 0);
+        // Probe gate: the probe fires at the expected record boundary (i near
+        // phase, drift +-2) OR during the discovery phase. Probing every
+        // position re-introduces weak channel matches that displace good
+        // generic candidates (measured regression), so it stays phase-gated;
+        // when the generic parse overshoots the phase the lock simply expires
+        // and discovery re-runs on the next clean prefix.
+        if(channels && (at_phase || discovery) && work<kSparseBlockBudget) {
+            uint32_t probe_dists[48];
+            uint32_t np = 0;
+            for (size_t c = 0; c < nchan; ++c) probe_dists[np++] = chan[c].dist;
+            if (at_phase && last_span > 4) { // synchronized drift window around the observed span
+                uint32_t lo = last_span > 4 ? last_span - 4 : 1;
+                for (uint32_t w = lo; w <= last_span + 4 && np < 48; ++w) probe_dists[np++] = w;
+            }
+            if (discovery) { // discovery phase: dense sweep of plausible record periods
+                for (size_t s = 0; s < kSweepN && np < 48; ++s) probe_dists[np++] = kSweep[s];
+            }
+            double best_score = -1e300; uint32_t best_dist = 0; bool best_span = false;
+            for (uint32_t pi = 0; pi < np && work < kSparseBlockBudget; ++pi) {
+                uint32_t pd = probe_dists[pi];
+                if (pd == 0 || pd > i) continue;
                 SparseMatch sm;
-                ++g_ch_try; if(mf.find_sparse_at(i,chan[c].dist,sm,litcost,avg_lit,work,dead_band,tcopy)) { ++g_ch_win;
-                    double sc=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
+                ++g_ch_try;
+                if (mf.find_sparse_at(i, pd, sm, litcost, avg_lit, work, dead_band, tcopy, pd + 8)) {
+                    ++g_ch_win;
+                    if (last_span > 4 && pd >= last_span - 4 && pd <= last_span + 4) ++g_ch_span_win;
+                    double sc = 1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
                              +0.18*std::log2(double(sm.dist)+1.0);
-                    for(size_t k=0;k<sm.off.size();++k) sc+=litcost[sm.val[k]];
-                    if(!has_ch || sc<ch_cost) { has_ch=true; ch_cost=sc; ch_sm=std::move(sm); }
+                    for (size_t k = 0; k < sm.off.size(); ++k) sc += litcost[sm.val[k]];
+                    if (sc < ch_cost || !has_ch) { has_ch = true; ch_cost = sc; ch_sm = std::move(sm); }
+                    bool span_like = sm.len >= pd && sm.len <= pd + 8; // full-record-span hit
+                    double score = double(sm.len) - sc * 0.25;
+                    if (span_like) score += 24.0; // record-span hits are the alignment signal
+                    if (score > best_score) { best_score = score; best_dist = pd; best_span = span_like; }
                 }
             }
+            if (best_dist) reinforce(best_dist, i, best_span ? 64.0 : 8.0); // span hits lock hard
+            // Commit decision: a SPAN-LIKE hit at a LOCKED channel (score >= 96,
+            // i.e. reinforced twice as a span) is a synchronized record match.
+            // It is taken directly (against its own literal alternative) —
+            // skipping the generic far-distance comparison, which would always
+            // pick a longer multi-record match and break alignment.
+            if (has_ch && ch_sm.len >= ch_sm.dist && ch_sm.len <= ch_sm.dist + 8) {
+                for (size_t c = 0; c < nchan; ++c)
+                    if (chan[c].dist == ch_sm.dist && chan[c].score >= 96.0) { ch_span = true; break; }
+            }
+        }
+        // SYNCHRONIZED COMMIT: a span-like match at a LOCKED channel is taken
+        // directly (against its own literal alternative) — no generic-cost
+        // comparison. This is what keeps consecutive records phase-aligned:
+        // once the period is locked, record N+1 matches record N at the locked
+        // distance, so the probe fires at the sync phase and commits.
+        if (ch_span && ch_cost < pref[i + ch_sm.len] - pref[i]) {
+            SparseToken t; t.type=(tcopy && !ch_sm.tfo.empty())?3u:2u; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
+            t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val); t.tfo=std::move(ch_sm.tfo);
+            toks.push_back(std::move(t));
+            note_ch_emit(t.dist);
+            if(boundary) mf.insert_boundary(i);
+            reinforce(t.dist,i,double(t.len)*0.5); note_span(t.dist, t.len);
+            uint32_t end=i+t.len;
+            for(uint32_t p=i;p<end;++p) mf.insert(p);
+            i=end;
+            continue;
         }
         if(exact.len<128 && work<kSparseBlockBudget) {
             SparseMatch sm;
@@ -619,12 +723,15 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                 double sparse_c=1.5+varint_cost(sm.len-4)+varint_cost(sm.dist-1)+double(sm.len)/8.0
                                +0.18*std::log2(double(sm.dist)+1.0);
                 for(size_t k=0;k<sm.off.size();++k) sparse_c+=litcost[sm.val[k]];
-                // prefer the structural channel on near-ties (alignment for R2);
-                // reinforced channels (high score) get a stronger structural bias
+                // prefer the structural channel on near-ties (alignment for R2).
+                // The bias scales with the channel's reinforcement score so a
+                // LOCKED (high-score) period wins on near-ties, but a weak or
+                // stale channel never overrides a clearly better candidate.
                 double margin = 2.0;
-                for (size_t c = 0; c < nchan; ++c) if (chan[c].dist == sm.dist) margin += std::min(chan[c].score * 0.08, 10.0);
+                if (has_ch) for (size_t c = 0; c < nchan; ++c)
+                    if (chan[c].dist == ch_sm.dist) margin += std::min(chan[c].score * 0.06, 12.0);
                 double best_c = sparse_c;
-                if(has_ch && ch_cost < best_c + margin) { best_c = ch_cost; sm = std::move(ch_sm); has_ch=false; }
+                if(has_ch && ch_cost < best_c + margin) { best_c = ch_cost; sm = std::move(ch_sm); has_ch=false; took_ch = true; }
                 double alt_c=std::numeric_limits<double>::infinity();
                 if(exact.len>=4) alt_c=exact_c+(pref[i+sm.len]-pref[i+std::min<uint32_t>(exact.len,sm.len)]);
                 else alt_c=pref[i+sm.len]-pref[i];
@@ -632,13 +739,16 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                     SparseToken t; t.type=(tcopy && !sm.tfo.empty())?3u:2u; t.pos=i; t.len=sm.len; t.dist=sm.dist;
                     t.off=std::move(sm.off); t.val=std::move(sm.val); t.tfo=std::move(sm.tfo);
                     toks.push_back(std::move(t));
+                    if(took_ch) note_ch_emit(t.dist);
+                    took_ch = false;
                     if(boundary) mf.insert_boundary(i);
-                    reinforce(sm.dist,i,double(sm.len)*0.5);
+                    reinforce(sm.dist,i,double(sm.len)*0.5); note_span(sm.dist, sm.len);
                     uint32_t end=i+sm.len;
                     for(uint32_t p=i;p<end;++p) mf.insert(p);
                     i=end;
                     continue;
                 }
+                took_ch = false;
             } else if(has_ch) {
                 double alt_c=std::numeric_limits<double>::infinity();
                 if(exact.len>=4) alt_c=exact_c+(pref[i+ch_sm.len]-pref[i+std::min<uint32_t>(exact.len,ch_sm.len)]);
@@ -647,15 +757,16 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                     SparseToken t; t.type=(tcopy && !ch_sm.tfo.empty())?3u:2u; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
                     t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val); t.tfo=std::move(ch_sm.tfo);
                     toks.push_back(std::move(t));
+                    note_ch_emit(t.dist);
                     if(boundary) mf.insert_boundary(i);
-                    reinforce(t.dist,i,double(t.len)*0.5);
+                    reinforce(t.dist,i,double(t.len)*0.5); note_span(t.dist, t.len);
                     uint32_t end=i+t.len;
                     for(uint32_t p=i;p<end;++p) mf.insert(p);
                     i=end;
                     continue;
                 }
             }
-        } else if(has_ch) {
+        } else if(has_ch && !ch_span) {
             double alt_c=std::numeric_limits<double>::infinity();
             if(exact.len>=4) alt_c=exact_c+(pref[i+ch_sm.len]-pref[i+std::min<uint32_t>(exact.len,ch_sm.len)]);
             else alt_c=pref[i+ch_sm.len]-pref[i];
@@ -663,8 +774,9 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
                 SparseToken t; t.type=(tcopy && !ch_sm.tfo.empty())?3u:2u; t.pos=i; t.len=ch_sm.len; t.dist=ch_sm.dist;
                 t.off=std::move(ch_sm.off); t.val=std::move(ch_sm.val); t.tfo=std::move(ch_sm.tfo);
                 toks.push_back(std::move(t));
+                note_ch_emit(t.dist);
                 if(boundary) mf.insert_boundary(i);
-                reinforce(t.dist,i,double(t.len)*0.5);
+                reinforce(t.dist,i,double(t.len)*0.5); note_span(t.dist, t.len);
                 uint32_t end=i+t.len;
                 for(uint32_t p=i;p<end;++p) mf.insert(p);
                 i=end;
@@ -676,7 +788,7 @@ static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint
             SparseToken t; t.type=1; t.pos=i; t.len=exact.len; t.dist=exact.dist;
             toks.push_back(std::move(t));
             if(boundary) mf.insert_boundary(i);
-            reinforce(exact.dist,i,double(exact.len)*0.25);            uint32_t end=i+exact.len;
+            reinforce(exact.dist,i,double(exact.len)*0.25); note_span(exact.dist, exact.len);            uint32_t end=i+exact.len;
             for(uint32_t p=i;p<end;++p) mf.insert(p);
             i=end;
         } else {
@@ -2999,7 +3111,7 @@ int main(int argc,char**argv) {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(opt.stream_log) for(auto&e:g_stream_log_entries) std::cout<<"stream_log chosen="<<e.chosen<<" l_winner="<<e.l_winner<<" chosen_L="<<e.chosen_L<<" min_L="<<e.min_L<<"\n";
-            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<" ch_try="<<g_ch_try<<" ch_win="<<g_ch_win<<"\n";}
+            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<" ch_try="<<g_ch_try<<" ch_win="<<g_ch_win<<" ch_chosen="<<g_ch_chosen<<" span_win="<<g_ch_span_win<<" span_emit="<<g_ch_span_emit<<"\n";}
         } else if(cmd=="d") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}

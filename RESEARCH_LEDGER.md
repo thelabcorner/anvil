@@ -1522,6 +1522,144 @@ streams compress ~44-46% under the context model. Decode ~3-10% slower
   8-16% on record files) — re-baseline needed; `--stream-ctx=off` gives
   the old sizes.
 
+## Experiment T — SRR synchronized structural probe (t4-srr, I4-2) — NOT ADOPTED (honest negative, all three targets missed)
+
+**Gate pre-registration (agenda PART IV I4-2, Experiment Q item 2):** the
+greedy sparse parser actively probes candidate record-period distances (a
+discovery sweep + a synchronized drift window around the last observed
+span-like match) instead of only reinforcing distances it stumbles onto —
+the unbuilt remainder from Experiment N (t3-r4: reinforcement-of-taken
+failed because 69% of matches are far-distance, so the parser never
+independently discovers the period). **Falsifiable targets:** (a) R2
+retest — mode 13 (topology coding) must beat flat-A (mode 11) on record
+files, recovering the +2.2% headroom identified in Experiment I; (b)
+mask-recurrence — top-32 masks coverage must rise materially above the
+flat baseline; (c) TCOPY (mode 14) density retest on PE `.text` must show
+a material gain over the Iteration-3 near-parity result; (d) no-regression
+controls (round-trip + fuzz on all files, `--channels=off` must reproduce
+the pre-I4-2 baseline exactly).
+
+**Mechanism (arch, `parse_sparse` channel-probe path, gated by
+`--channels=on`):** discovery sweep over candidate periods plus a
+synchronized drift window seeded from the last span-like (len≈dist) match.
+Diagnostics: `tools/srr_diag.cpp` (mask/period/modal instrumentation,
+channels on/off, whole-file) and `tools/srr_diag2.cpp`. Round-trip verified
+on all 12 corpus files (json/jsonl/log/sqlite/repeat/sqlite/exe/bin/md/cpp);
+fuzzed 400 cases × 8 mutations = 2050 round-trip variants, 16400 mutation
+checks, all PASS (`tests/fuzz.py --exe build/anvil.exe --cases 400
+--mutations 8`, seed 0xA11E).
+
+**Results — (a) R2 retest, mode 13 vs mode 11, `--channels=on` (the SRR
+probe engaged on both sides so mode 13 gets the new span-like material):**
+
+| file | topology (m13) | flat-A (m11) | Δ | Δ (I2-4 baseline, no probe) |
+|---|---:|---:|---:|---:|
+| generated.json | 146,676 B | 120,933 B | **+21.3% (loses)** | +21.0% |
+| generated.jsonl | 261,520 B | 224,654 B | **+16.4% (loses)** | +13.5% |
+| generated.log | 209,040 B | 176,676 B | **+18.3% (loses)** | +19.3% |
+| generated.sqlite | 419,268 B | 367,358 B | **+14.1% (loses)** | (not tested in I2-4) |
+| repeat control | 1,223 B | 1,182 B | +3.5% (loses; was parity) | 0.0% |
+
+Topology coding loses to flat-A by essentially the same margin as the
+original Experiment I result — on jsonl it is 2.9 points *worse* than
+before, and the repeat control (previously exact parity) now measurably
+loses. The extra span-like tokens the probe surfaces (see below) do not
+translate into usable modal structure at the (k,slot) coding layer.
+
+**Results — (b) mask-recurrence, `tools/srr_diag.exe`, same tool/flags
+on vs off (apples-to-apples — the historical "flat 12.3%" figure cited in
+Experiment N used a different mechanism/methodology (R4 persistent
+channels) and is NOT directly comparable; re-derived here instead):**
+
+| file | t2 tokens off→on | top32 mask coverage off→on | span-like tokens off→on | (k,slot) modal, span-only, off→on |
+|---|---:|---:|---:|---:|
+| generated.jsonl | 2341→2695 | 47.9%→47.5% (**flat/down**) | 2→272 | 0.0%→19.8% |
+| generated.log | 2721→2843 | 22.9%→22.1% (**flat/down**) | 1→7 | 0.0%→58.3% |
+| generated.json | 4558→4781 | 26.9%→26.3% (**flat/down**) | 5→11 | 56.2%→47.1% |
+
+The probe does what it was built to do at the token-discovery level — it
+roughly triples-to-sevenfolds the count of span-like (period-aligned)
+tokens found. But mask-recurrence (the metric the mechanism was meant to
+move) does not rise in any file when measured apples-to-apples; it is flat
+to slightly down on all three record files. The (k,slot) span-only modal
+accuracy numbers look large in isolation (19.8-58.3%) but rest on tiny n
+(7-272 tokens out of thousands of type-2 matches) — not enough volume to
+move the mask-recurrence aggregate, and not enough to rescue mode 13's
+exception-coding cost in (a).
+
+**Results — (c) TCOPY `.text` density retest, mode 14 vs mode 11,
+`--channels=on`, pinned PE files (`tests/corpus/anvil.exe`,
+`tests/corpus/anvil_bench.exe`, the project's own binaries — same lane as
+Experiment O/the I3-3 PE evidence):**
+
+| file | tcopy (m14) | sparse (m11) | Δ | Δ (Iteration-3, no probe) |
+|---|---:|---:|---:|---:|
+| anvil.exe | 108,540 B (0.404) | 109,237 B (0.406) | −0.64% | −0.5% (0.406 vs 0.408) |
+| anvil_bench.exe | 846,255 B (0.439) | 847,246 B (0.439) | −0.12% | (not previously measured) |
+
+No material change from the Iteration-3 near-parity result. The SRR probe
+does not increase the density of implicit-Δ opportunities TCOPY can
+exploit on PE `.text` — the limiting factor is still the underlying greedy
+parse identified in Experiment O, not distance discovery.
+
+**Results — (d) no-regression controls:** round-trip PASS on all 12
+corpus files; fuzz PASS (2050/2050 variants). But a genuine, unplanned
+regression surfaced in the full bench suite (`tests/benchmark-suite.csv`,
+`anvil-sparse-channels-rans` = `--channels=on`, i.e. the SRR probe engaged,
+vs `anvil-sparse-rans` = `--channels=off`):
+
+| file | channels=off | channels=on | Δ |
+|---|---:|---:|---:|
+| generated.json | 124,972 B | 126,160 B | **+0.95% (regression)** |
+| generated.jsonl | 222,164 B | 227,116 B | **+2.23% (regression)** |
+| generated.log | 178,719 B | 179,583 B | **+0.48% (regression)** |
+| generated.sqlite | 374,143 B | 376,149 B | **+0.54% (regression)** |
+| anvil.exe / anvil_bench.exe | 109,685 / 852,744 B | 109,677 / 854,440 B | flat / +0.20% |
+
+`--channels=off` does still reproduce the pre-I4-2 numeric baseline exactly
+(the probe is additive and gated), so the no-regression control passes in
+the strict sense the gate asked for (opt-out is clean). But `--channels=on`
+itself is no longer neutral — it is now a small, consistent ratio
+*regression* on every record file, because the probe's own bookkeeping
+(extra distance candidates entering the sparse parse, more/larger mask
+fingerprints) adds cost that the sparse-channel coder does not recoup. This
+was not true before I4-2 (channels=on was previously flat/parity per
+Experiment N); the synchronized probe changes that.
+
+**Gate verdict (honest):**
+
+- **(a) R2 retest: FAILED.** Mode 13 still loses to flat-A by 14-21% on
+  every record file — no improvement over, and on jsonl slightly worse
+  than, the original Experiment I result. The +2.2% headroom is NOT
+  recovered.
+- **(b) mask-recurrence: FAILED.** Flat to slightly down on every file
+  when measured apples-to-apples (same diagnostic tool, on vs off). The
+  probe increases span-like token *count* substantially (2-7x) but this
+  does not propagate into higher mask recurrence — the newly discovered
+  span-like tokens are still mostly mask-unique.
+- **(c) TCOPY density retest: FAILED (no material change).** −0.12% to
+  −0.64%, essentially the Iteration-3 near-parity result reproduced, not
+  improved.
+- **(d) no-regression: PARTIAL.** Round-trip and fuzz hold, and the
+  opt-out (`--channels=off`) is clean. But `--channels=on` itself now
+  regresses ratio by 0.5-2.2% on every record file — a new, measured cost
+  the mechanism was not supposed to introduce.
+- **Verdict: NOT ADOPTED.** All three falsifiable I4-2 targets miss, and
+  the probe introduces a small new ratio regression when enabled. Recorded
+  as a clean honest negative, matching the tone of Experiment I/N: the
+  synchronized probe is real (it measurably surfaces more span-like
+  structure — the 2-7x increase in span-like tokens is genuine, reproducible
+  evidence that the discovery mechanism works at the token level) but that
+  extra structural evidence does not survive contact with either the
+  topology coder (a) or the mask-recurrence aggregate (b), and does not
+  reach the TCOPY binary lane at all (c). **Root cause (measured, not
+  assumed):** span-like token counts remain tiny relative to total type-2
+  tokens (7-272 out of 2700-4800) even after the probe — the record-period
+  structure in this corpus is genuinely weak/inconsistent at the byte
+  level, not merely undiscovered. I4-2 does not unblock I4-4 (Orbit-LZ) on
+  the strength of these numbers; Orbit-LZ's anchoring must stand on its own
+  evidence rather than inherit SRR's period-discovery result.
+
 ---
 
 # PART VI — t4-ledger consolidation: iteration-4 narrative, novelty claims, honest Pareto verdict
@@ -1546,10 +1684,15 @@ mechanisms + the regression:
    ≥2x target NOT met — floor is opcode-stream entropy decode + copy
    throughput; the recorded lever is I4-3's J-economics applied to the
    hot-opcode stream itself.
-2. **t4-srr (I4-2, SRR synchronized structural probe):** *[FILL — arch
-   working. Pre-registered targets: R2 retest (mode 13) beats flat-A on
-   record files recovering the +2.2% headroom; mask-recurrence above the
-   flat 12.3%; TCOPY density retest on .text.]*
+2. **t4-srr (I4-2, SRR synchronized structural probe):** Experiment T —
+   **NOT ADOPTED.** All three falsifiable targets missed: mode 13 still
+   loses to flat-A by 14-21% (headroom not recovered, jsonl slightly
+   worse than Experiment I); mask-recurrence flat-to-down on every file
+   apples-to-apples; TCOPY `.text` density unchanged from Iteration-3
+   near-parity. The probe genuinely discovers more span-like structure
+   (2-7x more span-like tokens) but that evidence does not survive
+   contact with the topology coder or the mask aggregate, and a small new
+   ratio regression (0.5-2.2%) appears when the probe is enabled.
 3. **t4-entropy (I4-3, single context-switched literal coder):** Experiment
    S — **RATIO PASS (strongest single mechanism to date).** −8.3% to −16.2%
    on record files; J-faithfulness preserved (825/825, 300/300); decode
@@ -1563,9 +1706,43 @@ mechanisms + the regression:
 
 ## 2. Iteration-4 regression results (bench, median-3 — the arbiter)
 
-*[FILL — pending t4-bench. Placeholder row set mirrors Iteration-3; expect
-record-file ratio rows to shift down 8-16% on stream-mode-6 rows
-(--stream-ctx=on) vs the t3 baseline, per Experiment S.]*
+Re-run 2026-08-17 (`tools/bench_suite.py` over the 8-file suite + pinned PE
+pair, `--reps 3`, `build/anvil_bench.exe` rebuilt from the current tree —
+`anvil-tcopy-rans` renamed to `anvil-hotop-rans` in `tools/bench_native.cpp`
+per the I4-1 mode-15 landing). Full detail in `tests/benchmark-suite.csv`
+(240 rows); aggregate below from `tests/benchmark-summary.csv`:
+
+| codec | aggregate ratio | encode MB/s | decode MB/s |
+|---|---:|---:|---:|
+| anvil-sparse-rans (mode 11, baseline) | 0.1987 | 11.46 | 166.0 |
+| anvil-sparse-channels-rans (I4-2 probe on) | 0.1997 | 8.61 | 153.1 |
+| anvil-hotop-rans (I3-1+I4-1 fused/compiled, mode 15) | 0.2012 | 11.39 | 194.8 |
+| anvil-mdl-rans (best anvil aggregate ratio) | 0.1915 | 0.84 | 143.6 |
+| anvil-shape-rans (I3-1, mode 12) | 0.1944 | 0.75 | 142.7 |
+| brotli-q11 | 0.1397 | 0.64 | 447.2 |
+| brotli-q9 | 0.1675 | 20.58 | 548.4 |
+| zstd-19 | 0.1536 | 2.46 | 1165.0 |
+| zstd-9 | 0.1773 | 70.77 | 1412.2 |
+
+Note `anvil-sparse-channels-rans` (the I4-2 SRR probe engaged) is now
+*worse* in aggregate ratio than plain `anvil-sparse-rans` (0.1997 vs
+0.1987) and slower to encode (8.6 vs 11.5 MB/s) — the per-file regression
+recorded in Experiment T is visible here in aggregate, not just on record
+files individually. `anvil-hotop-rans` (I4-1's mode 15) is the best anvil
+decode speed by a wide margin (194.8 MB/s, ~1.2x the sparse baseline) at a
+slightly worse aggregate ratio (0.2012 vs 0.1987) — consistent with
+Experiment R's "PARTIAL PASS, decode accelerator" framing.
+
+`tools/pareto_front.py tests/benchmark-suite.csv --out
+tests/pareto-baseline.csv`: **zero ANVIL rows extend the reference
+(brotli/zstd) front** — every ANVIL row is dominated on at least one plane.
+`tools/beats_brotli.py tests/benchmark-suite.csv --out
+tests/pareto-verdict.csv`: verdict tally over 150 (file, anvil-codec) pairs
+is **126 RATIO-BEATS-SOME, 24 NO-BEAT, 0 RATIO-BEATS (best), 0
+PARETO-WIN/EXTENDS_FRONT** — unchanged in kind from Iteration 3: ANVIL
+beats *some* brotli quality settings on ratio (typically q1/q4, the fast
+low-ratio settings) on most files, but never the best brotli/zstd point on
+both planes simultaneously.
 
 ## 3. Consolidated Iteration-4 novelty claims
 
@@ -1574,8 +1751,13 @@ record-file ratio rows to shift down 8-16% on stream-mode-6 rows
 - **C14 — Compiled hot-op instruction book (I4-1): PARTIAL PASS** (recorded
   Experiment R) — validated decode accelerator; ≥2x target unmet; no Pareto
   claim.
-- **C15 — SRR synchronized structural probe (I4-2):** *[verdict pending
-  t4-srr]* — if targets met, unblocks R2 topology + TCOPY density retest.
+- **C15 — SRR synchronized structural probe (I4-2): NOT ADOPTED** (recorded
+  Experiment T) — the probe measurably discovers more period-aligned
+  (span-like) structure but the gain does not propagate through either the
+  topology coder (mode 13, still 14-21% behind flat-A) or the mask-
+  recurrence metric (flat-to-down apples-to-apples); TCOPY `.text` density
+  unchanged; `--channels=on` now costs a small measured ratio regression.
+  Does not unblock I4-4 on its own evidence.
 - **C16 — Context-switched literal coder (I4-3): RATIO PASS** (recorded
   Experiment S) — strongest single mechanism; decode leg unmet; no Pareto
   claim.
