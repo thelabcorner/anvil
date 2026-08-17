@@ -1660,6 +1660,140 @@ Experiment N); the synchronized probe changes that.
   the strength of these numbers; Orbit-LZ's anchoring must stand on its own
   evidence rather than inherit SRR's period-discovery result.
 
+## Experiment U — I4-4 primitive diagnosis (t4-orbit-diag): what actually blocks multi-invariant anchoring — PRE-REGISTRATION
+
+**Context (operator reframing, applied here):** before attempting the full
+Orbit-LZ multi-invariant codec (Experiment Q item 4 / agenda PART IV I4-4),
+diagnose which capability is actually missing, rather than assuming and
+building. Three candidate blockers were named by the coordinator: (1) cheap
+equivalence-class membership testing (dependent-load-chain cost of the
+lookup structure itself); (2) compact θ-representation (no O(1) way to test
+multiple invariant families per candidate position); (3) whether a
+`StructuralEvent` unification layer is justified yet by two data points
+(PNRA known-relation, SRR discovered-relation — SRR closed NOT ADOPTED in
+Experiment T).
+
+**Diagnostic finding 1 (code-reading, `prototypes/pnra/tcopy_pnra.cpp`,
+confirmed by grep against `src/anvil.cpp`):** the PNRA prototype files
+(`tcopy_pnra.cpp`, `tcopy_pnra_event.cpp`, `tcopy_pnra_pair.cpp`) `#include
+"tcopy_flat_hot_lib.inc"`, a header that does not exist anywhere in this
+repo's history (`git log --all --diff-filter=A` finds it in no commit), and
+reference types/functions (`FParse`, `FTok`, `enc_flat`, `dec_cd`, `GPatch`,
+`uvlen`) that are absent from `src/anvil.cpp` even though the overlapping
+constants (`kHashBits`, `kNoPos`, `match_length`) ARE present there. **The
+PNRA prototype as committed is NOT buildable on the Windows tree** — it was
+imported as reference/documentation of the algorithm shape (per Experiment
+P: "candidate, not yet measured on Windows"), not as a working harness.
+This matches the ledger's own prior framing but had not previously been
+confirmed by an actual build attempt; it is confirmed here. Consequence:
+"instrument the current PNRA prototype" (this task's literal first
+instruction) is not directly possible without first reconstructing
+non-trivial missing scaffolding — so the diagnosis below proceeds from
+reading PNRA's algorithm concretely (its cost structure is fully legible
+from the source even though it won't link) plus a small standalone,
+independently-buildable microbenchmark that isolates the specific
+mechanism in question, per this task's explicit fallback ("can legitimately
+be a non-compression micro-benchmark").
+
+**Diagnostic finding 2 (reading `PNRA::find`/`PNRA::make_key`/`PNRA::put`,
+`tcopy_pnra.cpp` lines 81-166):** candidate blocker (1) — dependent-load
+binary search — does **not** describe PNRA's current lookup. PNRA already
+uses a fixed-size direct-mapped hash table (`tab`, `1<<PNRA_BITS` buckets)
+with a tiny `PNRA_K`=4-way bucket stored as a contiguous `std::array`
+(insertion is a 4-element shift, no pointer chasing; lookup is a linear
+scan of 4 contiguous slots after one hash — one cache line, not a
+dependent-load chain). **This refutes candidate blocker (1) for PNRA as
+implemented** — the lookup structure is already the cache-friendly shape
+the coordinator's radix-directory proposal was meant to provide. Building a
+sorted-run/radix directory to fix a latency problem PNRA does not have would
+be solving an unmeasured problem.
+
+**Diagnostic finding 3 (the actual asymmetry, reading `PNRA`'s
+constructor + `find`):** PNRA's O(1)-per-candidate cost is bought by
+**event sparsity, not lookup cheapness alone.** The constructor builds `ev`
+by scanning for x86 `0xE8`/`0xE9` opcodes — a domain-specific, ~5%-density
+trigger unique to the translation-invariant family's substrate
+(executables). `find(p, cap)` only computes keys / does hash lookups for
+events inside a `PNRA_SCAN`=64-byte window near `p`, i.e. it piggybacks on
+a pre-filtered, already-sparse candidate stream. **The pre-registered I4-4
+targets ("per-invariant ablation ... at O(1) parser cost") implicitly
+assume every invariant family gets an equivalent sparse trigger.** The
+other three named invariant families in Experiment Q item 4 — predecessor-
+encoding, finite-difference (degree-1 polynomial, e.g. counters/timestamps/
+row IDs), stride/bitplane — have **no analogous structural marker** in
+general (non-x86) byte streams: a counter or strided field can start at
+*any* byte position, not just after a distinguishing opcode byte. Building
+an equivalent event stream for those families therefore requires evaluating
+a candidate (and computing/hashing its invariant key) at every position (or
+every k-aligned position), not at ~5% of them.
+
+**Falsifiable hypothesis (the actual blocker, to be tested, not assumed):**
+the binding cost for multi-invariant anchoring is **event-generation
+density mismatch between invariant families**, not lookup latency. Adding a
+second invariant family with no sparse trigger multiplies per-position
+parser cost by roughly (dense candidate rate / sparse candidate rate) — for
+PNRA's ~5% E8/E9 density that is ~20x more key-computation+hash-insert work
+per added dense family — which breaks the pre-registered "O(1) parser cost"
+target for any invariant family that lacks a structural marker as selective
+as x86 opcodes.
+
+**Falsifiable target:** measure key-computation + hash-table-insert
+throughput (MB/s, candidate-key operations/s) for (a) a sparse trigger at
+PNRA's real measured density on `tests/corpus/anvil.exe`/`anvil_bench.exe`
+(x86 E8/E9 opcodes) vs (b) a dense degree-1 finite-difference invariant
+candidate stream evaluated at every 4-byte-aligned position on the same
+files and on the non-binary corpus (log/json/jsonl/sqlite, where a
+counter/finite-difference invariant is the plausible candidate family, not
+E8/E9). **If (b)'s per-position cost is not O(1) relative to (a) — i.e. if
+total pass throughput for (b) degrades by roughly the density ratio rather
+than staying flat — the hypothesis is CONFIRMED and the real enabling
+primitive for I4-4 is a cheap DENSE-family key/candidate filter (something
+that prunes candidate positions before the expensive key+hash step, e.g. a
+cheap arithmetic-progression pre-test), not a lookup-structure change.** If
+throughput for (b) is close to (a) despite 20x more candidates, the
+hypothesis is REFUTED and blocker (2) (per-family θ-representation cost) or
+something else is the binding constraint instead.
+
+**StructuralEvent unification (candidate blocker 3) — judgment call, not
+built:** per the project's no-premature-abstraction norm, a unifying
+`StructuralEvent = (p, c, θ, confidence)` layer is NOT built at this
+checkpoint. PNRA's relation is analytically known (translation, θ derived
+directly from opcode semantics) and does not need SRR's discovery step
+(closed NOT ADOPTED, Experiment T); building a generalized abstraction over
+a single working instance (PNRA, itself unbuildable on Windows per finding
+1) and one closed-negative instance (SRR) is premature — there are not yet
+two live, buildable data points to unify. This is recorded as a deferred,
+not a refused, item: revisit if/when a second invariant family actually
+ships and needs to share machinery with PNRA.
+
+**Plan:** build a small, standalone, independently-buildable microbenchmark
+(`prototypes/pnra/orbit_density_bench.cpp`, no dependency on the missing
+`.inc`) implementing exactly the sparse-vs-dense candidate-generation
+comparison above; run it on the real corpus; record the honest throughput
+numbers and the resulting verdict on the falsifiable hypothesis before any
+attempt at a full I4-4 codec mechanism.
+
+**Queued follow-on candidates (operator web-research leads, Aug 17 2026 —
+not chased in this session, recorded so they aren't lost; each needs its
+own pre-registration + verification pass before any claim):**
+1. **Discrepancy-minimizing tANS table construction** (arXiv 2504.18541,
+   2025, operator-reported/unverified) — a proven-bound table-build
+   algorithm claiming 10-20% gains on high-cardinality distributions vs the
+   standard Duda/Yamamoto-style greedy spread. Orthogonal to I4-4; relevant
+   to the already-ADOPTED context-switched rANS coder (Experiment S, RATIO
+   PASS) and the still-open I4-3 table-width thread. Candidate gate:
+   "swap table-construction heuristic only, same wire format, same
+   decoder, encoder-only change; measure ratio delta at equal decode
+   speed." Cheap, low-risk if picked up later — verify the paper's claims
+   before citing.
+2. **RLZ-RePair** (CPM 2026, operator-reported/unverified) — derives a
+   RePair grammar systematically from an RLZ parse via bigram replacement,
+   rather than hand-curated opcode families. Lineage-relevant to I4-1's hot-
+   op instruction book (Experiment R, PARTIAL PASS, floor = opcode-stream
+   entropy + copy throughput) as a precedent for a systematically-derived
+   (smaller/more regular) hot-op book. Not urgent; worth a lineage mention
+   if I4-1 is revisited.
+
 ---
 
 # PART VI — t4-ledger consolidation: iteration-4 narrative, novelty claims, honest Pareto verdict
