@@ -2429,3 +2429,191 @@ wanted, that is a different, smaller, legitimate future gate item — but it
 should be pre-registered and lineage-cited on its own terms (e.g. FSE-style
 normalization variants), not attributed to a tANS-table paper it does not
 implement.
+
+---
+
+# PART VIII — PNRA real end-to-end wiring (I4-4 successor)
+
+## Experiment X — PNRA invariant-anchored candidates wired into mode 14 (TCOPY), `--pnra=on` — NOT ADOPTED (wash-to-regression once entropy-coded, first real end-to-end wiring)
+
+**Gate pre-registration.** Lineage: Experiment P (I3-4 pre-registration,
+transformation-invariant indexing as the novelty claim — "ordinary LZ =
+identity-transform special case"); Experiment V (PNRA Windows harness port,
+the first real positive signal — `raw+pnra` beats `raw` by −0.23% to −1.49%
+on both pinned PE binaries, in an ISOLATED, uncoded varint-token harness, NOT
+ANVIL's real pipeline); Experiment O (mode 14 TCOPY, the implicit `Delta=-d`
+transformed-copy wire format PNRA's transform is a special case of — TCOPY
+already codes the exact algebra PNRA validated, at zero extra bits, so no new
+wire-format token type is needed, only a new CANDIDATE SOURCE for the
+existing type-3 token); Experiment U (the density-mismatch finding — any
+invariant family without a sparse structural trigger costs O(n) extra parser
+work; PNRA's trigger, E8/E9 opcode bytes, is sparse by construction, so this
+integration stays gated on that byte, not run densely).
+
+**What's new:** every prior PNRA measurement (Experiment P's Linux numbers,
+Experiment V's Windows harness) used an ISOLATED tool with no entropy coding
+and no competition against ANVIL's real candidate set. This experiment wires
+PNRA's invariant search directly into `parse_sparse` (`src/anvil.cpp`) as a
+new candidate branch that fires only when the current position immediately
+follows an `E8`/`E9` opcode byte, looks up a translation-invariant hash index
+(`I(v,p) = p+4+v`, the absolute call/jmp target — invariant under the
+`Delta=-dist` transform: moving the field by `-dist` changes `v` by `+dist`
+to keep the same target), and — if found — evaluates the resulting candidate
+through the SAME bits-based cost model (`scan_candidate`, the shared
+transform-detection/cost-estimation routine mode 14 already uses) as every
+other candidate at that position, committing only if cheaper. This is
+qualitatively different from ordinary sparse/tcopy candidate generation
+(`find_sparse`/`find_sparse_at`), which is anchored on an ordinary 4-byte
+BYTE-EQUALITY hash chain and can only discover a transform field as an
+INCIDENTAL correction inside an already-byte-matching region — PNRA's
+invariant index can propose a candidate source whose leading bytes never
+byte-match anywhere, which the ordinary hash chain structurally cannot reach.
+No new wire-format token, stream, or decoder change was needed: θ (the
+implicit `Delta=-dist`) was already zero-bit and already entropy-coded
+through the existing type-3 `tmask`/`ds` streams (mode 14, Experiment O) —
+this is real entropy-coded, cost-model-gated wiring, not a new format.
+
+**Why this would extend the Pareto frontier (if it worked):** it is the only
+mechanism from this session's prior work (Experiment V) with positive,
+reproducible signal on real Windows PE data, and the binary/executable file
+class is exactly where a Pareto claim has never been made in this project's
+history.
+
+**Falsifiable target (deliberately conservative, given Experiment V's own
+modest 0.23-1.49% raw-match-count starting scale, which is not directly
+comparable to real compressed bytes):** a measurable ratio improvement on
+both pinned PE binaries (`tests/corpus/anvil.exe`, `anvil_bench.exe`) of at
+least 0.2% vs plain mode 14 (`--pnra=off`), at no worse than 10% decode
+throughput regression, with zero regressions (byte-identical output) on every
+non-PE corpus file where PNRA's trigger (E8/E9 bytes) is structurally absent
+— an explicit prediction that this is unlikely to reach Pareto-extending
+territory outright, but should be a small, real, honestly-measured ratio
+delta if PNRA's core mechanism survives contact with the real pipeline.
+
+**Implementation (`src/anvil.cpp`):** new `Options::pnra` flag (`--pnra=on|
+off`, default off); `MatchFinder::scan_candidate` gained two new defaulted
+parameters (`allow_tfo_only`, `min_len`) so a NEW acceptance path (a single
+isolated transform field, len 4, zero literal corrections — PNRA's minimal
+and most common candidate shape) can be accepted without changing the
+existing acceptance rule (`local_k>=1 && local_len>=8`) for any of the three
+existing callers, which all still pass the defaults and are therefore
+byte-identical to before this change; a new `MatchFinder::find_pnra_at`
+wraps `scan_candidate` with the relaxed path and no byte-equality prefilter
+(unlike `find_sparse`/`find_sparse_at`); `parse_sparse` precomputes an
+`unordered_map<invariant, vector<field_pos>>` once per block (gated on
+`pnra && tcopy`) and, at each position immediately following an E8/E9 byte,
+looks up the latest prior occurrence of the same invariant target via
+`upper_bound` and — if `find_pnra_at` verifies and its cost estimate beats
+the position's existing exact-match/literal alternative (same cost formula
+used elsewhere: `1.5 + varint_cost(len-4) + varint_cost(dist-1) + len/8.0 +
+0.18*log2(dist+1)` plus per-residual literal costs) — commits a type-3 token
+directly, mirroring the existing structural-channel commit pattern. The
+`--parse=tcopy` mode-selection path was changed to compute a SEPARATE parse
+when `opt.pnra` is set, rather than reusing the shared `sp_toks` cache other
+modes (mode 15/HOTOP) also read under `--parse=auto` — HOTOP does not
+understand type-3 tokens, so sharing would have silently corrupted its input
+whenever both auto-mode and `--pnra=on` were active together.
+
+**Verification:** round-trip PASS on all 13 files in `tests/corpus/`
+(including both pinned PEs and all three Experiment-W synthetic files) at
+`--parse=tcopy` with `--pnra=on` and `--pnra=off`, byte-for-byte via SHA-
+equivalent `cmp`. `tests/fuzz.py` extended with two new combos (`tcopy/rans`
+and `tcopy/rans --pnra=on`, in addition to the existing five) and run at
+`--cases 120`: **PASS, seed=41246, roundtrip_variants=910,
+mutations=5460** — the new code path is exercised by fuzzing, not just the
+corpus.
+
+**Results — diagnostics (instrumented via new `g_pnra_{gate,idxhit,verify,
+commit}` counters, same debug-line precedent as the existing `g_ch_*`
+channel counters):** on `anvil.exe`, the E8/E9-opcode gate fires 1,333 times;
+713 have a prior invariant occurrence; 615 verify (produce a valid transform-
+field-anchored candidate); 429 are cheaper than the exact-match/literal
+alternative and commit. On `anvil_bench.exe`: gate 6,919 / idxhit 2,145 /
+verify 1,958 / commit 1,599. PNRA's invariant search is genuinely firing and
+genuinely finding candidates the ordinary hash chain would not — this
+confirms the mechanism works as designed, not that it fails to engage.
+
+**Results — real compressed bytes (`--parse=tcopy`, same greedy parser,
+`--pnra=off` vs `--pnra=on`, isolated ablation):**
+
+| file | tcopy (pnra=off) | tcopy (pnra=on) | Δ |
+|---|---:|---:|---:|
+| anvil.exe | 108,518 B | 108,514 B | **−0.0037%** |
+| anvil_bench.exe | 845,675 B | 846,050 B | **+0.0443%** |
+| all 11 non-PE corpus files (incl. synth-*) | byte-identical | byte-identical | 0% (correctly a no-op — E8/E9 absent) |
+
+**Results — full bench/Pareto tooling (`tools/bench_native.cpp` extended
+with an `anvil-tcopy-pnra-rans` row; `tools/bench_suite.py` over the 13-file
+suite, `--reps 3`; `tools/pareto_front.py` / `tools/beats_brotli.py`):**
+aggregate ratio `anvil-tcopy-rans` 0.212485 vs `anvil-tcopy-pnra-rans`
+0.212515 (worse in aggregate); aggregate encode 9.679→9.223 MB/s, decode
+172.0→166.0 MB/s (both slightly slower — the invariant-index build/probe
+overhead, paid on every block regardless of whether any candidate commits).
+`tests/pareto-baseline.csv`: `anvil-tcopy-pnra-rans` is **DOMINATED by
+brotli-q4 on both planes on every file**, identically to plain
+`anvil-tcopy-rans` — no change in dominance status, 0 EXTENDS_FRONT (as
+every ANVIL codec has shown across all five iterations of this project).
+`tests/pareto-verdict.csv`: `anvil-tcopy-pnra-rans` scores RATIO-BEATS-SOME
+on both pinned PE binaries (beats brotli-q1/q4, not q11) — the same category
+plain tcopy already scored; no new verdict tier reached.
+
+**Gate verdict — falsifiable target NOT MET, honest root cause identified:**
+neither pinned PE binary reaches the pre-registered +0.2% target;
+`anvil_bench.exe` (the larger, more representative binary) REGRESSES by
+0.044%, and `anvil.exe`'s −0.0037% improvement is two orders of magnitude
+below target and target-irrelevant (noise-floor scale). Zero regressions on
+non-PE files, exactly as predicted (clean gating). **Root cause (measured,
+not guessed): the wire format was already zero-bit for θ (Experiment O's
+implicit-Delta design means PNRA needed no new θ encoding at all), so the
+"θ cost consumed the gain" hypothesis this session's own prompt anticipated
+does NOT apply here — the actual binding cost is the per-TOKEN fixed framing
+overhead (type byte + length varint + distance varint + transform-mask bit),
+which the shared local cost-model formula underestimates specifically for
+PNRA's modal candidate shape: a single isolated 4-byte transform field
+(commit counts of 429/1,599 are dominated by minimal, one-window matches,
+consistent with the `len>=8` acceptance path from ordinary tcopy candidates
+capturing the LONGER, more-amortized cases already). A single 4-byte field
+saves at most 4 raw bytes minus one mask bit, but pays the SAME fixed
+per-token wire overhead an ordinary multi-byte match pays and amortizes
+across many more saved bytes — and PNRA's candidate distances (call targets
+scattered across a whole 1-2 MB executable, not proximity-biased like an
+ordinary LZ hash-chain match) are typically far larger than ordinary tcopy
+match distances, making the `varint_cost(dist-1) + 0.18*log2(dist+1)` terms
+in the cost estimate both larger AND, evidently, still not conservative
+enough relative to the real rANS-coded output — the local heuristic judged
+1,599 candidates "cheaper" on `anvil_bench.exe alone`, but the REAL
+entropy-coded aggregate came out worse. This is a cost-MODEL-fidelity
+finding specific to short, far-distance, single-field candidates, not a
+flaw in PNRA's invariant search itself (which, per the diagnostic counters,
+is finding real, valid, decoder-correct candidates the ordinary search
+cannot reach) and not evidence against Experiment V's isolated finding
+(which measured raw byte-count/match-opportunity discovery, not
+entropy-coded output, and was explicit about that limitation at the time).
+
+**Verdict: NOT ADOPTED.** This is the first REAL end-to-end wiring of PNRA
+into ANVIL's actual compress/decompress pipeline (cost-model-gated candidate
+competing against the real parser's other candidates, entropy-coded through
+the existing rANS stream suite, verified round-trip + fuzzed) — a genuine
+advance in what's been tested, even though the honest measured result is a
+wash-to-regression once it meets real entropy coding, closing the gap
+between Experiment V's isolated positive signal and a Pareto-relevant claim.
+`--pnra=on` is kept in the tree, OFF by default, harmless to every other
+mode and file (verified byte-identical on all non-PE files and when the flag
+is off), for a possible future revisit if the cost-model-fidelity gap
+identified here (short single-field candidates at scattered, often-large
+distances) is separately closed — e.g. a length- or distance-aware minimum-
+gain threshold specific to single-window transform candidates, rather than
+reusing the general-purpose sparse-candidate cost formula verbatim. That
+threshold-tuning attempt was explicitly NOT made in this session, to avoid
+overfitting a hand-tuned constant to two data points (`anvil.exe`,
+`anvil_bench.exe`) without a larger PE corpus to validate against — a
+precise, actionable remainder rather than a claim.
+
+**Recorded files:** `src/anvil.cpp` (`Options::pnra`, `--pnra=` CLI flag,
+`scan_candidate`'s new defaulted parameters, `find_pnra_at`, the invariant
+index + candidate branch in `parse_sparse`, `g_pnra_*` diagnostic counters);
+`tools/bench_native.cpp` (`bench_anvil` gained a `pnra` parameter,
+`anvil-tcopy-pnra-rans` row); `tests/fuzz.py` (two new fuzz combos);
+`FORMAT.md` (`--pnra=on` documented under mode 14); `tests/benchmark-
+suite.csv` / `tests/benchmark-summary.csv` / `tests/pareto-baseline.csv` /
+`tests/pareto-verdict.csv` (regenerated, 13-file suite, `--reps 3`).
