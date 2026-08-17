@@ -2617,3 +2617,197 @@ index + candidate branch in `parse_sparse`, `g_pnra_*` diagnostic counters);
 `FORMAT.md` (`--pnra=on` documented under mode 14); `tests/benchmark-
 suite.csv` / `tests/benchmark-summary.csv` / `tests/pareto-baseline.csv` /
 `tests/pareto-verdict.csv` (regenerated, 13-file suite, `--reps 3`).
+
+## Experiment Y — RLZ-RePair alternative encoding for the hot-op book (t-hotop, I4-1 follow-up) — PRE-REGISTRATION
+
+**Gate frames (from Experiment R's recorded remainder):** "The floor is now
+opcode-stream entropy decode + copy throughput — not the per-field pulls
+fusion removed." And: reaching the Linux 0.87-0.99 GB/s regime was projected
+to require I4-3's economics (J-selection + raw-stream budget) applied to the
+hot-opcode stream itself. This task tests a DIFFERENT lever on the same floor:
+don't change the per-symbol model, change the *representation* of the book's
+byte streams with a grammar (RePair) or relative-LZ (RLZ) layer that emits
+fewer, cheaper decode symbols for the hot opcode/literal streams.
+
+**Mechanism studied (mode 15's book internals, src/anvil.cpp):** the hot-op
+book payload = header + book table (kind/len/shape) + 9 entropy-coded byte
+streams (opcodes / macro types / macro ll / macro ml / macro dflags / macro
+dvar / literals / macro masks / macro resid). The opcode stream is the hot-path
+decoder input: today it is pulled byte-by-byte through a zero/order-1 stream
+codec (encode_stream: raw/rANS-256/512/4096/Huffman/defexc/ctx-mode6), i.e.
+one entropy decode per token. The literals stream carries the hot literal-run
+bytes (the parse residue after sparse exact-match cover).
+
+**Proposal — two new *stream codecs* selectable per book stream, OFF by
+default behind --hotop-rlzp=on:**
+
+1. **RePair (mode 7):** grammar-compression by recursive pairing of the most
+   frequent digram (Larsson & Moffat 1998). Applied to a book byte stream it
+   folds repeated multi-symbol patterns (e.g. a recurring opcode sub-sequence
+   across records) into nonterminal rules, shrinking the residual the entropy
+   coder must encode AND, on decode, replacing many per-symbol entropy pulls
+   with cheap rule expansion. Decode materializes the whole stream in parse,
+   then the hot loop is a plain byte-buffer walk.
+
+2. **RLZ (mode 8):** relative-LZ (Kurup/Marin/Ziv 2010, reference-string
+   factoring → memcpy decode). For a self-contained stream the natural
+   reference is the stream's own earlier prefix (= LZ77-relative self),
+   which compresses the literal stream and decodes via memcpy.
+
+**What is (and is not) claimed NEW:** the individual primitives (RePair
+grammars, LZ77) are decades of prior art. The mechanism-level question here is
+whether *grammar/reference factorization of the compiled instruction-book
+streams* beats ANVIL's existing zero/order-1 stream J-selection on the binding
+decode floor — i.e., book bytes AND decode throughput, not just ratio. This is
+an ablation of a representation choice inside an already-PARTIAL-PASS decode
+accelerator (Experiment R), not a novelty claim for the primitive.
+
+**Falsifiable targets (pre-registered):**
+- (T1) book bytes: on record files, --hotop-rlzp=on must not exceed mode-15
+  baseline bytes (ratio Δ <= 0). Gain here is conditional; ctx mode-6 is a
+  strong incumbent on opcodes.
+- (T2) decode throughput: median-5 whole-file decompress MB/s with the flag on
+  must exceed the flag-off same-build baseline on record files. The pre-
+  registered dream is material (>= 5%), since opcode entropy decode is the
+  named floor; anything < ~3% is treated as an equivocal/no-claim.
+- (T3) correctness: round-trip all 12 corpus files with the flag on, and fuzz
+  (existing harness + hotop/rlzp combos); any round-trip failure or accepted-
+  corrupted-output is an instant FAIL regardless of T1/T2.
+
+**Controls / fair A/B:** same build, same --parse=hotop (forces mode 15), flag
+toggles ONLY the per-stream encoding candidate set; --hotop-rlzp=off must
+reproduce baseline bytes bit-for-bit. Random.bin and repeat controls included
+(RePair/RLZ must not regress them into a claim; random.bin is the encode-time
+negative gate).
+
+Expected outcome honesty: ctx-mode-6 (order-1 on previous symbol) already
+captures much opcode structure, so RePair may win size only where order-1
+misses fixed multi-symbol patterns; RLZ-on-literals may be near-neutral since
+literals are the parse residue. If neither beats the incumbent on BOTH size
+and decode throughput on the record files, the honest verdict is REJECTED /
+NOT-APPLICABLE-with-evidence rather than forcing adoption.
+
+---
+
+# PART IX — Iteration-6 strategy synthesis (orch-strategy, analysis-only; NOT a claim)
+
+*Full analysis in `docs/swarm-i6-strategy.md`. This is the short ledger note.
+No mechanism is claimed; each item below is a pre-registration sketch.*
+
+**The streak (0 EXTENDS_FRONT across 5 iterations; ~396 verdict rows).** The
+binding constraint is decode (FLAG-A): several anvil rows beat brotli q1/q4 on
+ratio (mdl beat q9 ratio on generated.json), but none ever reached brotli
+decode (best anvil ~195 MB/s vs q9 ~548–819 MB/s).
+
+**The single both-planes frontier crossing ever measured is Linux-only:** the
+hot-op hybrid on generated.log `≈452 KB @ 0.87–0.99 GB/s vs q9 513 KB @ 0.84`,
+encode `33 vs 19.6 MB/s` (61/61 paired encode trials) — it dominates q9 on
+that file. On Windows, mode 15 hot-op reached ~195 MB/s decode (EXP. R, PARTIAL
+PASS); the recorded lever is whole-codec J-selection + raw-stream budget (the
+I4-3 economics applied to the hot-opcode stream). That lever is the faithful
+measured-cost model (EXP. L: 100% at λ=0.01).
+
+**The shared cost-model-fidelity diagnosis (evidence-backed):** the two times a
+*measured* cost was used it was decisive (EXP. F mdl −8.6..−11% record files;
+EXP. L J 100% faithful). The two times a local fixed-shape heuristic decided it,
+the mechanism washed out: EXP. X (PNRA — the length/distance-blind formula
+`1.5+varint(len-4)+varint(dist-1)+len/8+0.18·log2(dist+1)` over-committed 1,599
+short single-field far candidates; real rANS regressed), and EXP. I/N/T/W
+(topology (k,slot) underprices the exception stream; corpus lacks exploitable
+structure). Theme: **cost models underpricing candidate shapes** — encoder-side
+acceptance AND decoder-side stream budget.
+
+**Ranked next-leads (pre-registerable, falsifiable — see doc):**
+1. **S6-1 (PRIMARY, decode leg):** whole-codec J-selection (λ=0.01) +
+   raw-stream budget on Windows mode 15; falsifiable bar = decode ≥2× current
+   mode 15 AND beat brotli q9 on BOTH ratio+decode on generated.log (the first
+   EXTENDS_FRONT bar).
+2. **S6-2 (enablement):** length/distance/shape-aware candidate acceptance for
+   PNRA/TCOPY, verdict ONLY on a held-out PE set (≥4–6 new binaries, distinct
+   from the 2 pinned PEs — anti-overfit guard); target `--pnra=on` beats `off`
+   by ≥0.5% held-out, zero non-PE regression.
+3. **S6-3 (cheapest, unifying):** one measured-rANS-cost rejection pass after a
+   greedy parse (NOT the slow iterative DP of EXP. F); target greedy-class
+   encode, record-file ratio ≤ same, ≤10% decode penalty.
+
+**Genuine wire-overhead removal vs tuning** (doc §6): removers = compiled
+hot-op book (mode 15), macro-ops, fused decode, zero-bit implicit θ (TCOPY/
+PNRA), single context-switched literal stream (ratio side). Tuners = acceptance
+thresholds, J-weights/raw-stream budget, surprise budget, P(d|s), topology
+coding, negative gate.
+
+**Coordinator/peer handoff:** `pnra-cost` owns S6-2 (use held-out PEs from
+`corpus-expand`; stated-formula threshold, no overfit to 2 files); `hotop-rlz`s
+Experiment-Y book-grammar covers the book-regularity half of S6-1 (the
+whole-codec stream budget is the decode crossing — compatible, not competing);
+`dp-parser` owns S6-3 (share measured-cost machinery, don't re-derive);
+`corpus-expand` should add real binaries (held-out) + structure-carrying
+columnar files; `tans-verify` expect a clean negative (per the tANS Note —
+ANVIL has no tANS state-machine coder); `ledger-verify` use S6-1's
+q9-both-planes bar as the concrete I6 acceptance criterion for Independently
+verify the Iteration 6 findings.
+
+Gate remains the arbiter: pre-registration, Windows A/B, round-trip + fuzz, and
+an EXTENDS_FRONT verdict from bench's tools before any claim.
+
+
+---
+
+## tans-verify (Iteration-6) — INDEPENDENT re-verification: discrepancy-minimizing tANS table construction (arXiv 2504.18541) — confirmed NOT APPLICABLE
+
+Independent verification pass by the `tans-verify` peer (separate actor from the
+prior NOT-APPLICABLE note at line 2381), done from the source, per the assignment
+instruction to "verify the paper's claims yourself before trusting them." Adds an
+EXECUTED-evidence dimension the prior code-reading note lacked. No gate was
+pre-registered because the applicability gate rules out any measurement experiment
+(step 3 of the task, prototype-behind-a-flag, is never reached — pre-registration
+applies to a measurement that does not exist).
+
+**1. Paper subject verified against the abstract (arxiv.org/abs/2504.18541, v2,
+8 May 2025):** "algorithms to generate tables for asymmetric numeral systems and
+prove that they are optimal in terms of discrepancy... improved theoretical bounds
+for the entropy loss in **tabled** asymmetric numeral systems and a brief empirical
+evaluation of the **stream** variant." The contribution is discrepancy-minimizing
+TABLE construction for tANS (tabled ANS), i.e. where each symbol's *states* sit in
+the finite-state table (placement/spread). rANS (the stream variant) is marginal in
+the paper and gets no discrepancy-optimized construction.
+
+**2. ANVIL's coder architecture (independently read `src/anvil.cpp`):** no tANS
+anywhere in the tree (grep of src/tests/prototypes; the only FINITE-STATE/ANS-family
+code is third_party zstd's FSE, which is NOT ANVIL's coder). ANVIL's entropy backends
+are direct/range-style rANS (`build_rans_model` L935, `rans_encode` L961,
+`rans_decode` L977) and context-switched rANS (`build_ctx_model` L1007,
+`ctx_rans_encode`/`_decode` L1090/L1111). Encoding/decoding are fully determined by
+an integer histogram {freq[s]} summing exactly to `tot`, laid out as CONTIGUOUS
+cumulative ranges ([start[s], start[s]+freq[s])). Decode is a flat slot->symbol
+lookup (`symtab[start[s]+j]=s`) + `x = freq*(x>>scale_bits)+slot-start`. There is NO
+state-transition table, NO per-state symbol/next-state structure, and critically NO
+symbol-placement/permutation freedom: once frequencies are fixed, the mapping is
+fully determined and the code length is invariant to intra-range ordering. The
+paper's optimization target (discrepancy-minimizing *placement* of symbols across
+states) has no lever here.
+
+**3. The only overlapping lever is frequency quantization** (`build_rans_model`'s
+floor + largest-shortfall/largest-excess fixup to `tot`) — the classic
+largest-remainder/quotient integer-normalization problem, which already produces the
+counts that fully determine the rANS stream. This is NOT the paper's contribution
+(discrepancy over state PLACEMENT), so swapping the paper's tANS table-build in would
+build a different thing and mislabel it.
+
+**4. Executed evidence that the negative is architecture-grounded, not a broken
+build:** shared tree builds clean (Ninja); `tests/fuzz.py --exe .\build\anvil.exe
+--cases 50` PASS seed=41246 (420 roundtrip variants across greedy/dp/sparse/tcopy x
+arith/rans incl. `--pnra=on`; 2520 mutations; round-trips exact + all truncations
+and minority mutations rejected) — the rANS/arith backends that host any hypothetical
+table change are verified healthy. Baseline rANS ratios on this host (dp/rans):
+doc.md 0.5701, generated.json 0.1223 (vs arith 0.1381; rANS wins here), synth-arith
+1.0001 (incompressible).
+
+**Verdict: NOT APPLICABLE as literally proposed (INDEPENDENT CONFIRMATION of the
+prior note at line 2381).** Nothing built, no prototype flagged (step 3 skipped
+because the applicability determination rules it out). Consistent with the queued-
+follow-on judgment: the paper only becomes relevant if ANVIL ever gains a genuine
+tANS-state-machine coder for other reasons; the real, separable future lever here is
+integer frequency normalization (FSE-style variants), a different and separately
+pre-registrable item, not this paper.
+
