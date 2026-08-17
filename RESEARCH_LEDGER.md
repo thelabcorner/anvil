@@ -2077,3 +2077,155 @@ I4-2/I4-4-class structural mechanism work, alongside the PNRA harness port
 and the I4-1 opcode-stream economics lever. The gate stays the arbiter: a
 claim requires pre-registration, Windows A/B evidence, round-trip + fuzz,
 and an EXTENDS_FRONT verdict from bench's tools.*
+
+---
+
+# PART VII — Iteration 5 prerequisites: PNRA harness port + synthetic structural corpus
+
+## Experiment V — PNRA Windows harness port (I4-4 remainder item a) — HARNESS BUILT, MEASURED (no codec claim)
+
+**Gate pre-registration:** Experiment U (I4-4) confirmed the PNRA prototype
+family (`prototypes/pnra/tcopy_pnra.cpp` + `_event`/`_pair` variants) does not
+build on the Windows tree — they `#include "tcopy_flat_hot_lib.inc"`, a
+header absent from the repo's entire git history, and reference
+`FParse`/`FTok`/`enc_flat`/`dec_cd`/`GPatch`/`uvlen` types found nowhere else
+in the tree. Per this session's task ("either reconstruct the missing header
+... or refactor to build against `src/anvil.cpp`'s actual types — use your
+judgment"), and per Experiment U's own precise remainder item (a), the goal
+here is a real Windows build+measurement, not archaeology. **Falsifiable
+target:** get at least `tcopy_pnra.cpp` building and round-tripping
+correctly on `tests/corpus/anvil.exe` (this task's literal minimum bar); if
+achieved, measure PNRA's relative token-economics effect (raw vs pnra vs
+raw+pnra) honestly — no claim beyond what's measured, and explicitly no
+Pareto/EXTENDS_FRONT claim from this harness (it emits an uncoded,
+varint-only token stream, not an entropy-coded ANVIL container, so its
+absolute byte counts are not comparable to `anvil.exe`'s real compressed
+output or to brotli — only the *relative* raw/pnra/event/pair deltas within
+this harness are meaningful).
+
+**What was reconstructed (`prototypes/pnra/tcopy_flat_hot_lib.inc`, new
+file, ~230 lines):** a fresh, self-contained header providing exactly the
+surface the three prototype files reference, with semantics derived directly
+from how the prototypes *consume* what the header provides (not guessed):
+
+- `anvil::{kHashBits, kHashSize, kNoPos, Match, match_length, read_file}` —
+  copied verbatim from `src/anvil.cpp`'s existing definitions (same
+  constants/algorithm already in the main tree, just not previously
+  factored out for prototype reuse).
+- `anvil::GPatch{off, byte}` — a single-byte literal-overwrite exception at a
+  transformed-copy offset; shape inferred from its only two call sites
+  (`ps[np++]={j,d[p+j]}` and `.off` reads in the cost formula) — unambiguous.
+- `FTok`/`FParse` — flat parse token (kind 0=literal, 1=exact copy, 2=
+  transformed copy with field/patch corrections) and the token+fields+
+  patches container. Field order was previously ambiguous (the original
+  `.inc` is gone, so byte-for-byte layout can't be recovered) — resolved by
+  declaring `FTok` with the 8 members every call site names explicitly
+  (`kind,pos,len,dist,nf,np,fo,po`) and editing the one positional-aggregate
+  call site per file (`lit()`'s literal-run push) from a 9-value literal to
+  an 8-value one matching the declared order. This is a judgment call, not
+  archaeology: the *named* usages fully constrain the struct; only the one
+  positional-init line needed adapting.
+- `flat_verify<Cand>()` — the shared field/patch-scanning cost-model routine
+  PNRA's own `verify()` already implements inline; factored out once so
+  `FlatIndex` (the "raw" baseline path) can reuse the identical gain formula
+  PNRA uses, keeping the raw-vs-pnra comparison apples-to-apples.
+- `FlatIndex` — ordinary K-way hash-bucket exact-match index (same shape as
+  `ExactOnlyIndex`, which *did* survive in `tcopy_pnra.cpp` itself) that also
+  evaluates a transformed-copy candidate at each hash hit via
+  `flat_verify` — this is the "discover transform candidates from ordinary
+  byte-hash hits" baseline PNRA's event-driven discovery is meant to beat.
+- `FlatGate` — a cheap 2-byte-prefix seen-bitmap prefilter (only exercised by
+  `tcopy_pnra_pair.cpp` under `PPAIR_RAW_GATE`, off by default) — new, minimal,
+  in the spirit of the pre-filter pattern Experiment U validated, but not
+  load-bearing for the default-config results below.
+- `enc_flat`/`dec_cd` — a new, from-scratch flat encoder/decoder for the
+  token format above (tag byte + varints; kind-2 field correction is
+  `corrected = raw_copied_bytes - dist`, derived directly from PNRA's own
+  `verify()` accept condition `a - dist == b` i.e. `b = a - dist`). This is
+  the one piece with no original to match against; it round-trips by
+  construction (decoder is the literal inverse of the encoder) and was
+  verified, not assumed, against every corpus file (below).
+- `brotli_size()` — gated behind `TCOPY_FLAT_WITH_BROTLI` (only the
+  `_event`/`_pair` mains reference it, for a reference column); links
+  against `third_party/install/lib/brotli{enc,dec,common}.lib`, same libs
+  `tools/bench_native.cpp` already uses via CMake.
+
+**Build:** standalone `clang-cl` invocation (no CMake target added — matches
+the precedent set by `prototypes/pnra/orbit_density_bench.cpp` in Experiment
+U, since these are research-harness prototypes, not shipped tools):
+```
+clang-cl /std:c++20 /MD /O2 /EHsc /DNDEBUG tcopy_pnra.cpp /Fe:tcopy_pnra.exe
+clang-cl /std:c++20 /MD /O2 /EHsc /DNDEBUG /DTCOPY_FLAT_WITH_BROTLI /Ithird_party/install/include tcopy_pnra_event.cpp /Fe:tcopy_pnra_event.exe /link /LIBPATH:third_party/install/lib brotlienc.lib brotlidec.lib brotlicommon.lib
+```
+(same pattern for `tcopy_pnra_pair.cpp`). `/MD` was required to match the
+brotli static libs' CRT linkage (`-MD` is what CMake already passes to
+`anvil_bench`; without it, `log2` fails to resolve at link time — a pure
+toolchain-matching issue, not a code issue).
+
+**Result: all three prototypes now build cleanly and round-trip correctly**
+on every file in `tests/corpus/` (round-trip is self-checked internally —
+each harness throws/aborts on mismatch; no exception fired, exit code 0, on
+all 8 corpus files including both PE binaries). This was previously
+impossible on this tree (Experiment U, finding 1) — it is now possible,
+closing I4-4 remainder item (a).
+
+**Measured token-economics results (median-of-N per harness's own reps;
+`bytes` = harness's own uncoded varint-token stream size, NOT an
+entropy-coded ANVIL container — see caveat above; brotli-q4 column present
+where the harness reports it, as an orientation reference only):**
+
+| file (orig size) | raw | pnra | raw+pnra | event-book | pair (online) | brotli-q4 (reference) |
+|---|---:|---:|---:|---:|---:|---:|
+| anvil.exe (268,800 B) | 157,155 | 158,438 (+0.82%) | **154,807 (−1.49%)** | 164,390 (+4.61%) | 159,097 (+1.23%) | 104,655 |
+| anvil_bench.exe (1,929,216 B) | 1,252,542 | 1,259,509 (+0.56%) | **1,249,662 (−0.23%)** | 1,273,161 (+1.65%) | 1,262,720 (+0.81%) | 834,690 |
+
+(Deltas are vs `raw` on each row.) Non-PE corpus files (json/jsonl/log/
+sqlite/repeat) show 0 PNRA/tcopy tokens as expected — PNRA's event source is
+x86 `E8`/`E9` opcodes, absent by construction from those files; `raw` and
+`pnra`/`raw+pnra` are numerically identical there (correctly a no-op, not a
+bug — confirms the gating logic is sound).
+
+**Honest reading:**
+
+- **PNRA alone is worse than the plain exact-match baseline** on both real
+  PE files (+0.56% to +0.82%) — the event-driven relocation-anchoring
+  candidates it surfaces are not, by themselves, a better source of copy
+  opportunities than ordinary byte-hash matching in this harness's cost
+  model.
+- **`raw+pnra` (PNRA anchoring layered on top of, not instead of, ordinary
+  exact matching) gives a small, real, reproducible improvement over `raw`
+  alone** on both PE files: −1.49% (anvil.exe), −0.23% (anvil_bench.exe).
+  This is the first actual Windows-measured evidence for PNRA's core claim
+  (translation-invariant anchoring finds real, additional copy opportunities
+  beyond byte-identical matching) — previously only asserted from an
+  unreproduced Linux-session report (Experiment P: "candidate, not yet
+  measured on Windows").
+- **The event-book and online-pair variants (paired-relocation signature
+  discovery, meant to be a *cheaper* or *higher-precision* alternative to
+  PNRA's per-event hash lookup) both measure WORSE than plain `raw`**
+  (+0.81% to +4.61%) — the extra signature-matching machinery does not pay
+  for itself in this harness; `event`'s two-event-pair signature is
+  particularly costly (+4.61% on anvil.exe), likely because requiring two
+  consecutive relocations within `EV_GAP` bytes to agree on both position
+  and gap is a much rarer, more brittle condition than PNRA's per-event
+  1-hash-lookup approach.
+- **No Pareto or ratio claim is made.** This harness's output is not
+  entropy-coded (brotli-q4 beats every variant here by 30-50%, as expected
+  from a bare varint/literal token stream) — these numbers are a controlled,
+  apples-to-apples *relative* comparison of copy-opportunity discovery
+  strategies, exactly the ablation Experiment U asked for as the actual next
+  step, not a compression-ratio result. Wiring PNRA into `src/anvil.cpp`'s
+  real entropy-coded pipeline (a much larger integration task) would be
+  required before any ratio/Pareto claim could be made.
+
+**Verdict:** I4-4 remainder item (a) (harness port) is **DONE**. The
+resulting measurement is a genuine, small, positive signal for PNRA's core
+mechanism (`raw+pnra` beats `raw` on both real PE binaries) — modest
+(−0.23% to −1.49%) but real and reproducible, and specifically NOT true of
+the event/pair discovery variants, which regress. This reopens I4-4 on
+stronger footing than Experiment U left it (a working harness plus a first
+positive data point) without claiming more than what was measured: no codec
+integration, no entropy coding, no Pareto evidence yet exists. Recorded
+files: `prototypes/pnra/tcopy_flat_hot_lib.inc` (new),
+`prototypes/pnra/tcopy_pnra{,_event,_pair}.cpp` (one-line `lit()` fix each,
+all other logic untouched).

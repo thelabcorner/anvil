@@ -169,7 +169,7 @@ public:
 static FParse parse_pnra(const std::vector<uint8_t>&d,bool use_raw,bool use_pnra){
     ExactOnlyIndex exidx(d); FlatIndex rawidx(d); FlatGate gate(d); PNRA pn(d);
     FParse r;r.t.reserve(d.size()/8);r.fields.reserve(32768);r.patches.reserve(32768);uint32_t i=0;
-    auto lit=[&](uint32_t p){if(!r.t.empty()&&!r.t.back().kind&&r.t.back().pos+r.t.back().len==p)r.t.back().len++;else r.t.push_back({0,0,0,0,p,1,0,0,0});};
+    auto lit=[&](uint32_t p){if(!r.t.empty()&&!r.t.back().kind&&r.t.back().pos+r.t.back().len==p)r.t.back().len++;else r.t.push_back({0,p,1,0,0,0,0,0});};
     while(i<d.size()){
         anvil::Match ex{0,0}; FlatIndex::C rawc; PNRA::Cand pc;
         if(use_raw){auto z=rawidx.find(i,65535);ex=z.first;rawc=z.second;} else ex=exidx.find(i,65535);
