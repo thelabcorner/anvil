@@ -325,6 +325,7 @@ public:
         // strictly more candidates -> never a ratio regression, aligned sources win
         // via the cost model's near-distance preference).
         std::vector<Match> out;
+        if (pos + 4 > d_.size()) return out; // hash4 probes read 4 bytes; pos may be the EOF token boundary (ASan-found overread)
         if (use_boundary_) {
             uint32_t h = hash4(d_.data() + pos);
             out = walk(d_.data(), d_.size(), pos, bhead_[h], bprev_, max_chain_, max_match_);
@@ -2795,8 +2796,10 @@ static std::vector<uint8_t> encode_tokens_topology(const std::vector<uint8_t>& d
                                                    uint32_t num_states) {
     // Pass 1: count (k, slot) -> value to find modal residuals.
     std::map<std::pair<uint8_t,uint8_t>, std::array<uint32_t,256>> hist; // (k, slot) -> value counts
-    std::array<std::array<uint8_t,64>,64> modal{};
-    std::array<std::array<bool,64>,64> has_modal{};
+    // k = correction count ranges 0..64 (guard below admits ==64), so the OUTER
+    // dimension is 65 — [64][j] was a silent out-of-bounds write before (ASan-found).
+    std::array<std::array<uint8_t,64>,65> modal{};
+    std::array<std::array<bool,64>,65> has_modal{};
     for (auto& t : toks) {
         if (t.type == 2 && t.off.size() <= 64)
             for (uint32_t j = 0; j < t.off.size(); ++j) ++hist[{uint8_t(t.off.size()), uint8_t(j)}][t.val[j]];
@@ -2870,8 +2873,9 @@ static std::vector<uint8_t> decode_tokens_topology(const uint8_t* p, size_t n, s
     uint64_t mtlen = get_uvar(p, e);
     if (mtlen > uint64_t(e - p)) throw std::runtime_error("truncated modal table");
     const uint8_t* mt = p; p += mtlen;
-    std::array<std::array<uint8_t,64>,64> modal{};
-    std::array<std::array<bool,64>,64> has_modal{};
+    // outer dimension 65: k == 64 is a legal context (mirrors the encoder fix)
+    std::array<std::array<uint8_t,64>,65> modal{};
+    std::array<std::array<bool,64>,65> has_modal{};
     {
         const uint8_t* q = mt; const uint8_t* qe = mt + mtlen;
         uint64_t mcount = get_uvar(q, qe);
