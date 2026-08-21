@@ -1367,6 +1367,56 @@ static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
     return best->bytes;
 }
 
+// ---- S6-1 whole-codec stream budget (mode-15 hot-op streams) ----------------
+// Per-stream codec choice by the PRE-REGISTERED additive J = L + lambda*C_decode
+// (lambda = 0.01 bytes/us, the EXP. L binding constant) with C_decode
+// SIZE-PROPORTIONAL: raw_n * ns_per_byte(codec) / 1000 us. ns_per_byte constants
+// are the measured calibration from decode-perf's t3 floor profile (blackboard
+// deliverable/t3-decode-floor-profile; fixed BEFORE any verdict measurement):
+//   raw 0.1 (bulk pull) | rANS-4096/512/256 6.0 | huffman 4.3 | defexc 3.2 | ctx 7.5
+// Candidate set == the existing suite + raw. NO new codecs (rlzp stays
+// orthogonal per gate rule Y-1). Used ONLY by the mode-15 hot-op encoder behind
+// --hotop-budget=on (default off = byte-identical legacy path). Wire-invisible:
+// selection reuses the existing per-substream mode bytes (format's determination).
+static double g_hotop_budget = false;
+static constexpr double kBudgetNsPerByte[7] = {
+    0.1, // 0 raw (bulk memcpy-class pull)
+    6.0, // 1 rANS-4096
+    6.0, // 2 rANS-512
+    6.0, // 3 rANS-256
+    4.3, // 4 huffman (t3: data-dependent 4-9; table value)
+    3.2, // 5 defexc
+    7.5, // 6 ctx-rANS
+};
+
+static std::vector<uint8_t> encode_stream_budget(const std::vector<uint8_t>& src) {
+    std::vector<uint8_t> raw; raw.push_back(0); put_uvar(raw,src.size()); raw.insert(raw.end(),src.begin(),src.end());
+    if(src.size()<16) return raw;
+    struct Cand { std::vector<uint8_t> bytes; double J; };
+    std::vector<Cand> cands;
+    auto add=[&](std::vector<uint8_t> b, uint32_t codec){
+        double L = double(b.size());
+        double C_us = double(src.size()) * kBudgetNsPerByte[codec] / 1000.0;
+        cands.push_back({std::move(b), L + g_stream_lambda * C_us});
+    };
+    add(std::move(raw), 0); // raw is always a candidate (the S6-1 raw-stream budget)
+    add(rans_stream_bytes(src,kRans4096,1), 1);
+    if(g_stream_suite) {
+        add(rans_stream_bytes(src,kRans512,2), 2);
+        add(rans_stream_bytes(src,kRans256,3), 3);
+        add(huffman_stream_bytes(src,huffman_lengths(src)), 4);
+        {
+            std::array<uint32_t,256> cnt{}; for(uint8_t b:src) ++cnt[b];
+            uint8_t def=0; for(int i=1;i<256;++i) if(cnt[i]>cnt[def]) def=uint8_t(i);
+            if(cnt[def]>=src.size()/2) add(defexc_stream_bytes(src,def), 5);
+        }
+        if(g_stream_ctx && src.size() >= 4096) add(ctx_stream_bytes(src,kRans4096), 6);
+    }
+    const Cand* best=&cands[0];
+    for(auto& c:cands) if(c.J<best->J) best=&c;
+    return best->bytes;
+}
+
 // ---- RLZ-RePair alternative encoding of hot-op book streams (t-hotop) ------
 // Two self-contained STREAM codecs, candidates for the mode-15 book streams,
 // selected by size in the hotop encoder when --hotop-rlzp=on (OFF by default):
@@ -2289,7 +2339,9 @@ static std::vector<uint8_t> encode_tokens_hotop(const std::vector<uint8_t>& d, c
     put_uvar(out, book.size());
     for (auto& op : book) { out.push_back(op.kind); put_uvar(out, op.len); out.push_back(op.shape); }
     for (const auto* v2 : {&opcodes, &mtypes, &mll, &mml, &mdflags, &mdvar, &lits, &mmasks, &mresid}) {
-        auto z = encode_stream(*v2);
+        // S6-1: whole-codec budget (size-proportional C_decode + raw candidate) when
+        // --hotop-budget=on; legacy per-stream J-selection otherwise (byte-identical).
+        auto z = g_hotop_budget ? encode_stream_budget(*v2) : encode_stream(*v2);
         if (g_rlz_reap) { // Experiment Y: RePair/RLZ as additional per-stream candidates, smallest wins
             std::vector<uint8_t> rp, rz;
             repair_stream_bytes(*v2, rp);
@@ -3206,6 +3258,7 @@ struct Options {
     double stream_lambda=0.01; // J-cost decode-weight (pre-registered binding value 0.01)
     bool stream_log=false; // --stream-log: record per-stream codec selection to stdout
     bool hotop_rlzp=false; // Experiment Y: RLZ/RePair stream codecs as hot-op book-stream candidates (--hotop-rlzp=on)
+    bool hotop_budget=false; // S6-1: whole-codec stream budget on mode-15 book streams (size-proportional C_decode, lambda=0.01)
     bool quiet=false;
 };
 struct GlobalStats { uint64_t in=0,out=0,blocks=0,raw_blocks=0,compressed_blocks=0,literals=0,matches=0,matched_bytes=0,tokens=0; };
@@ -3244,6 +3297,7 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
     g_stream_ctx = opt.stream_ctx;
     g_stream_lambda = opt.stream_lambda;
     g_rlz_reap = opt.hotop_rlzp;
+    g_hotop_budget = opt.hotop_budget ? true : false;
     g_stream_log = opt.stream_log;
     g_j_agree = 0; g_j_total = 0; g_stream_log_entries.clear();
     std::vector<uint8_t> out={'A','N','V','0',1};
@@ -3414,7 +3468,7 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
               << "  note: sparse->mode 11, shape->mode 12, topology->mode 13 (research), tcopy->mode 14, hotop->mode 15 (compiled instruction book); --shape-states=1 is the FLAG-D control\n"
@@ -3449,6 +3503,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--fused-decode=",0)==0)g_fused_decode=(a.substr(15)!="off");
             else if(a.rfind("--stream-lambda=",0)==0)opt.stream_lambda=std::stod(a.substr(16));
             else if(a.rfind("--hotop-rlzp=",0)==0)opt.hotop_rlzp=(a.substr(13)!="off");
+            else if(a.rfind("--hotop-budget=",0)==0)opt.hotop_budget=(a.substr(15)!="off");
             else if(a=="--stream-log")opt.stream_log=true;
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
