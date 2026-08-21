@@ -603,6 +603,9 @@ static constexpr uint32_t kChannels = 8;
 struct StructChannel { uint32_t dist = 0; double score = 0.0; uint32_t last = 0; };
 static uint64_t g_ch_try = 0, g_ch_win = 0; // R4 channel diagnostics
 static uint64_t g_pnra_gate = 0, g_pnra_idxhit = 0, g_pnra_verify = 0, g_pnra_commit = 0; // Experiment X diagnostics
+// TEMP t-cost instrumentation (characterize real mask/distance framing)
+static uint64_t g_diag_t3 = 0, g_diag_reswords = 0, g_diag_tmw = 0;
+static uint64_t g_diag_sz_raw[8] = {0}, g_diag_sz_z[8] = {0};
 static uint64_t g_ch_chosen = 0, g_ch_span_win = 0, g_ch_span_emit = 0; // SRR emit diagnostics
 
 static std::vector<SparseToken> parse_sparse(const std::vector<uint8_t>& d, uint32_t max_chain, uint32_t max_match,
@@ -1363,10 +1366,132 @@ static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
     return best->bytes;
 }
 
-static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size_t max_n) {
+// ---- RLZ-RePair alternative encoding of hot-op book streams (t-hotop) ------
+// Two self-contained STREAM codecs, candidates for the mode-15 book streams,
+// selected by size in the hotop encoder when --hotop-rlzp=on (OFF by default):
+//   mode 7 = RePair-style grammar: repeated digram factoring (Larsson & Moffat
+//            1998). Folds recurring multi-symbol patterns of a book stream into
+//            nonterminal rules; the residual (reduced sequence) is what the
+//            entropy coder sees, so decode materializes the whole stream with
+//            fewer per-symbol entropy pulls + cheap rule expansion.
+//   mode 8 = RLZ (relative-Lempe-Ziv, Kurup/Marin/Ziv 2010): here self-
+//            reference (the stream's own earlier prefix = LZ77) with memcpy
+//            decode, aimed at the literal/residual streams.
+// Both decode eagerly in the pull's parse into a byte buffer, so the fused
+// hot-op executor runs the opcode/literal streams as plain buffer walks.
+// Nothing here is added to encode_stream's general candidate set (that would
+// recurse); the hotop encoder explicitly tries repair/rlz against the suite
+// and picks the smallest. Pre-registered in RESEARCH_LEDGER (Experiment Y).
+
+static constexpr uint32_t kRlzReapMaxRules = 768;   // RePair rule cap (bounds symbol ids 256..256+R-1)
+static constexpr uint32_t kRlzWindow          = 64u*1024; // RLZ self-reference window
+static constexpr uint32_t kRlzMinMatch        = 4;        // min RLZ match length
+
+static bool g_rlz_reap = false;                                  // --hotop-rlzp=on
+static uint64_t g_m7_used = 0, g_m8_used = 0, g_m7_tried = 0;    // attribution counters
+
+// RePair grammar encoder -> full mode-7 wire bytes in `out` (empty = not worth it).
+static void repair_stream_bytes(const std::vector<uint8_t>& src, std::vector<uint8_t>& out) {
+    out.clear();
+    const size_t N = src.size();
+    if (N < 8) return;
+    std::vector<uint32_t> seq; seq.reserve(N); for (auto b : src) seq.push_back(b);
+    std::vector<std::pair<uint32_t,uint32_t>> rules;
+    std::unordered_set<uint64_t> banned; // low-value pairs skipped this pass (no-progress guard)
+    for (uint32_t r = 0; r < kRlzReapMaxRules; ++r) {
+        if (seq.size() < 2) break;
+        std::unordered_map<uint64_t,uint32_t> cnt; cnt.reserve(seq.size());
+        uint64_t bestk = 0; uint32_t bestc = 0;
+        for (size_t i = 0; i + 1 < seq.size(); ++i) {
+            uint64_t key = (uint64_t(seq[i]) << 32) | seq[i+1];
+            uint32_t c = ++cnt[key];
+            if (banned.count(key)) { if (c > 2) banned.erase(key); continue; } // re-eligible once it grows past the guard
+            if (c > bestc) { bestc = c; bestk = key; }
+        }
+        if (bestc < 2) break;
+        uint32_t a = uint32_t(bestk >> 32), b = uint32_t(bestk & 0xFFFFFFFFu);
+        // low-value guard: merging a (X,X) pair whose only payoff is one new
+        // symbol buys no digram reduction. Ban + rescan instead of continue
+        // (an unbanned rescan would find the identical state forever).
+        if (a == b && bestc == 2 && a >= 256) { banned.insert(bestk); continue; }
+        uint32_t ns = 256 + uint32_t(rules.size());
+        rules.push_back({a, b});
+        std::vector<uint32_t> ns2; ns2.reserve(seq.size());
+        size_t i = 0;
+        while (i < seq.size()) {
+            if (i + 1 < seq.size() && seq[i] == a && seq[i+1] == b) { ns2.push_back(ns); i += 2; }
+            else { ns2.push_back(seq[i]); ++i; }
+        }
+        seq = std::move(ns2);
+    }
+    if (rules.empty()) return; // no factoring found
+    std::vector<uint8_t> body;
+    put_uvar(body, rules.size());
+    for (auto& rp : rules) { put_uvar(body, rp.first); put_uvar(body, rp.second); }
+    put_uvar(body, seq.size());
+    for (auto s : seq) put_uvar(body, s);
+    auto inner = encode_stream(body);
+    out.push_back(7);
+    put_uvar(out, N);
+    put_uvar(out, inner.size());
+    out.insert(out.end(), inner.begin(), inner.end());
+}
+
+// RLZ (self-reference LZ77) encoder -> full mode-8 wire bytes in `out` (empty = not worth it).
+static void rlz_stream_bytes(const std::vector<uint8_t>& src, std::vector<uint8_t>& out) {
+    out.clear();
+    const size_t N = src.size();
+    if (N < 8) return;
+    const uint8_t* d = src.data();
+    std::unordered_map<uint32_t,std::vector<uint32_t>> pos; // 4-byte hash -> positions
+    for (uint32_t p = 0; p + 4 <= N; ++p) pos[hash4(d + p)].push_back(p);
+    struct Op { uint8_t kind; uint32_t val, val2; std::vector<uint8_t> lit; };
+    std::vector<Op> ops;
+    size_t i = 0;
+    while (i < N) {
+        size_t bestj = SIZE_MAX; uint32_t bestlen = 0;
+        if (i + 4 <= N) {
+            auto it = pos.find(hash4(d + i));
+            if (it != pos.end()) {
+                for (uint32_t j : it->second) {
+                    if (j >= i || i - j > kRlzWindow) { if (j >= i) break; else continue; }
+                    uint32_t lim = uint32_t(std::min<size_t>(N - i, kRlzWindow));
+                    uint32_t l = 0;
+                    while (l < lim && d[i + l] == d[j + l]) ++l;
+                    if (l > bestlen) { bestlen = l; bestj = j; }
+                }
+            }
+        }
+        if (bestlen >= kRlzMinMatch) {
+            // wire convention (must match decode_stream mode 8): dist = read+1,
+            // len = read+kRlzMinMatch -> store (d-1) and (len-kRlzMinMatch).
+            ops.push_back({1, uint32_t(i - bestj) - 1, bestlen - kRlzMinMatch, {}});
+            i += bestlen;
+        } else {
+            if (ops.empty() || ops.back().kind != 0 || ops.back().lit.size() >= 256*8) ops.push_back({0, 0, 0, {}});
+            ops.back().lit.push_back(d[i]); ++i;
+        }
+    }
+    if (ops.empty()) return;
+    std::vector<uint8_t> body;
+    put_uvar(body, ops.size());
+    for (auto& op : ops) {
+        body.push_back(op.kind);
+        if (op.kind == 0) { put_uvar(body, op.lit.size()); body.insert(body.end(), op.lit.begin(), op.lit.end()); }
+        else { put_uvar(body, op.val); put_uvar(body, op.val2); }
+    }
+    auto inner = encode_stream(body);
+    out.push_back(8);
+    put_uvar(out, N);
+    put_uvar(out, inner.size());
+    out.insert(out.end(), inner.begin(), inner.end());
+}
+
+static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size_t max_n, int depth=0) {
     if(p>=e) throw std::runtime_error("truncated stream header");
     uint8_t mode=*p++; uint64_t raw_n=get_uvar(p,e);
     if(raw_n>max_n)throw std::runtime_error("stream too large"); // DoS guard: bound by block out_len
+    if(mode>=7 && depth>0) throw std::runtime_error("nested rlz-reap stream"); // legit nesting depth is exactly 1 (F4)
     if(mode==0){if(raw_n>uint64_t(e-p))throw std::runtime_error("truncated raw stream");std::vector<uint8_t>o(p,p+raw_n);p+=raw_n;return o;}
     if(mode>=1 && mode<=3) {
         const RansSpec* sp = mode==1 ? &kRans4096 : mode==2 ? &kRans512 : &kRans256;
@@ -1412,6 +1537,70 @@ static std::vector<uint8_t> decode_stream(const uint8_t*&p,const uint8_t*e, size
         uint64_t dn = get_uvar(p, e); if (dn > uint64_t(e - p)) throw std::runtime_error("truncated ctx rANS stream");
         auto out = ctx_rans_decode(p, static_cast<size_t>(dn), static_cast<size_t>(raw_n), cm, kRans4096); p += dn; return out;
     }
+    if(mode==7) { // RePair grammar
+        if(raw_n>max_n) throw std::runtime_error("stream too large");
+        uint64_t ilen=get_uvar(p,e);
+        if(ilen>uint64_t(e-p)) throw std::runtime_error("truncated reap inner");
+        const uint8_t* q=p; const uint8_t* qe=p+ilen;
+        auto body=decode_stream(q,qe,max_n,depth+1);
+        if(q!=qe) throw std::runtime_error("reap inner trailing bytes");
+        p=qe;
+        const uint8_t* bp=body.data(); const uint8_t* be=body.data()+body.size();
+        uint64_t R=get_uvar(bp,be); if(R>kRlzReapMaxRules) throw std::runtime_error("bad reap rules");
+        std::vector<uint32_t> L(static_cast<size_t>(R)), Rt(static_cast<size_t>(R));
+        for(size_t i=0;i<R;++i){
+            uint64_t a=get_uvar(bp,be), b=get_uvar(bp,be);
+            if(a>=256+R || b>=256+R) throw std::runtime_error("bad reap rule sym");
+            L[i]=static_cast<uint32_t>(a); Rt[i]=static_cast<uint32_t>(b);
+        }
+        uint64_t M=get_uvar(bp,be); if(M>raw_n) throw std::runtime_error("bad reap reduced len");
+        std::vector<uint64_t> red(static_cast<size_t>(M));
+        for(size_t j=0;j<M;++j){ uint64_t s=get_uvar(bp,be); if(s>=256+R) throw std::runtime_error("bad reap reduced sym"); red[j]=s; }
+        if(bp!=be) throw std::runtime_error("reap body trailing bytes");
+        std::vector<std::vector<uint8_t>> exp(static_cast<size_t>(R));
+        { // F3 amplification bound: legit grammars keep every rule >=2 refs in the
+          // final structure (folding conserves references), so |exp[i]| <= raw_n/2;
+          // enforce per-rule <= raw_n and cumulative <= 2*raw_n + 64 KiB.
+            uint64_t cum = 0;
+            for(size_t i=0;i<R;++i){
+                auto app=[&](uint32_t s,std::vector<uint8_t>&v){ if(s<256){v.push_back(static_cast<uint8_t>(s));} else { if((s-256)>=i) throw std::runtime_error("reap rule forward ref"); v.insert(v.end(),exp[s-256].begin(),exp[s-256].end());} };
+                app(L[i],exp[i]); app(Rt[i],exp[i]);
+                if(exp[i].size()>raw_n) throw std::runtime_error("reap rule expansion too large");
+                cum += exp[i].size();
+                if(cum > 2*raw_n + 65536) throw std::runtime_error("reap cumulative expansion too large");
+            }
+        }
+        std::vector<uint8_t> out; out.reserve(static_cast<size_t>(raw_n));
+        for(auto s:red){ if(s<256){out.push_back(static_cast<uint8_t>(s));} else { auto&v=exp[s-256]; out.insert(out.end(),v.begin(),v.end()); if(out.size()>raw_n) throw std::runtime_error("reap expansion overflow"); } }
+        if(out.size()!=raw_n) throw std::runtime_error("reap output-size mismatch");
+        return out;
+    }
+    if(mode==8) { // RLZ (self-reference)
+        if(raw_n>max_n) throw std::runtime_error("stream too large");
+        uint64_t ilen=get_uvar(p,e);
+        if(ilen>uint64_t(e-p)) throw std::runtime_error("truncated rlz inner");
+        const uint8_t* q=p; const uint8_t* qe=p+ilen;
+        auto body=decode_stream(q,qe,max_n,depth+1);
+        if(q!=qe) throw std::runtime_error("rlz inner trailing bytes");
+        p=qe;
+        const uint8_t* bp=body.data(); const uint8_t* be=body.data()+body.size();
+        uint64_t nops=get_uvar(bp,be);
+        std::vector<uint8_t> out; out.reserve(static_cast<size_t>(raw_n));
+        for(uint64_t k=0;k<nops;++k){
+            if(bp>=be) throw std::runtime_error("truncated rlz op");
+            uint8_t op=*bp++;
+            if(op==0){ uint64_t len=get_uvar(bp,be); if(len>uint64_t(be-bp)||len>raw_n-out.size()) throw std::runtime_error("bad rlz literal"); out.insert(out.end(),bp,bp+len); bp+=len; }
+            else if(op==1){ // F2: reject near-2^64 addends before the +1 (wrap would bypass the bounds checks)
+                uint64_t dv=get_uvar(bp,be), lv=get_uvar(bp,be);
+                if(dv>=0xFFFFFFFFull||lv>=0xFFFFFFFFull) throw std::runtime_error("bad rlz match varint");
+                uint64_t dist=dv+1, len=lv+kRlzMinMatch;
+                if(dist>out.size()||len>raw_n-out.size()) throw std::runtime_error("bad rlz match");
+                for(uint64_t t=0;t<len;++t) out.push_back(out[out.size()-dist]); }
+            else throw std::runtime_error("bad rlz op type");
+        }
+        if(out.size()!=raw_n) throw std::runtime_error("rlz output-size mismatch");
+        return out;
+    }
     throw std::runtime_error("unknown stream codec");
 }
 
@@ -1447,6 +1636,9 @@ struct StreamPull {
     CtxModel cctx{};
     std::vector<uint8_t> csymtab; // flattened kCtxK x tot
     uint8_t cprev = 0;
+    // mode 7 (RePair) / mode 8 (RLZ) decode eagerly into this buffer in parse;
+    // the hot loop then reads a plain byte buffer.
+    std::vector<uint8_t> rp_buf; size_t rp_i = 0;
 
     // Parse the substream header starting at q; on success q advances past the
     // whole substream (q == qe). Throws on malformed input.
@@ -1527,6 +1719,19 @@ struct StreamPull {
             p += 4;
             rend = p + dn - 4;
             cprev = 0;
+        } else if (codec == 7 || codec == 8) {
+            // Re-Pair / RLZ: decode the WHOLE substream eagerly. Build a synthetic
+            // range [codec, raw_n uvar, ...rest] and let decode_stream handle it
+            // (it is defined above and validates trailing/oversize).
+            if (raw_n > max_n) throw std::runtime_error("stream too large");
+            std::vector<uint8_t> wf; wf.reserve(size_t(e - p) + 8);
+            wf.push_back(static_cast<uint8_t>(codec)); put_uvar(wf, raw_n);
+            wf.insert(wf.end(), p, e);
+            const uint8_t* q2 = wf.data(); const uint8_t* qe2 = wf.data() + wf.size();
+            rp_buf = decode_stream(q2, qe2, max_n);
+            if (q2 != qe2) throw std::runtime_error("rlz-reap substream trailing bytes");
+            rp_i = 0;
+            p = e;
         } else throw std::runtime_error("unknown stream codec");
         q = e; // whole substream consumed by the parser (headers + data region accounted)
     }
@@ -1593,6 +1798,12 @@ struct StreamPull {
             while (x < kRans4096.L) { if (p >= rend) throw std::runtime_error("truncated ctx rANS renorm"); x = (x << 8) | *p++; }
             b = sym; cprev = sym; --remaining; return true;
         }
+        // RePair (7) / RLZ (8): plain buffer walk over the eagerly-decoded buf
+        if (codec == 7 || codec == 8) {
+            if (remaining == 0) return false;
+            if (rp_i >= rp_buf.size()) throw std::runtime_error("truncated rlz-reap pull");
+            b = rp_buf[rp_i++]; --remaining; return true;
+        }
         throw std::runtime_error("unknown pull codec");
     }
 
@@ -1637,6 +1848,7 @@ struct StreamPull {
         if (codec >= 1 && codec <= 3) return p == rend;
         if (codec == 4) return hp == hend;
         if (codec == 6) return p == rend;
+        if (codec == 7 || codec == 8) return rp_i >= rp_buf.size(); // eager-decoded buffer
         return bits_done == total && exc == exc_end;
     }
 };
@@ -1848,11 +2060,15 @@ static std::vector<uint8_t> encode_tokens_tcopy(const std::vector<uint8_t>& d, c
         }
     }
     std::vector<uint8_t> out;
-    for(const auto* v:{&types,&ll,&ml,&ds,&lits,&masks,&resid,&tmask}) {
-        auto z=encode_stream(*v);
-        put_uvar(out,z.size());
-        out.insert(out.end(),z.begin(),z.end());
-    }
+    // TEMP t-cost instrumentation: per-stream (compressed,raw)
+    const char* names[8] = {"types","ll","ml","ds","lits","masks","resid","tmask"};
+    const std::vector<uint8_t>* streams[8] = {&types,&ll,&ml,&ds,&lits,&masks,&resid,&tmask};
+    std::array<uint64_t,8> sz_raw{}, sz_z{};
+    for(int si=0;si<8;++si){ auto z=encode_stream(*streams[si]); sz_raw[si]=streams[si]->size(); sz_z[si]=z.size();
+        put_uvar(out,z.size()); out.insert(out.end(),z.begin(),z.end()); }
+    { uint32_t rw=0, tw=0; for (auto&t:toks) if (t.type==3) { ++g_diag_t3; rw+=(t.len+31)/32; tw+=((t.len/4)+31)/32; }
+      g_diag_reswords += rw; g_diag_tmw += tw; }
+    for(int si=0;si<8;++si){ g_diag_sz_raw[si]+=sz_raw[si]; g_diag_sz_z[si]+=sz_z[si]; }
     return out;
 }
 
@@ -2073,6 +2289,13 @@ static std::vector<uint8_t> encode_tokens_hotop(const std::vector<uint8_t>& d, c
     for (auto& op : book) { out.push_back(op.kind); put_uvar(out, op.len); out.push_back(op.shape); }
     for (const auto* v2 : {&opcodes, &mtypes, &mll, &mml, &mdflags, &mdvar, &lits, &mmasks, &mresid}) {
         auto z = encode_stream(*v2);
+        if (g_rlz_reap) { // Experiment Y: RePair/RLZ as additional per-stream candidates, smallest wins
+            std::vector<uint8_t> rp, rz;
+            repair_stream_bytes(*v2, rp);
+            rlz_stream_bytes(*v2, rz);
+            if (!rp.empty() && rp.size() < z.size()) z = std::move(rp);
+            if (!rz.empty() && rz.size() < z.size()) z = std::move(rz);
+        }
         put_uvar(out, z.size());
         out.insert(out.end(), z.begin(), z.end());
     }
@@ -2978,6 +3201,7 @@ struct Options {
     bool stream_ctx=true;     // context-switched rANS (mode 6) in the suite
     double stream_lambda=0.01; // J-cost decode-weight (pre-registered binding value 0.01)
     bool stream_log=false; // --stream-log: record per-stream codec selection to stdout
+    bool hotop_rlzp=false; // Experiment Y: RLZ/RePair stream codecs as hot-op book-stream candidates (--hotop-rlzp=on)
     bool quiet=false;
 };
 struct GlobalStats { uint64_t in=0,out=0,blocks=0,raw_blocks=0,compressed_blocks=0,literals=0,matches=0,matched_bytes=0,tokens=0; };
@@ -3015,6 +3239,7 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
     g_stream_suite = opt.stream_suite;
     g_stream_ctx = opt.stream_ctx;
     g_stream_lambda = opt.stream_lambda;
+    g_rlz_reap = opt.hotop_rlzp;
     g_stream_log = opt.stream_log;
     g_j_agree = 0; g_j_total = 0; g_stream_log_entries.clear();
     std::vector<uint8_t> out={'A','N','V','0',1};
@@ -3185,7 +3410,7 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
               << "  note: sparse->mode 11, shape->mode 12, topology->mode 13 (research), tcopy->mode 14, hotop->mode 15 (compiled instruction book); --shape-states=1 is the FLAG-D control\n"
@@ -3219,6 +3444,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--stream-ctx=",0)==0)opt.stream_ctx=(a.substr(13)!="off");
             else if(a.rfind("--fused-decode=",0)==0)g_fused_decode=(a.substr(15)!="off");
             else if(a.rfind("--stream-lambda=",0)==0)opt.stream_lambda=std::stod(a.substr(16));
+            else if(a.rfind("--hotop-rlzp=",0)==0)opt.hotop_rlzp=(a.substr(13)!="off");
             else if(a=="--stream-log")opt.stream_log=true;
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
@@ -3232,7 +3458,16 @@ int main(int argc,char**argv) {
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(opt.stream_log) for(auto&e:g_stream_log_entries) std::cout<<"stream_log chosen="<<e.chosen<<" l_winner="<<e.l_winner<<" chosen_L="<<e.chosen_L<<" min_L="<<e.min_L<<"\n";
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL c parse="<<opt.parse<<" literal="<<opt.literal<<" entropy="<<opt.entropy<<" in="<<st.in<<" out="<<st.out<<" ratio="<<(st.in?double(st.out)/st.in:0)<<" MB/s="<<(sec?st.in/1e6/sec:0)<<" blocks="<<st.blocks<<" compressed="<<st.compressed_blocks<<" raw="<<st.raw_blocks<<" literals="<<st.literals<<" matches="<<st.matches<<" matched_bytes="<<st.matched_bytes<<" j_agree="<<g_j_agree<<"/"<<g_j_total<<" ch_try="<<g_ch_try<<" ch_win="<<g_ch_win<<" ch_chosen="<<g_ch_chosen<<" span_win="<<g_ch_span_win<<" span_emit="<<g_ch_span_emit
-              <<" pnra_gate="<<g_pnra_gate<<" pnra_idxhit="<<g_pnra_idxhit<<" pnra_verify="<<g_pnra_verify<<" pnra_commit="<<g_pnra_commit<<"\n";}
+              <<" pnra_gate="<<g_pnra_gate<<" pnra_idxhit="<<g_pnra_idxhit<<" pnra_verify="<<g_pnra_verify<<" pnra_commit="<<g_pnra_commit
+              <<" diag_t3="<<g_diag_t3<<" reswords="<<g_diag_reswords<<" tmw="<<g_diag_tmw
+              <<" streams_z=["<<g_diag_sz_z[0]<<"/"<<g_diag_sz_raw[0]
+              <<","<<g_diag_sz_z[1]<<"/"<<g_diag_sz_raw[1]
+              <<","<<g_diag_sz_z[2]<<"/"<<g_diag_sz_raw[2]
+              <<","<<g_diag_sz_z[3]<<"/"<<g_diag_sz_raw[3]
+              <<","<<g_diag_sz_z[4]<<"/"<<g_diag_sz_raw[4]
+              <<","<<g_diag_sz_z[5]<<"/"<<g_diag_sz_raw[5]
+              <<","<<g_diag_sz_z[6]<<"/"<<g_diag_sz_raw[6]
+              <<","<<g_diag_sz_z[7]<<"/"<<g_diag_sz_raw[7]<<"]\n";}
         } else if(cmd=="d") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}
