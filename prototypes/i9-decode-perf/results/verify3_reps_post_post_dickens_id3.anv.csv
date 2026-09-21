@@ -1,0 +1,5 @@
+variant,rep,seconds
+baseline_full_decompress,0,0.528758
+baseline_full_decompress,1,0.557931
+post_full(raw stream),0,0.059505
+post_full(raw stream),1,0.059603

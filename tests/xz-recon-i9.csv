@@ -1,0 +1,10 @@
+file,input_bytes,xz_bytes,ratio
+synth-columnar-align.bin,276000,111184,0.402841
+synth-drift-stride.bin,615376,93412,0.151797
+synth-counters.log,1107326,93936,0.084831
+pe-winver.exe,28672,5008,0.174665
+pe-where.exe,61440,19696,0.320573
+pe-notepad.exe,360448,183756,0.509799
+pe-python.exe,103704,50352,0.485536
+pe-ninja.exe,603648,247312,0.409696
+pe-git.exe,4383048,1778240,0.405709

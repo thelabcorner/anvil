@@ -1,0 +1,12 @@
+scratch/ratio-first/corpora/silesia/dickens: anvil-ratio               2,827,811 B  r=0.277442  c=54.499s d=0.102s  peak=166.4/1.6 MiB  OK
+scratch/ratio-first/corpora/silesia/dickens: brotli-q11-lw30           2,827,779 B  r=0.277439  c=16.563s d=0.102s  peak=136.4/1.6 MiB  OK
+scratch/ratio-first/corpora/silesia/dickens: zstd-ultra-22-long27      2,849,381 B  r=0.279558  c=5.122s d=0.102s  peak=276.4/1.6 MiB  OK
+scratch/ratio-first/corpora/silesia/dickens: xz-9e                     2,831,220 B  r=0.277776  c=6.628s d=0.202s  peak=155.2/25.8 MiB  OK
+scratch/ratio-first/corpora/silesia/mozilla: anvil-ratio              13,806,173 B  r=0.269544  c=256.616s d=0.404s  peak=692.7/123.1 MiB  OK
+scratch/ratio-first/corpora/silesia/mozilla: brotli-q11-lw30          13,806,141 B  r=0.269543  c=123.549s d=0.302s  peak=577.7/122.8 MiB  OK
+scratch/ratio-first/corpora/silesia/mozilla: zstd-ultra-22-long27     14,967,572 B  r=0.292219  c=24.097s d=0.102s  peak=714.9/1.6 MiB  OK
+scratch/ratio-first/corpora/silesia/mozilla: xz-9e                    13,376,248 B  r=0.261150  c=22.884s d=0.604s  peak=568.5/99.5 MiB  OK
+scratch/ratio-first/corpora/silesia/mr: anvil-ratio               2,768,635 B  r=0.277681  c=35.030s d=0.102s  peak=156.6/1.6 MiB  OK
+scratch/ratio-first/corpora/silesia/mr: brotli-q11-lw30           2,823,137 B  r=0.283147  c=17.967s d=0.102s  peak=138.7/1.6 MiB  OK
+scratch/ratio-first/corpora/silesia/mr: zstd-ultra-22-long27      3,105,643 B  r=0.311481  c=4.517s d=0.102s  peak=276.5/1.6 MiB  OK
+scratch/ratio-first/corpora/silesia/mr: xz-9e                     2,751,900 B  r=0.276002  c=5.520s d=0.203s  peak=158.6/19.7 MiB  OK

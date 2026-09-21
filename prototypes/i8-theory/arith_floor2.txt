@@ -1,0 +1,76 @@
+====================================================================================================
+synth-arith.bin ù CORRECTED FLOOR, with segmentation priced
+====================================================================================================
+64,000 u32 values, 256,000 bytes, 8 columns x 8000 (generator: seed 90002)
+
+(1) SEGMENTATION IS REAL AND MUST BE PRICED
+    H(d1) over the WHOLE file at stride 4 : 4.5862 b/val
+    H(d1) WITHIN one column               : 1.5850 b/val  (= log2 3)
+    => the naive whole-file differencing is 2.89x worse because
+       the alphabet is the UNION of 8 column alphabets + boundary jumps.
+
+    robust scale estimate: median|d1| = 78.0, MAD = 14.0, scale = 78.0
+    in-segment max |d1| = 97 (stride<=97, noise +-1)  |  boundary jumps: [-1002267, -983525, -858072, -590317, -505257, -477915, -103279]
+    separation between the two populations: 1065x
+      K=   4: threshold      312.0 -> 7 boundaries EXACT MATCH
+      K=   8: threshold      624.0 -> 7 boundaries EXACT MATCH
+      K=  16: threshold     1248.0 -> 7 boundaries EXACT MATCH
+      K=  64: threshold     4992.0 -> 7 boundaries EXACT MATCH
+      K= 256: threshold    19968.0 -> 7 boundaries EXACT MATCH
+    => K=16 recovers all 7 boundaries exactly and nothing else.
+    Segmentation is therefore DERIVABLE from the data (one abs + one
+    compare per value), not a transmitted table. Honest accounting:
+    cost = a DETECTOR, ~0 bits on the wire.
+
+(2) PER-COLUMN FLOOR (segmentation known)
+    differences: 63,992 values
+    sum n*H(d) = 101,415.5 bits = 12,676.9 B
+    (closed form 8*7999*log2(3) = 101,424.9 bits ù agrees)
+
+(3) DESCRIPTOR COST ù priced three ways, honest about each
+    measured per-column modal strides: [64, 84, 79, 68, 95, 49, 92, 1]
+    generator truth: randint(1,97) each, so stride in [1,97] -> 6.60 bits
+
+    (no assumption at all        )  256 bits =   32.0 B   [fully raw: 8 x 32-bit start]
+    (USES GENERATOR KNOWLEDGE    )  160 bits =   20.0 B   [starts are randint(0,2^20): 8 x 20 bits]
+    (what arith_floor.py assumed )  312 bits =   39.0 B   [start 32 + stride 7]
+
+    PLUS: number of runs (log2(8)=3 bits) and run length 8000
+          (log2(8000)=12.97 bits, once if uniform) ~ 16 bits = 2.0 B
+
+    FLOOR [raw starts (no generator knowledge)   ] =   12,710.9 B   ratio 0.049652
+    FLOOR [generator-aware starts (2^20 range)   ] =   12,698.9 B   ratio 0.049605
+    FLOOR [arith_floor assumption                ] =   12,717.9 B   ratio 0.049679
+
+    => the honest, assumption-light floor is ~12,711 B;
+       the generator-aware figure is ~12,699 B.
+       arith_floor's 12,717 B sits at the optimistic end. I flag this rather
+       than defend it. All three are ~7x below brotli-q11's 87,013 B, so the
+       CONCLUSION IS UNCHANGED; only the precision of the number moves.
+
+====================================================================================================
+WHAT THIS CHANGES AND WHAT IT DOES NOT
+====================================================================================================
+
+  UNCHANGED: brotli-q11 (87,013 B) is 6.8x-6.9x the
+  floor depending on descriptor accounting. ANVIL today (256,022 B) is ~20x.
+  The ceiling claim ("pnra's 49,585 B is ~3.9x pessimistic") is UNCHANGED:
+  49,585 / 12,717 = 3.90 and the arithmetic does not depend on which
+  descriptor convention is used, only on differencing vs not.
+
+  CHANGED: the log2(3) = 1.585 b/val rate is attainable ONLY WITHIN a segment.
+  Any mechanism that differences at a fixed stride across the whole file gets
+  3.108 b/val, i.e. ~2x worse, because it mixes 8 distinct alphabets. The
+  segmentation detector is therefore not an optimisation ù it is a
+  PREREQUISITE for the rate. Cost: one signed comparison per value.
+
+  IMPLICATION FOR THE MECHANISM (this is the actionable part):
+  a stride/AP model phrase must either
+    (a) detect segment boundaries (large |d1| outliers) and restart the model, or
+    (b) carry a per-phrase stride and code d1 - stride in a shared alphabet,
+        which costs ~log2(number of distinct strides) bits/phrase but needs no
+        boundary table.
+  Option (b) is more robust to files whose columns are interleaved rather than
+  block-wise (e.g. synth-columnar-align.bin, 23 B rows, all fields misaligned)
+  and is the one I would build.
+

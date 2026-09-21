@@ -1,0 +1,38 @@
+PR-4 v1 attestation -- decode-perf I9 / PR-1
+label: i9_mode15_head_v2
+window_start_utc: 2026-09-12T06:10:04.0407573Z
+window_end_utc: 2026-09-12T06:10:08.5469146Z
+host: JACKSON-PC
+profilers: prototypes/i9-decode-perf/prof_i9.exe (snapshot-instrumented decoder, decode_threads=1)
+.\prof_i9.exe sha256=1840BE8586D35E8C337B9A7B330544E7909F3D0D5C886296C9F73B44ADCFD3C7 bytes=556544
+.\snap_anvil.exe sha256=A6ED47D04F7936C7D146D4DD49F33B69CE2A83CDE6F1FA6CDF0924D136A55A0D bytes=637440
+HEAD: fc23d9a191d7ab488ebe05be598bfd93c1f840ca
+branch: blocksplit-exp
+snapshot source: git HEAD
+snapshot taken: 2026-09-12T01:09:49.3692225-05:00
+worktree diff-vs-HEAD (src): src/anvil.cpp | 1405 +++++++++++++++++++++++++++++++++++++++++++++++++++++++-- |  1 file changed, 1357 insertions(+), 48 deletions(-)
+snapshot sha256: FDC0FE561E42C8E0687CD68E9DF50DD3639793EA2EEEC86EBFE0E2AF4A2C9240
+snapshot bytes: 196533
+command: .\prof_i9.exe --reps=7 --label=i9_mode15_head_v2 --out=results <containers...>
+containers: synth_timeseries_hotop comp_bytes=143234 roundtrip=OK src_sha256=1B7D618234F13418959A7DCE166D65F1D08C7018FD1E335B7360F07869417425 | synth_timeseries_hotop_budget comp_bytes=143234 roundtrip=OK src_sha256=1B7D618234F13418959A7DCE166D65F1D08C7018FD1E335B7360F07869417425 | synth_timeseries_hotop_rlzp comp_bytes=140898 roundtrip=OK src_sha256=1B7D618234F13418959A7DCE166D65F1D08C7018FD1E335B7360F07869417425 | generated_json_hotop comp_bytes=121316 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3 | generated_json_hotop_budget comp_bytes=121316 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3 | generated_json_hotop_rlzp comp_bytes=116271 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3 | generated_json_mdl comp_bytes=89589 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3
+cpu_sampler: Get-CimInstance Win32_Processor -> LoadPercentage avg, 1 Hz loop; samples=2
+cpu_load_pct_median=32 max=32 min=20
+pinning/priority: SetProcessAffinityMask last logical processor, HIGH_PRIORITY_CLASS (printed by prof_i9)
+prof_exit_code: 0
+top_processes_at_start:
+
+Name               Id          CPU
+----               --          ---
+vmmemWSL        48752 45200.171875
+dwm              3892  34059.46875
+voicemeeter8x64 42980 26346.890625
+Taskmgr         57708  24631.21875
+System              4 23803.015625
+webstorm64      18900  22776.90625
+svchost         12256    18897.875
+Reolink         41692 14982.078125
+parsecd         29404 11298.171875
+chrome           2976  9737.984375
+
+
+

@@ -1,0 +1,15 @@
+variant,rep,seconds
+baseline_full_decompress,0,2.197949
+baseline_full_decompress,1,2.231958
+baseline_full_decompress,2,2.157173
+baseline_full_decompress,3,2.934160
+baseline_full_decompress,4,2.222973
+baseline_full_decompress,5,2.201202
+baseline_full_decompress,6,2.199755
+post_full(raw stream),0,0.224532
+post_full(raw stream),1,0.228023
+post_full(raw stream),2,0.226102
+post_full(raw stream),3,0.247450
+post_full(raw stream),4,0.227314
+post_full(raw stream),5,0.225717
+post_full(raw stream),6,0.230069

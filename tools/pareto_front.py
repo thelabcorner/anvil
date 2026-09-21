@@ -12,7 +12,13 @@ import argparse, csv, sys
 from collections import defaultdict
 from pathlib import Path
 
-REF_PREFIXES = ("brotli-", "zstd-")
+# Reference class v2 (I9-6, research-gate adopted): brotli + zstd + xz.
+# GRID-THIN: zstd tiers 4-22 and brotli lw30 are NOT measured; xz-9e rows may carry
+# process-level decode (label them). Co-list the v1 (brotli/zstd-only) grid whenever
+# the v2 grid is reported. Same-transform controls (xz --delta / --x86) are
+# SIDE-CHANNEL only (tests/xz-transform-controls-i9.csv) and are applied by the gate
+# as a dual-bar qualifier, never as arbiter front rows.
+REF_PREFIXES = ("brotli-", "zstd-", "xz-")
 ANVIL_PREFIXES = ("anvil-",)
 
 
@@ -96,6 +102,8 @@ def main():
             found = True
     if not found:
         print("  (none) — every ANVIL row is dominated by the Brotli/Zstd front. Baseline is not a Pareto win.")
+    print("GRID-THIN: ref class = brotli q1-q11 + zstd 1/3/9/19 + xz-9e; zstd 4-22 and brotli lw30")
+    print("           tiers unmeasured; xz-9e decode may be process-level; transform controls side-channel only.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,1 @@
+PASS seed=41246 roundtrip_variants=480 mutations=2880 deterministic_rev2=9 deterministic_bwt=24 golden_bwt=4 forced_postcoders=20 registry_block_modes=14 registry_transforms=5 suite_modes=[0, 1, 2, 3, 5, 6, 8] suite_unforceable=[4, 7]

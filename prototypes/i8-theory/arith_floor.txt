@@ -1,0 +1,61 @@
+====================================================================================================
+synth-arith.bin ù EXACT ENTROPY FLOOR UNDER THE TRUE GENERATIVE MODEL
+====================================================================================================
+generator (tests/make_synth_corpus.py, seed 90002):
+   v = base;  for i: v += stride + randint(-1,1);  emit u32 LE v
+=> v_i = base + (i+1)*stride + S_i,  S_i = cumsum of iid U{-1,0,1}
+
+  (a) CLOSED FORM.  d_i = v_i - v_(i-1) = stride + e_i,  e_i ~ U{-1,0,1}
+      H(d) = log2(3) = 1.5849625007 bits/value  (exactly, 3 equiprobable symbols)
+      differences per column: 7999  (first value must be transmitted raw)
+      data bits  = 8*7999*log2(3) = 101,424.9 bits = 12,678.1 B
+      model bits = 8 x (a: 32 bits) + 8 x (stride: log2(97)=6.60, say 7) = 312 bits = 39.0 B
+      FLOOR      = 12,717.1 B   ratio 0.049676
+
+  (b) MEASURED empirical entropy of the first differences, per column:
+      col 0: alphabet 3 [np.int64(63), np.int64(64), np.int64(65)]  counts [np.int64(2618), np.int64(2730), np.int64(2651)]  H = 1.584739 b/val   (log2 3 = 1.584963, dev -2.23e-04)
+      col 1: alphabet 3 [np.int64(82), np.int64(83), np.int64(84)]  counts [np.int64(2650), np.int64(2665), np.int64(2684)]  H = 1.584943 b/val   (log2 3 = 1.584963, dev -1.96e-05)
+      col 2: alphabet 3 [np.int64(78), np.int64(79), np.int64(80)]  counts [np.int64(2632), np.int64(2701), np.int64(2666)]  H = 1.584882 b/val   (log2 3 = 1.584963, dev -8.05e-05)
+      col 3: alphabet 3 [np.int64(68), np.int64(69), np.int64(70)]  counts [np.int64(2727), np.int64(2618), np.int64(2654)]  H = 1.584754 b/val   (log2 3 = 1.584963, dev -2.08e-04)
+      col 4: alphabet 3 [np.int64(95), np.int64(96), np.int64(97)]  counts [np.int64(2668), np.int64(2663), np.int64(2668)]  H = 1.584962 b/val   (log2 3 = 1.584963, dev -5.64e-07)
+      col 5: alphabet 3 [np.int64(47), np.int64(48), np.int64(49)]  counts [np.int64(2694), np.int64(2581), np.int64(2724)]  H = 1.584576 b/val   (log2 3 = 1.584963, dev -3.86e-04)
+      col 6: alphabet 3 [np.int64(90), np.int64(91), np.int64(92)]  counts [np.int64(2612), np.int64(2658), np.int64(2729)]  H = 1.584728 b/val   (log2 3 = 1.584963, dev -2.35e-04)
+      col 7: alphabet 3 [np.int64(1), np.int64(2), np.int64(3)]  counts [np.int64(2690), np.int64(2650), np.int64(2659)]  H = 1.584933 b/val   (log2 3 = 1.584963, dev -2.97e-05)
+      total over all differences: 12,676.9 B  (+ model 39.0 B) = 12,715.9 B
+
+  (c) ACTUAL CODED SIZE on the 3-symbol alphabet (order-0, the natural code):
+      symbol distribution: {0: 21291, 1: 21266, 2: 21435}
+      H(symbol stream) = 1.584954 b/sym over 63,992 symbols = 12,678.0 B
+      Huffman on single symbols (1,2,2): 13,331.7 B
+      rANS/arith on PAIRS (9 symbols): 12,677.4 B  (H_pair = 3.169747 b/pair = 1.584873 b/sym)
+      rANS/arith on single symbols:    12,678.0 B  <-- near-exactly H
+      + model = 12,717.0 B    ratio 0.049676
+
+====================================================================================================
+COMPARISON ù the gap that is actually on the table
+====================================================================================================
+  TRUE ENTROPY FLOOR (this derivation)                12,717.115043268528 B   ratio 0.0497   [derived]
+  pnra modelled ceiling (strategy msg)                    49,585 B   ratio 0.1937   [peer-reported]
+  brotli-q11 (measured)                                   87,013 B   ratio 0.3399   [measured]
+  mode-16 ARI-REF harness wire (measured, EXP. Z)         89,363 B   ratio 0.3491   [measured]
+  zstd-19 (measured)                                     106,614 B   ratio 0.4165   [measured]
+  ANVIL today (measured)                                 256,022 B   ratio 1.0001   [measured]
+
+  brotli-q11 is 6.84x the floor.  ANVIL today is 20.1x the floor.
+
+  WHY pnra's 49,585 B is ~3.9x the floor (hypothesis, testable):
+    64,000 residues at ~6.2 b/val = 49,600 B. That is the cost of coding
+    the residual S_i (a RANDOM WALK) at its marginal entropy, instead of
+    differencing first. Coding a random walk at its marginal entropy is
+    never optimal: the walk's ENTROPY RATE is H(innovation) = log2(3),
+    but its per-sample marginal entropy is unbounded. The fix is one
+    line: difference BEFORE coding. Test: apply diff then the same
+    residual coder; expect ~12.7 KB, not ~49.6 KB.
+
+  CROSSOVER (when does a model phrase stop paying ù synth-arith edition):
+    run length N=   16: model amortises to   2.438 b/val; break-even innovation entropy = 32*h_raw/8 - 2.438 (h_raw=0.340 -> -1.077 b/val, h_raw=1.0 ->  1.562 b/val)
+    run length N=   64: model amortises to   0.609 b/val; break-even innovation entropy = 32*h_raw/8 - 0.609 (h_raw=0.340 ->  0.751 b/val, h_raw=1.0 ->  3.391 b/val)
+    run length N=  256: model amortises to   0.152 b/val; break-even innovation entropy = 32*h_raw/8 - 0.152 (h_raw=0.340 ->  1.208 b/val, h_raw=1.0 ->  3.848 b/val)
+    run length N= 1024: model amortises to   0.038 b/val; break-even innovation entropy = 32*h_raw/8 - 0.038 (h_raw=0.340 ->  1.322 b/val, h_raw=1.0 ->  3.962 b/val)
+    run length N= 8000: model amortises to   0.005 b/val; break-even innovation entropy = 32*h_raw/8 - 0.005 (h_raw=0.340 ->  1.355 b/val, h_raw=1.0 ->  3.995 b/val)
+    measured innovation entropy here = 1.585 b/val ù pays at every N shown.

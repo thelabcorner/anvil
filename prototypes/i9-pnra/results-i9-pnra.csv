@@ -1,0 +1,8 @@
+arm,param,wire_bytes,ratio,enc_MBps_median,dec_MBps_median,dec_MBps_min,dec_MBps_max,dec_cv_pct,cpu_median_pct,cpu_max_pct,cpu_samples,reps,window_id,label
+pack3,transmitted,12921,0.050473,688.172,462.511,208.639,472.936,14.68,67,68,2,801,w-pnra-20260912T062115Z,"measured (parallel window; prototype, not suite)"
+pack3,derived,12936,0.050531,882.454,462.344,204.734,463.265,17.31,42,44,2,801,w-pnra-20260912T062115Z,"measured (parallel window; prototype, not suite)"
+raw2,derived,16134,0.063023,823.151,460.597,225.055,466.133,16.54,38.5,42,2,801,w-pnra-20260912T062115Z,"measured (parallel window; prototype, not suite)"
+brotli,derived,13456,0.052562,3.540,223.835,190.533,229.741,5.65,33.5,35,2,9,w-pnra-20260912T062115Z,"measured (parallel window; prototype, not suite)"
+pack5,ddelta,19817,0.077410,912.006,407.903,217.465,408.815,14.02,34,36,2,801,w-pnra-20260912T062115Z,"measured (parallel window; prototype, not suite)"
+raw3,ddelta,64113,0.250441,585.277,486.970,205.128,489.203,13.41,30,31,2,801,w-pnra-20260912T062115Z,"measured (parallel window; prototype, not suite)"
+literal-only,derived,256049,1.000191,363.947,587.695,333.507,592.867,16.55,33,35,2,401,w-pnra-20260912T062115Z,"measured (parallel window; prototype, not suite); OUTSIDE corridor control"

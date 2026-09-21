@@ -1,0 +1,15 @@
+variant,rep,seconds
+baseline_full_decompress,0,0.132814
+baseline_full_decompress,1,0.151744
+post_full,0,0.065427
+post_full,1,0.065475
+post_fast_renorm,0,0.059305
+post_fast_renorm,1,0.061401
+model_build_x257,0,0.000446
+model_build_x257,1,0.000334
+post_setup_only,0,0.000002
+post_setup_only,1,0.000002
+post_no_emit(token+uvar only),0,0.058401
+post_no_emit(token+uvar only),1,0.056092
+post_no_out(mtf, no writes),0,0.059171
+post_no_out(mtf, no writes),1,0.061421

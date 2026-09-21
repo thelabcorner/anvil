@@ -1,0 +1,44 @@
+# store_ab 2026-09-12T08:01:33.7507306-05:00
+# arm bytewise sha=51C6A939301331338D63362A4BA3913919CC279149CE082FFB0B64DB818CD236
+# arm slice8 sha=B743061CA5DBB31125729EF155A45C52774584777B6C7B98B91AA88AF2D5C533
+# arm pclmul sha=4F00627B964117D2872729062691C6BA3009499DC5A2E7362ADAE636937001A2
+# file tests\corpus\random.bin sha=0C2A8C337AC53F016F1D4CDF84B75AE80400417FB4767149215AC8D8304AEB02
+# file tests\corpus\synth-arith.bin sha=AF05309F0E1EEFB33DF71CC444CA56BE8D233088378EB4395332F4678D52E16D
+REP file=random.bin arm=bytewise rep=0 enc_ns_per_inB=2.4616 dec_ns_per_outB=2.8316 wire_fnv=CCA22D2F497CC5B7 load=55
+REP file=random.bin arm=slice8 rep=0 enc_ns_per_inB=1.0551 dec_ns_per_outB=1.3569 wire_fnv=CCA22D2F497CC5B7 load=56
+REP file=random.bin arm=pclmul rep=0 enc_ns_per_inB=0.6958 dec_ns_per_outB=0.9747 wire_fnv=CCA22D2F497CC5B7 load=51
+REP file=synth-arith.bin arm=bytewise rep=0 enc_ns_per_inB=2.3402 dec_ns_per_outB=2.6359 wire_fnv=DF74CCD877E93DC3 load=54
+REP file=synth-arith.bin arm=slice8 rep=0 enc_ns_per_inB=0.902 dec_ns_per_outB=1.2301 wire_fnv=DF74CCD877E93DC3 load=51
+REP file=synth-arith.bin arm=pclmul rep=0 enc_ns_per_inB=0.5125 dec_ns_per_outB=0.8855 wire_fnv=DF74CCD877E93DC3 load=51
+REP file=random.bin arm=pclmul rep=1 enc_ns_per_inB=0.5341 dec_ns_per_outB=0.9899 wire_fnv=CCA22D2F497CC5B7 load=42
+REP file=random.bin arm=slice8 rep=1 enc_ns_per_inB=1.0891 dec_ns_per_outB=1.5202 wire_fnv=CCA22D2F497CC5B7 load=45
+REP file=random.bin arm=bytewise rep=1 enc_ns_per_inB=2.5871 dec_ns_per_outB=2.943 wire_fnv=CCA22D2F497CC5B7 load=43
+REP file=synth-arith.bin arm=pclmul rep=1 enc_ns_per_inB=0.4969 dec_ns_per_outB=0.807 wire_fnv=DF74CCD877E93DC3 load=50
+REP file=synth-arith.bin arm=slice8 rep=1 enc_ns_per_inB=0.943 dec_ns_per_outB=1.2855 wire_fnv=DF74CCD877E93DC3 load=49
+REP file=synth-arith.bin arm=bytewise rep=1 enc_ns_per_inB=2.3707 dec_ns_per_outB=2.7508 wire_fnv=DF74CCD877E93DC3 load=50
+REP file=random.bin arm=bytewise rep=2 enc_ns_per_inB=2.4242 dec_ns_per_outB=2.6176 wire_fnv=CCA22D2F497CC5B7 load=50
+REP file=random.bin arm=slice8 rep=2 enc_ns_per_inB=0.8545 dec_ns_per_outB=1.1208 wire_fnv=CCA22D2F497CC5B7 load=54
+REP file=random.bin arm=pclmul rep=2 enc_ns_per_inB=0.518 dec_ns_per_outB=0.8221 wire_fnv=CCA22D2F497CC5B7 load=34
+REP file=synth-arith.bin arm=bytewise rep=2 enc_ns_per_inB=2.3898 dec_ns_per_outB=2.7238 wire_fnv=DF74CCD877E93DC3 load=46
+REP file=synth-arith.bin arm=slice8 rep=2 enc_ns_per_inB=0.8438 dec_ns_per_outB=1.1641 wire_fnv=DF74CCD877E93DC3 load=51
+REP file=synth-arith.bin arm=pclmul rep=2 enc_ns_per_inB=0.5539 dec_ns_per_outB=0.8723 wire_fnv=DF74CCD877E93DC3 load=51
+REP file=random.bin arm=pclmul rep=3 enc_ns_per_inB=0.5817 dec_ns_per_outB=0.8133 wire_fnv=CCA22D2F497CC5B7 load=54
+REP file=random.bin arm=slice8 rep=3 enc_ns_per_inB=0.8591 dec_ns_per_outB=1.1242 wire_fnv=CCA22D2F497CC5B7 load=33
+REP file=random.bin arm=bytewise rep=3 enc_ns_per_inB=2.3216 dec_ns_per_outB=2.6001 wire_fnv=CCA22D2F497CC5B7 load=46
+REP file=synth-arith.bin arm=pclmul rep=3 enc_ns_per_inB=0.4656 dec_ns_per_outB=0.7738 wire_fnv=DF74CCD877E93DC3 load=45
+REP file=synth-arith.bin arm=slice8 rep=3 enc_ns_per_inB=1.3414 dec_ns_per_outB=1.7125 wire_fnv=DF74CCD877E93DC3 load=57
+REP file=synth-arith.bin arm=bytewise rep=3 enc_ns_per_inB=2.8297 dec_ns_per_outB=3.1297 wire_fnv=DF74CCD877E93DC3 load=100
+REP file=random.bin arm=bytewise rep=4 enc_ns_per_inB=2.4258 dec_ns_per_outB=2.7611 wire_fnv=CCA22D2F497CC5B7 load=82
+REP file=random.bin arm=slice8 rep=4 enc_ns_per_inB=0.8652 dec_ns_per_outB=1.1261 wire_fnv=CCA22D2F497CC5B7 load=45
+REP file=random.bin arm=pclmul rep=4 enc_ns_per_inB=0.486 dec_ns_per_outB=0.7191 wire_fnv=CCA22D2F497CC5B7 load=40
+REP file=synth-arith.bin arm=bytewise rep=4 enc_ns_per_inB=2.4305 dec_ns_per_outB=2.757 wire_fnv=DF74CCD877E93DC3 load=37
+REP file=synth-arith.bin arm=slice8 rep=4 enc_ns_per_inB=0.8406 dec_ns_per_outB=1.1699 wire_fnv=DF74CCD877E93DC3 load=17
+REP file=synth-arith.bin arm=pclmul rep=4 enc_ns_per_inB=0.468 dec_ns_per_outB=0.8859 wire_fnv=DF74CCD877E93DC3 load=26
+# SUMMARY
+ARM=bytewise file=random.bin n=5 enc_median_ns_per_inB=2.4258 enc_CV=3.5% dec_median_ns_per_outB=2.7611 dec_CV=4.71%
+ARM=pclmul file=random.bin n=5 enc_median_ns_per_inB=0.5341 enc_CV=12.99% dec_median_ns_per_outB=0.8221 dec_CV=11.97%
+ARM=slice8 file=random.bin n=5 enc_median_ns_per_inB=0.8652 enc_CV=11.09% dec_median_ns_per_outB=1.1261 dec_CV=13.02%
+ARM=bytewise file=synth-arith.bin n=5 enc_median_ns_per_inB=2.3898 enc_CV=7.33% dec_median_ns_per_outB=2.7508 dec_CV=6.1%
+ARM=pclmul file=synth-arith.bin n=5 enc_median_ns_per_inB=0.4969 enc_CV=6.51% dec_median_ns_per_outB=0.8723 dec_CV=5.44%
+ARM=slice8 file=synth-arith.bin n=5 enc_median_ns_per_inB=0.902 enc_CV=19.25% dec_median_ns_per_outB=1.2301 dec_CV=15.61%
+# done 2026-09-12T08:02:06.7741764-05:00

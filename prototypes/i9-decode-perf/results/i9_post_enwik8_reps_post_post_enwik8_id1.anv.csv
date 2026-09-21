@@ -1,0 +1,50 @@
+variant,rep,seconds
+baseline_full_decompress,0,9.141232
+baseline_full_decompress,1,9.313472
+baseline_full_decompress,2,9.176137
+baseline_full_decompress,3,9.116894
+baseline_full_decompress,4,9.132999
+baseline_full_decompress,5,9.184985
+baseline_full_decompress,6,10.335284
+post_full,0,3.454903
+post_full,1,3.430542
+post_full,2,3.421475
+post_full,3,3.454436
+post_full,4,3.443812
+post_full,5,3.454381
+post_full,6,3.488043
+post_fast_renorm,0,3.400110
+post_fast_renorm,1,3.351873
+post_fast_renorm,2,3.334002
+post_fast_renorm,3,3.411154
+post_fast_renorm,4,3.333269
+post_fast_renorm,5,3.342697
+post_fast_renorm,6,3.336655
+model_build_x257,0,0.000368
+model_build_x257,1,0.000291
+model_build_x257,2,0.000574
+model_build_x257,3,0.000814
+model_build_x257,4,0.000306
+model_build_x257,5,0.000511
+model_build_x257,6,0.000472
+post_setup_only,0,0.000004
+post_setup_only,1,0.000003
+post_setup_only,2,0.000004
+post_setup_only,3,0.000006
+post_setup_only,4,0.000003
+post_setup_only,5,0.000002
+post_setup_only,6,0.000003
+post_no_emit(token+uvar only),0,3.152767
+post_no_emit(token+uvar only),1,3.159843
+post_no_emit(token+uvar only),2,3.104667
+post_no_emit(token+uvar only),3,3.275528
+post_no_emit(token+uvar only),4,3.185780
+post_no_emit(token+uvar only),5,3.151818
+post_no_emit(token+uvar only),6,3.161867
+post_no_out(mtf, no writes),0,3.313055
+post_no_out(mtf, no writes),1,3.327690
+post_no_out(mtf, no writes),2,3.265803
+post_no_out(mtf, no writes),3,3.301299
+post_no_out(mtf, no writes),4,3.293916
+post_no_out(mtf, no writes),5,3.320732
+post_no_out(mtf, no writes),6,3.306623

@@ -1,0 +1,50 @@
+=== containers\synth_timeseries_hotop_rlzp.anv ===
+src=280000 B  comp=140898 B  ratio=0.5032  blocks=2
+mode census: m15=2
+BASELINE full decode: 150.8 MB/s  (med 1.857 ms, CV 4.4%, min 1.766 ms)
+
+-- token census (instrumented, verified == real decoder) --
+tokens=13255  hot_lit=6626 hot_match=2256  mac_lit=0 mac_m1=227 mac_m2=4146
+lit_bytes=53896 (19.2% of src)  copy_bytes=226104 (80.8%)  opcode_bytes=13255
+
+-- stage ablation (mode-15 block loop only, seconds; delta vs full = stage cost) --
+  full               med=1.435 ms  CV=18.0%  delta_vs_full=+0.000 ms
+  no-lit-pull        med=1.333 ms  CV=17.9%  delta_vs_full=-0.102 ms
+  no-copy            med=1.650 ms  CV=18.7%  delta_vs_full=+0.215 ms
+  no-macro           med=1.178 ms  CV=17.3%  delta_vs_full=-0.258 ms
+  setup-only         med=0.560 ms  CV=17.4%  delta_vs_full=-0.875 ms
+  opcode-pull-only   med=0.668 ms  CV=17.2%  delta_vs_full=-0.768 ms
+
+-- per-stream census + in-block decode cost --
+  stream          codec              wire(B)  raw(B)   pull(ms) cyc/B   mat(ms) cyc/B
+  opcodes        rans256x1 ctx-ransx1      1639    13255    0.127  40.34    0.075  23.73
+  macro-types    rans256x2               189     4373    0.022  20.74    0.020  18.93
+  macro-ll       rawx2                     4        0    0.000   0.00    0.000   0.00
+  macro-ml       rans4096x1 rans256x1      2212     4670    0.036  32.36    0.025  22.79
+  macro-dflags   rans256x2               324     4373    0.023  22.35    0.020  19.27
+  macro-dvar     rans512x1 ctx-ransx1      3912     6719    0.110  68.81    0.054  33.59
+  literals       rans4096x1 huffmanx1     51105    53896    0.304  23.72    0.250  19.50
+  macro-masks    repairx2               8459    35056    0.332  39.75    0.230  27.55
+  macro-resid    rawx2                 72912    72905    0.002   0.15    0.001   0.09
+
+-- raw-stream counterfactuals (full decompress; delta vs baseline = projected gain) --
+  raw:opcodes              147.4 MB/s (-2.2%)  med=1.899 ms CV=1.8%  size=152520 B (+11622)
+  raw:macro-types          143.4 MB/s (-4.9%)  med=1.953 ms CV=2.6%  size=145089 B (+4191)
+  raw:macro-ll             142.8 MB/s (-5.3%)  med=1.960 ms CV=1.7%  size=140898 B (+0)
+  raw:macro-ml             145.0 MB/s (-3.8%)  med=1.931 ms CV=3.9%  size=143362 B (+2464)
+  raw:macro-dflags         142.4 MB/s (-5.6%)  med=1.967 ms CV=13.4%  size=144954 B (+4056)
+  raw:macro-dvar           146.9 MB/s (-2.6%)  med=1.906 ms CV=14.8%  size=143711 B (+2813)
+  raw:literals             158.5 MB/s (+5.1%)  med=1.767 ms CV=14.6%  size=143696 B (+2798)
+  raw:macro-masks          161.2 MB/s (+6.9%)  med=1.737 ms CV=11.9%  size=167503 B (+26605)
+  raw:macro-resid          143.3 MB/s (-5.0%)  med=1.954 ms CV=14.1%  size=140898 B (+0)
+  raw:opcodes+literals     168.7 MB/s (+11.9%)  med=1.659 ms CV=10.5%  size=155318 B (+14420)
+  raw:ALL9                 223.7 MB/s (+48.4%)  med=1.252 ms CV=7.6%  size=195447 B (+54549)
+
+fixed costs (file-level):
+  crc32_slice8=0.124 ms (0.445 ns/B, 2249.0 MB/s)   crc32_bytewise(I8 base)=0.534 ms (1.908 ns/B, 524.1 MB/s)   slice8==bytewise=YES   snapshot_crc=slice8
+  memcpy-out=0.008 ms (0.028 ns/B)
+
+SHARES of end-to-end baseline (median): crc_slice8=6.7%  crc_bytewise=23.6%  memcpy=0.4%  block_loop=77.3%  residual_concat_alloc_hdr=15.6%
+BLOCK-LOOP SPLIT: setup(eager mat + header)=30.2% of e2e (39.0% of block loop)  token_loop_beyond_setup=47.1% of e2e
+CRC-ONLY LIFT: current_slice8_full_removal=1.072x (share 0.0670)   bytewise_full_removal=1.308x (share 0.2357)
+BYTEWISE-CRC COUNTERFACTUAL decode speed = 123.5 MB/s (current 150.8 MB/s)

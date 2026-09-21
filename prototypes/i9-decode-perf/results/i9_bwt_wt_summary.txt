@@ -1,0 +1,30 @@
+ANVIL BWT-routed decode stage split (decode-perf, I9) 
+  LEG LABEL: i9_bwt_wt
+  reps=7 interleaved, median reported; CV=stdev/mean; decoder threads=1; libsais_unbwt single-thread
+
+=== containers\bwt_dickens.anv ===
+src=10192446 B  comp=2571873 B  ratio=0.2523  transform=0 backend=2 postcoder=2 primary=2248121 xlen=10192446
+BASELINE full decode: 10.0 MB/s (med 1022.60 ms, CV 9.1%, min 866.32 ms)
+-- stage split (seconds; shares of end-to-end baseline) --
+  stageA postcoder            med=  409.73 ms  CV=  1.8%  share= 40.1%  (40.20 ns/B-out)
+  B1 alloc out+tmp            med=    6.15 ms  CV= 12.5%  share=  0.6%
+  B2 libsais_unbwt (B1+B2-B1) med= 1057.04 ms  (B1+B2 med= 1063.19 ms CV=  8.9%)
+  stageC transform inverse    med=    0.92 ms  CV= 19.4%  share=  0.1%
+  crc32 (bytewise, HEAD)      med=    2.12 ms  CV= 26.4%  share=  0.2%
+  memcpy final out            med=    0.00 ms  CV= -0.0%  share=  0.0%
+  residual (container parse+alloc+concat) med= -452.43 ms  share=-44.2%
+  NOTE stageC variant includes A+B1+B2; stage C-only share reported after subtract. Sum check: seq+crc+mem+resid=1022.60 ms vs baseline 1022.60 ms
+
+=== containers\bwt_webster.anv ===
+src=41458703 B  comp=7317361 B  ratio=0.1765  transform=0 backend=2 postcoder=2 primary=1563625 xlen=41458703
+BASELINE full decode: 12.5 MB/s (med 3317.97 ms, CV 9.4%, min 3247.18 ms)
+-- stage split (seconds; shares of end-to-end baseline) --
+  stageA postcoder            med= 1166.96 ms  CV=  4.4%  share= 35.2%  (28.15 ns/B-out)
+  B1 alloc out+tmp            med=   25.81 ms  CV= 31.8%  share=  0.8%
+  B2 libsais_unbwt (B1+B2-B1) med= 3469.36 ms  (B1+B2 med= 3495.17 ms CV=  7.4%)
+  stageC transform inverse    med=    4.53 ms  CV= 17.3%  share=  0.1%
+  crc32 (bytewise, HEAD)      med=    8.56 ms  CV= 24.8%  share=  0.3%
+  memcpy final out            med=    0.00 ms  CV=  0.0%  share=  0.0%
+  residual (container parse+alloc+concat) med=-1352.71 ms  share=-40.8%
+  NOTE stageC variant includes A+B1+B2; stage C-only share reported after subtract. Sum check: seq+crc+mem+resid=3317.97 ms vs baseline 3317.97 ms
+

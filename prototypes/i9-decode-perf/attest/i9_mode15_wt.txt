@@ -1,0 +1,40 @@
+PR-4 v1 attestation -- decode-perf I9 / PR-1
+label: i9_mode15_wt
+window_start_utc: 2026-09-12T06:33:51.1865016Z
+window_end_utc: 2026-09-12T06:33:54.9376597Z
+host: JACKSON-PC
+profilers: prototypes/i9-decode-perf/prof_i9_wt.exe (snapshot-instrumented decoder, decode_threads=1)
+.\prof_i9_wt.exe sha256=D9DC41AF3A1CE099D1B10BE3BB71B9E0CC7303040319C44B5A99EBDCA2797C8E bytes=609792
+.\snap_anvil_wt.exe sha256=9751BF63CF8B1C11A2EAB33753ECF6981E2B59969CD96A643743C44BDE08FF34 bytes=803328
+HEAD: fc23d9a191d7ab488ebe05be598bfd93c1f840ca
+branch: blocksplit-exp
+snapshot source: WORKING TREE (raw copy: anvil_wt_raw.cpp)
+snapshot taken: 2026-09-12T01:32:49.5606828-05:00
+worktree diff-vs-HEAD (src): src/anvil.cpp | 1403 +++++++++++++++++++++++++++++++++++++++++++++++++++++++-- |  1 file changed, 1355 insertions(+), 48 deletions(-)
+raw copy sha256: 5DB16A1C329D2B215D1123B1E16D54F92DA376EAFE1733A353B20EC831890686
+snapshot (possibly repaired) sha256: 5DB16A1C329D2B215D1123B1E16D54F92DA376EAFE1733A353B20EC831890686
+repair state: NONE - arch's decode_one_block(mode,p,...) fix is present in the raw worktree; snapshot used UNMODIFIED
+api-compat: one-arg decompress = False; extra defs = /DANVIL_SNAPSHOT_NAME=anvil_snapshot_wt.cpp
+command: .\prof_i9_wt.exe --reps=7 --label=i9_mode15_wt --out=results <containers...>
+containers: synth_timeseries_hotop comp_bytes=143234 roundtrip=OK src_sha256=1B7D618234F13418959A7DCE166D65F1D08C7018FD1E335B7360F07869417425 | synth_timeseries_hotop_budget comp_bytes=143234 roundtrip=OK src_sha256=1B7D618234F13418959A7DCE166D65F1D08C7018FD1E335B7360F07869417425 | synth_timeseries_hotop_rlzp comp_bytes=140898 roundtrip=OK src_sha256=1B7D618234F13418959A7DCE166D65F1D08C7018FD1E335B7360F07869417425 | generated_json_hotop comp_bytes=121316 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3 | generated_json_hotop_budget comp_bytes=121316 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3 | generated_json_hotop_rlzp comp_bytes=116271 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3 | generated_json_mdl comp_bytes=89589 roundtrip=OK src_sha256=C114C83AB50084D1D34A2165A085564F6F2B144FCE7A267AB906FD24968A89B3
+cpu_sampler: Get-CimInstance Win32_Processor -> LoadPercentage avg, 1 Hz loop; samples=2
+cpu_load_pct_median=40 max=40 min=29
+pinning/priority: SetProcessAffinityMask last logical processor, HIGH_PRIORITY_CLASS (printed by prof_i9)
+prof_exit_code: 0
+top_processes_at_start:
+
+Name               Id          CPU
+----               --          ---
+vmmemWSL        48752 45572.015625
+dwm              3892  34338.21875
+voicemeeter8x64 42980 26500.390625
+Taskmgr         57708 24874.328125
+System              4 24191.078125
+webstorm64      18900 22886.265625
+svchost         12256 19560.765625
+Reolink         41692 15229.828125
+parsecd         29404   11456.6875
+chrome           2976  9741.953125
+
+
+

@@ -21,14 +21,16 @@ static double median_speed(size_t input_bytes, int reps, F&& fn) {
     std::sort(samples.begin(),samples.end()); return samples[samples.size()/2];
 }
 
-static Row bench_anvil(const std::vector<uint8_t>& src, std::string name, std::string parse, std::string lit, std::string entropy, int reps, uint32_t shape_states=28, double stream_lambda=0.04, bool channels=false, bool pnra=false) {
+static Row bench_anvil(const std::vector<uint8_t>& src, std::string name, std::string parse, std::string lit, std::string entropy, int reps, uint32_t shape_states=28, double stream_lambda=0.04, bool channels=false, bool pnra=false, bool hotop_rlzp=false, bool hotop_budget=false) {
     anvil::Options o; o.parse=parse; o.literal=lit; o.entropy=entropy; o.quiet=true; o.shape_states=shape_states;
     o.channels = channels; // R4 structural-distance channels (research row)
     o.pnra = pnra; // Experiment X: PNRA invariant-anchored candidate source (mode 14 only)
+    o.hotop_rlzp = hotop_rlzp; // Experiment Y: RLZ/RePair book-stream codecs (modes 7/8; --hotop-rlzp=on)
+    o.hotop_budget = hotop_budget; // S6-1: whole-codec stream budget on mode-15 book streams (--hotop-budget=on)
     anvil::g_stream_lambda = stream_lambda; // stream-suite J weight (ANVIL_STREAM_LAMBDA in CLI main; set directly here)
-    anvil::GlobalStats st; auto packed=anvil::compress(src,o,&st); auto unpacked=anvil::decompress(packed);
+    anvil::GlobalStats st; auto packed=anvil::compress(src,o,&st); auto unpacked=anvil::decompress(packed,o);
     double enc=median_speed(src.size(),reps,[&]{ anvil::GlobalStats x; auto y=anvil::compress(src,o,&x); volatile size_t sink=y.size(); (void)sink; });
-    double dec=median_speed(src.size(),reps,[&]{ auto y=anvil::decompress(packed); volatile size_t sink=y.size(); (void)sink; });
+    double dec=median_speed(src.size(),reps,[&]{ auto y=anvil::decompress(packed,o); volatile size_t sink=y.size(); (void)sink; });
     return {std::move(name),packed.size(),src.empty()?0.0:double(packed.size())/src.size(),enc,dec,unpacked==src};
 }
 
@@ -72,6 +74,8 @@ int main(int argc,char**argv) {
         rows.push_back(bench_anvil(src,"anvil-shape-rans-l0","shape","o0","rans",reps,28,0.0));
         rows.push_back(bench_anvil(src,"anvil-shape-ctxmap-rans","shape","o0","rans",reps,1));
         rows.push_back(bench_anvil(src,"anvil-hotop-rans","hotop","o0","rans",reps));
+        rows.push_back(bench_anvil(src,"anvil-hotop-budget-rans","hotop","o0","rans",reps,28,0.04,false,false,false,true)); // S6-1 verdict row: whole-codec stream budget (gate rule Y-1: rlzp=off). Expected byte-equal to anvil-hotop-rans — that equality IS the verdict evidence.
+        rows.push_back(bench_anvil(src,"anvil-hotop-rlzp-rans","hotop","o0","rans",reps,28,0.04,false,false,true)); // Experiment Y record row (gate rule Y-1: NOT part of the S6-1 verdict; S6-1 verdict rows all run rlzp=off)
         for(int q: {1,4,6,9,11}) rows.push_back(bench_brotli(src,q,reps));
         for(int l: {1,3,9,19}) rows.push_back(bench_zstd(src,l,reps));
         std::cout<<"input_bytes,"<<src.size()<<"\n";

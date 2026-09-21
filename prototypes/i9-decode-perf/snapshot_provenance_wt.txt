@@ -1,0 +1,9 @@
+HEAD: fc23d9a191d7ab488ebe05be598bfd93c1f840ca
+branch: blocksplit-exp
+snapshot source: WORKING TREE (raw copy: anvil_wt_raw.cpp)
+snapshot taken: 2026-09-12T01:55:25.8018720-05:00
+worktree diff-vs-HEAD (src): src/anvil.cpp | 1397 +++++++++++++++++++++++++++++++++++++++++++++++++++++++-- |  1 file changed, 1349 insertions(+), 48 deletions(-)
+raw copy sha256: 62BC663122D8240C1A79A29D315CCA44AFFFCBC4DE59F3B555B350922FFEE74A
+snapshot (possibly repaired) sha256: 62BC663122D8240C1A79A29D315CCA44AFFFCBC4DE59F3B555B350922FFEE74A
+repair state: NONE - arch's decode_one_block(mode,p,...) fix is present in the raw worktree; snapshot used UNMODIFIED
+api-compat: one-arg decompress = False; extra defs = /DANVIL_SNAPSHOT_NAME=anvil_snapshot_wt.cpp

@@ -1,0 +1,4 @@
+=== containers\post_enwik8_id3.anv ===
+src=100000000 comp=44100996 ratio=0.4410 post=3 xlen=100000000 (raw stream)
+BASELINE full decode: 15.24 MB/s (med 6562.90 ms CV 4.7% min 6349.47 ms)
+POSTCODER (raw stream) med=587.65 ms = 9.0% of e2e (CV 0.6%)  codec=6 wire=44100959 raw=100000000

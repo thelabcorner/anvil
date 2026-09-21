@@ -13,9 +13,30 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+// CRC32 PCLMULQDQ fast path (S6-1b leg 1, stage 2) — x86-64 only; the
+// slicing-by-8 implementation below is the portable fallback.
+#if defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#include <wmmintrin.h>
+#if defined(_MSC_VER) || defined(__clang__)
+#include <intrin.h>
+#elif defined(__GNUC__)
+#include <cpuid.h>
+#endif
+#endif
+
+#ifdef ANVIL_HAVE_BROTLI
+#include <brotli/decode.h>
+#include <brotli/encode.h>
+#endif
+#ifdef ANVIL_HAVE_LIBSAIS
+#include <libsais.h>
+#endif
 
 namespace anvil {
 
@@ -31,26 +52,35 @@ struct BitWriter {
     std::vector<uint8_t> out;
     uint8_t cur = 0;
     uint8_t used = 0;
+    uint64_t count = 0;
     void bit(uint32_t b) {
+        ++count;
         cur = static_cast<uint8_t>((cur << 1) | (b & 1));
         if (++used == 8) { out.push_back(cur); cur = 0; used = 0; }
     }
     void finish() {
         if (used) { cur <<= (8 - used); out.push_back(cur); cur = 0; used = 0; }
     }
+    uint64_t bit_count() const { return count; }
 };
 
 struct BitReader {
     const uint8_t* p;
     size_t n;
     size_t byte = 0;
-    uint8_t bitpos = 0;
+    uint64_t acc = 0;   // buffered byte (I9 leg 4: bit-at-a-time load removed)
+    int have = 0;       // bits still available in acc
     uint32_t bit() {
-        if (byte >= n) return 0; // arithmetic decoder pads with zeros
-        uint32_t v = (p[byte] >> (7 - bitpos)) & 1u;
-        if (++bitpos == 8) { bitpos = 0; ++byte; }
-        return v;
+        if (have == 0) {
+            if (byte >= n) return 0; // arithmetic decoder pads with zeros
+            acc = p[byte++];
+            have = 8;
+        }
+        --have;
+        return static_cast<uint32_t>(acc >> have) & 1u;
     }
+    // Number of payload bytes touched (a partially-consumed buffered byte counts).
+    size_t consumed_bytes() const { return byte; }
 };
 
 class ArithmeticEncoder {
@@ -89,6 +119,7 @@ public:
         bw_.finish();
         return std::move(bw_.out);
     }
+    uint64_t bit_count() const { return bw_.bit_count(); }
 };
 
 class ArithmeticDecoder {
@@ -102,7 +133,7 @@ public:
     }
     // Number of payload bytes touched by the bit reader (final partial byte
     // counts as one). Used to reject in-payload trailing garbage (F1).
-    size_t consumed_bytes() const { return br_.byte + (br_.bitpos ? 1u : 0u); }
+    size_t consumed_bytes() const { return br_.consumed_bytes(); }
     uint32_t scaled(uint32_t total) const {
         uint64_t range = static_cast<uint64_t>(high_) - low_ + 1;
         return static_cast<uint32_t>(((static_cast<uint64_t>(code_ - low_) + 1) * total - 1) / range);
@@ -173,6 +204,45 @@ public:
     }
 };
 
+// I9 leg 4: decode-only adaptive model. Same frequencies, rescale rule and
+// total as AdaptiveModel; the Fenwick prefix search is replaced by a two-level
+// block-sum walk (16-symbol blocks). The cumulative interval passed to
+// ArithmeticDecoder::consume is EXACTLY the same, so the decoded symbol stream
+// and the wire are unchanged; only the lookup structure differs.
+class AdaptiveDecModel {
+    static constexpr uint32_t kBlkShift = 4;              // 16 symbols/block
+    static constexpr uint32_t kBlkSize = 1u << kBlkShift;
+    uint32_t alphabet_;
+    std::vector<uint16_t> freq_;
+    std::vector<uint32_t> blk_;
+    uint32_t total_ = 0;
+    void rebuild() {
+        total_ = 0;
+        std::fill(blk_.begin(), blk_.end(), 0);
+        for (uint32_t i = 0; i < alphabet_; ++i) { total_ += freq_[i]; blk_[i >> kBlkShift] += freq_[i]; }
+    }
+    void update(uint32_t sym) {
+        if (total_ >= kModelRescale) {
+            for (auto& f : freq_) f = static_cast<uint16_t>(std::max<uint16_t>(1, (f + 1) >> 1));
+            rebuild();
+        }
+        ++freq_[sym]; ++total_; ++blk_[sym >> kBlkShift];
+    }
+public:
+    explicit AdaptiveDecModel(uint32_t alphabet = 256) : alphabet_(alphabet), freq_(alphabet, 1), blk_((alphabet + kBlkSize - 1) >> kBlkShift, 0) { rebuild(); }
+    uint32_t decode(ArithmeticDecoder& ad) {
+        uint32_t target = ad.scaled(total_);
+        uint32_t b = 0, sum = 0;
+        // blk_ sums to total_ > target, so this terminates inside blk_.
+        while (sum + blk_[b] <= target) { sum += blk_[b]; ++b; }
+        uint32_t s = b << kBlkShift;
+        while (sum + freq_[s] <= target) { sum += freq_[s]; ++s; }
+        if (s >= alphabet_) throw std::runtime_error("arithmetic symbol out of range");
+        uint32_t lo = sum, hi = lo + freq_[s];
+        ad.consume(lo, hi, total_); update(s); return s;
+    }
+};
+
 struct CodecModels {
     AdaptiveModel token{2};
     AdaptiveModel lit_len{256};
@@ -204,6 +274,18 @@ static uint64_t decode_uvar(ArithmeticDecoder& ad, AdaptiveModel& m) {
     throw std::runtime_error("varint overflow");
 }
 
+// I9 leg 4: same loop over the decode-only model type.
+template<class M> static uint64_t decode_uvar_m(ArithmeticDecoder& ad, M& m) {
+    uint64_t x=0; int shift=0;
+    for (int i=0;i<10;++i) {
+        uint8_t b = static_cast<uint8_t>(m.decode(ad));
+        x |= static_cast<uint64_t>(b & 0x7Fu) << shift;
+        if (!(b&0x80u)) return x;
+        shift += 7;
+    }
+    throw std::runtime_error("varint overflow");
+}
+
 static void put_uvar(std::vector<uint8_t>& out, uint64_t x) {
     do { uint8_t b=static_cast<uint8_t>(x&0x7f); x>>=7; if(x)b|=0x80; out.push_back(b); } while(x);
 }
@@ -213,15 +295,145 @@ static uint64_t get_uvar(const uint8_t*& p, const uint8_t* e) {
     throw std::runtime_error("varint overflow");
 }
 
-static uint32_t crc32(const uint8_t* p, size_t n) {
-    static std::array<uint32_t,256> table = []{
-        std::array<uint32_t,256> t{};
-        for(uint32_t i=0;i<256;++i){ uint32_t c=i; for(int k=0;k<8;++k)c=(c&1)?(0xEDB88320u^(c>>1)):(c>>1); t[i]=c; }
+// CRC32 (IEEE, reflected, poly 0xEDB88320) — S6-1b LEG 1 (bit-exact upgrade).
+// Stage 1 (slicing-by-8): provably identical checksum values to the bytewise
+// table version (same GF(2) linear map — see docs/pre-registrations/s6-1b.md §3).
+// Derivation: message byte j (j=0 is first byte of the 8-byte group) and
+// state byte j both contribute exactly R^(8-j)(i) to the next state, where
+// R(x) = tab0[x&0xFF] ^ (x>>8) is one zero-byte refinement and tab0 is the
+// classic bytewise table (= R^8 of a raw byte). Hence 8 tables
+// Q_s[i] = R^(8-s)(i), s=0..7, indexed by the merged byte (state^msg).
+// Wire-invisible by construction; verified bit-exact vs the bytewise version.
+//
+// Stage 2 (this change): PCLMULQDQ 4-way fold, same IEEE CRC-32 (poly
+// 0xEDB88320, init/final xor 0xFFFFFFFF, reflected). Runtime CPUID dispatch;
+// slicing-by-8 remains the fallback on CPUs without PCLMULQDQ. Both stages
+// PRESERVE verification semantics (checksum-skipping is NOT done): wire bytes,
+// decoded bytes and corruption-reject behavior are unchanged. Bit-exactness
+// evidence: prototypes/i9-arch/crc_bit_exact.cpp (16,529 checks: lengths
+// 0..4113 x 4 patterns, large lengths, unaligned starts, "123456789" ->
+// CBF43926) and prototypes/i9-arch/crc_corpus_check.cpp (corpus chunk sweep).
+static uint32_t crc32_slice8(const uint8_t* p, size_t n) {
+    // Q[s][i] = R^(7-s)(T[i]) where T is the classic table T[i] = R^8(i).
+    // NOTE (corrected 2026-09-04, decode-perf P0): the previous build seeded
+    // t[0]=classic T and t[s]=R^(8-s)(raw byte i) for s>=1. That makes
+    // t[0] = R^8(i) != R^7(T[i]), so the FIRST table was wrong (only the
+    // first - s>=1 happened to agree). Correct invariant is Q[s]=R^(7-s)(T[i]),
+    // which puts the classic table at index 7, not 0.
+    static std::array<std::array<uint32_t,256>,8> qtabs = []{
+        std::array<std::array<uint32_t,256>,8> t{};
+        // classic table T[i] = R^8(i), stored at index 7 (== R^0(T[i]))
+        for(uint32_t i=0;i<256;++i){ uint32_t c=i; for(int k=0;k<8;++k)c=(c&1)?(0xEDB88320u^(c>>1)):(c>>1); t[7][i]=c; }
+        for(int s=0;s<8;++s){
+            int steps=7-s;
+            for(uint32_t i=0;i<256;++i){
+                uint32_t c=t[7][i];                 // start from T[i], not raw i
+                for(int r=0;r<steps;++r) c=(t[7][c&0xFFu])^(c>>8);
+                t[s][i]=c;
+            }
+        }
         return t;
     }();
     uint32_t c=0xFFFFFFFFu;
-    for(size_t i=0;i<n;++i)c=table[(c^p[i])&0xFFu]^(c>>8);
+    // Slicing-by-8 main loop (unaligned-safe byte loads; all shifts <32).
+    // NOTE (corrected): '^' binds TIGHTER than '|' in C++, so the previous
+    // `c ^ p[0] | (p[1]<<8) | ...` parsed as (c^p[0])|(p[1]<<8)|... and OR-ed
+    // the top 3 message bytes instead of XOR-ing them. Parenthesised.
+    while(n>=8){
+        uint32_t one = c ^ ((uint32_t)p[0] | ((uint32_t)p[1]<<8) | ((uint32_t)p[2]<<16) | ((uint32_t)p[3]<<24));
+        uint32_t two = (uint32_t)p[4] | ((uint32_t)p[5]<<8) | ((uint32_t)p[6]<<16) | ((uint32_t)p[7]<<24);
+        c = qtabs[0][one&0xFFu]
+          ^ qtabs[1][(one>>8)&0xFFu]
+          ^ qtabs[2][(one>>16)&0xFFu]
+          ^ qtabs[3][one>>24]
+          ^ qtabs[4][two&0xFFu]
+          ^ qtabs[5][(two>>8)&0xFFu]
+          ^ qtabs[6][(two>>16)&0xFFu]
+          ^ qtabs[7][two>>24];
+        p+=8; n-=8;
+    }
+    // Tail (<8 bytes): classic bytewise refinement (classic table = index 7).
+    for(size_t i=0;i<n;++i)c=qtabs[7][(c^p[i])&0xFFu]^(c>>8);
     return c^0xFFFFFFFFu;
+}
+#if defined(__x86_64__) || defined(_M_X64)
+// PCLMULQDQ feature check (CPUID leaf 1, ECX bit 1).
+static bool crc32_has_pclmul() {
+#if defined(_MSC_VER) || defined(__clang__)
+    int regs[4]; __cpuid(regs, 1); return (regs[2] >> 1) & 1;
+#elif defined(__GNUC__)
+    unsigned a=0,b=0,c=0,d=0; __cpuid(1, a, b, c, d); return (c >> 1) & 1;
+#else
+    return false;
+#endif
+}
+#if defined(__clang__) || defined(__GNUC__)
+// clang-cl/GCC: enable the ISA only for this function (no global -mpclmul needed).
+__attribute__((target("pclmul,sse4.1")))
+#endif
+static uint32_t crc32_pclmul(const uint8_t* src, size_t len) {
+    if (len < 64) return crc32_slice8(src, len);
+    // Constants below implement the reflected IEEE CRC-32 (same poly/init/final
+    // as crc32_slice8). Validated bit-exact by crc_bit_exact.cpp, not trusted
+    // from any prototype comment.
+    const __m128i f4  = _mm_set_epi32(0x00000001, 0x54442bd4, 0x00000001, 0xc6e41596);
+    const __m128i k12 = _mm_set_epi32(0x00000001, 0x751997d0, 0x00000000, 0xccaa009e);
+    const __m128i bk  = _mm_set_epi32(0x00000001, 0xdb710640, 0xb4e5b025, 0xf7011641);
+    // 0x9db42487 encodes the 0xFFFFFFFF init/final-xor of the reflected CRC.
+    __m128i c0 = _mm_cvtsi32_si128(0x9db42487);
+    __m128i c1 = _mm_setzero_si128();
+    __m128i c2 = _mm_setzero_si128();
+    __m128i c3 = _mm_setzero_si128();
+    while (len >= 64) {
+        __m128i t0 = _mm_loadu_si128((const __m128i*)(src));
+        __m128i t1 = _mm_loadu_si128((const __m128i*)(src + 16));
+        __m128i t2 = _mm_loadu_si128((const __m128i*)(src + 32));
+        __m128i t3 = _mm_loadu_si128((const __m128i*)(src + 48));
+        src += 64; len -= 64;
+        __m128i l0 = _mm_clmulepi64_si128(c0, f4, 0x01), h0 = _mm_clmulepi64_si128(c0, f4, 0x10);
+        __m128i l1 = _mm_clmulepi64_si128(c1, f4, 0x01), h1 = _mm_clmulepi64_si128(c1, f4, 0x10);
+        __m128i l2 = _mm_clmulepi64_si128(c2, f4, 0x01), h2 = _mm_clmulepi64_si128(c2, f4, 0x10);
+        __m128i l3 = _mm_clmulepi64_si128(c3, f4, 0x01), h3 = _mm_clmulepi64_si128(c3, f4, 0x10);
+        c0 = _mm_xor_si128(_mm_xor_si128(l0, h0), t0);
+        c1 = _mm_xor_si128(_mm_xor_si128(l1, h1), t1);
+        c2 = _mm_xor_si128(_mm_xor_si128(l2, h2), t2);
+        c3 = _mm_xor_si128(_mm_xor_si128(l3, h3), t3);
+    }
+    // Fold the 4 x 128-bit lanes down to one, then Barrett-reduce 128 -> 32.
+    { __m128i lo=_mm_clmulepi64_si128(c0,k12,0x01), hi=_mm_clmulepi64_si128(c0,k12,0x10);
+      c1=_mm_xor_si128(_mm_xor_si128(c1,lo),hi);
+      lo=_mm_clmulepi64_si128(c1,k12,0x01); hi=_mm_clmulepi64_si128(c1,k12,0x10);
+      c2=_mm_xor_si128(_mm_xor_si128(c2,lo),hi);
+      lo=_mm_clmulepi64_si128(c2,k12,0x01); hi=_mm_clmulepi64_si128(c2,k12,0x10);
+      c3=_mm_xor_si128(_mm_xor_si128(c3,lo),hi); }
+    __m128i x0 = _mm_clmulepi64_si128(c3, bk, 0x00);
+    __m128i x1 = _mm_clmulepi64_si128(x0, bk, 0x10);
+    x1 = _mm_blend_epi16(x1, _mm_setzero_si128(), 0xcf);
+    x0 = _mm_xor_si128(x1, c3);
+    __m128i ra = _mm_clmulepi64_si128(x0, bk, 0x01);
+    __m128i rb = _mm_clmulepi64_si128(ra, bk, 0x10);
+    uint32_t reg = (uint32_t)_mm_extract_epi32(rb, 2);
+    // Tail (<64 B): classic bytewise refinement of the live register (do NOT
+    // complement here; ~reg is applied once at the end, as in stage 1).
+    if (len) {
+        static const std::array<uint32_t,256> T = []{
+            std::array<uint32_t,256> t{};
+            for(uint32_t i=0;i<256;++i){ uint32_t c=i; for(int k=0;k<8;++k)c=(c&1)?(0xEDB88320u^(c>>1)):(c>>1); t[i]=c; }
+            return t; }();
+        for (size_t i = 0; i < len; ++i) reg = T[(reg ^ src[i]) & 0xFFu] ^ (reg >> 8);
+    }
+    return ~reg;
+}
+#endif // x86-64
+// Dispatcher: PCLMULQDQ when the CPU advertises it, slicing-by-8 otherwise.
+// Both compute the identical checksum (see the evidence note above).
+static uint32_t crc32(const uint8_t* p, size_t n) {
+#if defined(__x86_64__) || defined(_M_X64)
+    static const bool has = crc32_has_pclmul();
+    return has ? crc32_pclmul(p, n) : crc32_slice8(p, n);
+#else
+    return crc32_slice8(p, n);
+#endif
 }
 static void put_u32le(std::vector<uint8_t>& out,uint32_t x){ for(int i=0;i<4;++i)out.push_back(static_cast<uint8_t>(x>>(8*i))); }
 static uint32_t get_u32le(const uint8_t*& p,const uint8_t* e){ if(e-p<4)throw std::runtime_error("truncated u32"); uint32_t x=uint32_t(p[0])|(uint32_t(p[1])<<8)|(uint32_t(p[2])<<16)|(uint32_t(p[3])<<24); p+=4; return x; }
@@ -254,6 +466,7 @@ struct SparseToken {
     std::vector<uint32_t> off;
     std::vector<uint8_t> val;
     std::vector<uint32_t> tfo;  // TCOPY transform-field window indices (4-aligned)
+    int64_t delta = 0;          // ARI-REF (mode 16): transmitted per-word additive constant (type 4 only)
 };
 
 static inline uint32_t hash4(const uint8_t* p) {
@@ -1367,6 +1580,29 @@ static std::vector<uint8_t> encode_stream(const std::vector<uint8_t>& src) {
     return best->bytes;
 }
 
+// Ratio-only stream selector: exact smallest encoded byte count, with the same
+// stable stream-codec wire IDs as encode_stream().  This intentionally ignores
+// the decode-cost J term: backend ratio experiments must not conflate a stream
+// economics policy with the representation/postcoder comparison.
+static std::vector<uint8_t> encode_stream_smallest(const std::vector<uint8_t>& src) {
+    std::vector<std::vector<uint8_t>> cands;
+    std::vector<uint8_t> raw; raw.push_back(0); put_uvar(raw,src.size()); raw.insert(raw.end(),src.begin(),src.end());
+    cands.push_back(std::move(raw));
+    if(src.size()>=16) {
+        cands.push_back(rans_stream_bytes(src,kRans4096,1));
+        cands.push_back(rans_stream_bytes(src,kRans512,2));
+        cands.push_back(rans_stream_bytes(src,kRans256,3));
+        cands.push_back(huffman_stream_bytes(src,huffman_lengths(src)));
+        std::array<uint32_t,256> cnt{}; for(uint8_t b:src) ++cnt[b];
+        uint8_t def=0; for(int i=1;i<256;++i) if(cnt[i]>cnt[def]) def=uint8_t(i);
+        if(cnt[def]>=src.size()/2) cands.push_back(defexc_stream_bytes(src,def));
+        if(src.size()>=4096) cands.push_back(ctx_stream_bytes(src,kRans4096));
+    }
+    size_t best=0;
+    for(size_t i=1;i<cands.size();++i) if(cands[i].size()<cands[best].size()) best=i;
+    return std::move(cands[best]);
+}
+
 // ---- S6-1 whole-codec stream budget (mode-15 hot-op streams) ----------------
 // Per-stream codec choice by the PRE-REGISTERED additive J = L + lambda*C_decode
 // (lambda = 0.01 bytes/us, the EXP. L binding constant) with C_decode
@@ -1925,19 +2161,26 @@ static std::vector<uint8_t> encode_tokens_rans(const std::vector<uint8_t>&d,cons
     std::vector<uint8_t> out; for(const auto* v:{&types,&ll,&ml,&ds,&lits}){auto z=encode_stream(*v);put_uvar(out,z.size());out.insert(out.end(),z.begin(),z.end());} return out;
 }
 
-static std::vector<uint8_t> decode_tokens_rans(const uint8_t*p,size_t n,size_t out_len){
+// ALLOC leg (I9 decode): eager stream decode is kept (bulk decode beats
+// per-symbol pull, see the MAT falsification) but the block is written straight
+// into the caller's output slot, so the token loop is the only consumer pass.
+static void decode_tokens_rans_into(const uint8_t*p,size_t n,uint8_t*dst,size_t out_len){
     const uint8_t*e=p+n;std::array<std::vector<uint8_t>,5>s;
     const size_t max_sub=16*out_len+64; // provable per-substream bound: varints(<=10B)*tokens(<=out_len) + literals
     for(int i=0;i<5;++i){uint64_t zn=get_uvar(p,e);if(zn>uint64_t(e-p))throw std::runtime_error("truncated substream");const uint8_t*q=p;const uint8_t*qe=p+zn;s[i]=decode_stream(q,qe,max_sub);if(q!=qe)throw std::runtime_error("substream trailing bytes");p+=zn;}
     if(p!=e)throw std::runtime_error("payload trailing bytes");
-    size_t ip_ll=0,ip_ml=0,ip_ds=0,ip_lit=0;std::vector<uint8_t>out;out.reserve(out_len);
+    size_t ip_ll=0,ip_ml=0,ip_ds=0,ip_lit=0,op=0;
     for(uint8_t type:s[0]){
-        if(out.size()>=out_len)throw std::runtime_error("too many tokens");
-        if(type==0){uint64_t len=read_varint_bytes(s[1],ip_ll)+1;if(len>out_len-out.size()||len>s[4].size()-ip_lit)throw std::runtime_error("bad literal run");out.insert(out.end(),s[4].begin()+ip_lit,s[4].begin()+ip_lit+len);ip_lit+=len;}
-        else if(type==1){uint64_t len=read_varint_bytes(s[2],ip_ml)+4,dist=read_varint_bytes(s[3],ip_ds)+1;if(dist>out.size()||len>out_len-out.size())throw std::runtime_error("bad rANS match");for(uint64_t k=0;k<len;++k)out.push_back(out[out.size()-dist]);}
+        if(op>=out_len)throw std::runtime_error("too many tokens");
+        if(type==0){uint64_t len=read_varint_bytes(s[1],ip_ll)+1;if(len>out_len-op||len>s[4].size()-ip_lit)throw std::runtime_error("bad literal run");std::memcpy(dst+op,s[4].data()+ip_lit,static_cast<size_t>(len));op+=static_cast<size_t>(len);ip_lit+=static_cast<size_t>(len);}
+        else if(type==1){uint64_t len=read_varint_bytes(s[2],ip_ml)+4,dist=read_varint_bytes(s[3],ip_ds)+1;if(dist>op||len>out_len-op)throw std::runtime_error("bad rANS match");for(uint64_t k=0;k<len;++k)dst[op+k]=dst[op+k-dist];op+=static_cast<size_t>(len);}
         else throw std::runtime_error("bad token type");
     }
-    if(out.size()!=out_len||ip_ll!=s[1].size()||ip_ml!=s[2].size()||ip_ds!=s[3].size()||ip_lit!=s[4].size()) throw std::runtime_error("substream consumption mismatch");
+    if(op!=out_len||ip_ll!=s[1].size()||ip_ml!=s[2].size()||ip_ds!=s[3].size()||ip_lit!=s[4].size()) throw std::runtime_error("substream consumption mismatch");
+}
+static std::vector<uint8_t> decode_tokens_rans(const uint8_t*p,size_t n,size_t out_len){
+    std::vector<uint8_t> out(out_len);
+    decode_tokens_rans_into(p,n,out.data(),out_len);
     return out;
 }
 
@@ -2055,6 +2298,287 @@ static std::vector<uint8_t> decode_tokens_sparse(const uint8_t* p, size_t n, siz
     }
     if(out.size()!=out_len||ip_ll!=s[1].size()||ip_ml!=s[2].size()||ip_ds!=s[3].size()
        ||ip_lit!=s[4].size()||ip_mask!=s[5].size()||ip_res!=s[6].size())
+        throw std::runtime_error("substream consumption mismatch");
+    return out;
+}
+
+// ---- ARI-REF backend (mode 16): additive arithmetic reference --------------
+// Experiment Z / I8 mode 16. ARI-REF(d, L=4W, Delta, R): copy L bytes (W aligned
+// u32 words) from a NON-OVERLAPPING source at distance d (d >= L, d % 4 == 0),
+// add one TRANSMITTED constant per-word Delta to every copied word, then apply
+// sparse single-byte residuals R (absolute target bytes under a mode-11 style
+// mask). Implicit Delta = sigma*(d/4) is EXCLUDED by the frozen pre-registration
+// (it failed its ablation: +38.35% vs transmitted on the same token stream).
+// Faithful port of prototypes/orbit_ariref/ariref.cpp. The acceptance cost model
+// is reproduced VERBATIM from the validated harness - NO re-tuning (threshold-fit
+// invalidates the gate per docs/pre-registrations/i8-ari-ref.md §3).
+// Wire: 9 separated streams, each via encode_stream:
+//   S0 types: 0 literal run, 1 exact match, 4 ARI-REF
+//   S1 literal-run length uvarint(len-1)
+//   S2 exact-match length uvarint(len-4)              [type 1]
+//   S3 distance uvarint(dist-1)                       [types 1 and 4, SHARED]
+//   S4 literal bytes
+//   S5 correction masks, ceil(len/32) LE u32 words    [type 4]
+//   S6 residual bytes in mask order                   [type 4]
+//   S7 ARI word count uvarint(W-1)                    [type 4]
+//   S8 ARI Delta, zigzag varint                       [type 4]
+// Decode of an ARI token: base = out.size()-dist; copy len bytes (non-overlapping,
+// dist >= len is enforced), add Delta to each 4-byte word, then overwrite masked
+// bytes from the residual stream. popcount(mask) == residual count is strict.
+
+static constexpr uint32_t kAriMinLen   = 16;      // >= 4 words (harness kAriMinLen)
+static constexpr uint32_t kAriMaxLen   = 4096;    // span-offset width limit (u32 bitmap)
+static constexpr uint32_t kAriMaxDist  = 1u << 22;
+static constexpr uint32_t kAriCQ       = 16;      // step-bucket capacity (FIFO)
+static constexpr uint32_t kAriExactCQ  = 64;      // exact-bucket capacity (FIFO)
+static constexpr uint32_t kStepWin     = 7;       // step key = w[7]-w[0] over 8 words
+static constexpr uint32_t kAriHashBits = 18;
+
+static uint64_t ari_vsize(uint64_t v){ uint64_t n=1; while(v>=128){++n; v>>=7;} return n; }
+static uint64_t ari_lit_cost(uint64_t len){ return 1+ari_vsize(len)+len; }
+static uint64_t ari_exact_cost(uint64_t len,uint64_t dist){ return 1+ari_vsize(len-4)+ari_vsize(dist-1); }
+static uint64_t ari_tx_cost(uint64_t len,uint64_t dist,int64_t delta,uint64_t nres){
+    uint64_t z = delta>=0 ? uint64_t(delta)*2 : uint64_t(-(delta+1))*2+1;
+    return 1+ari_vsize(len/4-1)+ari_vsize(dist-1)+ari_vsize(z)+4*((len+31)/32)+nres;
+}
+static uint64_t ari_residual_count(const uint8_t* in,size_t pos,uint64_t dist,uint64_t len,int64_t delta){
+    uint64_t src=pos-dist,nres=0;
+    for(uint64_t w=0;w<len/4;++w){
+        uint32_t s,t; std::memcpy(&s,in+src+w*4,4); std::memcpy(&t,in+pos+w*4,4);
+        uint32_t x=uint32_t(uint64_t(s)+uint64_t(delta))^t;
+        nres+=(x&0xFF?1:0)+(x&0xFF00?1:0)+(x&0xFF0000?1:0)+(x&0xFF000000u?1:0);
+    }
+    return nres;
+}
+static inline uint32_t ari_hash4(const uint8_t* p){
+    uint32_t x; std::memcpy(&x,p,4);
+    x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16;
+    return x&((1u<<kAriHashBits)-1);
+}
+static inline uint32_t ari_hash_i64(int64_t k){
+    return uint32_t((uint64_t(k)*0x9E3779B1ull)>>(64-kAriHashBits));
+}
+
+struct AriMatch { uint64_t len=0, dist=0, nres=0; int64_t delta=0; };
+
+static std::vector<SparseToken> parse_ariref(const std::vector<uint8_t>& d, uint32_t max_match) {
+    const size_t n=d.size();
+    std::vector<SparseToken> toks;
+    if(n<8) { if(n){ SparseToken t; t.type=0; t.pos=0; t.len=(uint32_t)n; toks.push_back(std::move(t)); } return toks; }
+    const uint8_t* p=d.data();
+    struct StepEnt { int64_t key; uint32_t pos; };
+    std::vector<std::vector<uint32_t>> extab(size_t(1)<<kAriHashBits);
+    std::vector<std::vector<StepEnt>>  steptab(size_t(1)<<kAriHashBits);
+    auto index_pos=[&](size_t hp){
+        if(hp+4<=n){ auto&b=extab[ari_hash4(p+hp)]; if(b.size()>=kAriExactCQ) b.erase(b.begin()); b.push_back(uint32_t(hp)); }
+        if(hp%4==0 && hp+4*(kStepWin+1)<=n){
+            uint32_t w0,w7; std::memcpy(&w0,p+hp,4); std::memcpy(&w7,p+hp+4*kStepWin,4);
+            int64_t key=int64_t(w7)-int64_t(w0);
+            auto&b=steptab[ari_hash_i64(key)]; if(b.size()>=kAriCQ) b.erase(b.begin()); b.push_back({key,uint32_t(hp)});
+        }
+    };
+    auto longest_exact=[&](size_t pos)->AriMatch{
+        AriMatch best{};
+        if(pos+4>n) return best;
+        uint32_t hb; std::memcpy(&hb,p+pos,4);
+        for(uint32_t q: extab[ari_hash4(p+pos)]) {
+            if(size_t(q)>=pos) continue;
+            uint32_t a; std::memcpy(&a,p+q,4);
+            if(a!=hb) continue;                      // verify anchor: hash collisions exist
+            size_t len=4, lim=std::min<size_t>(max_match,n-pos);
+            while(len<lim && p[q+len]==p[pos+len]) ++len;
+            if(len>best.len) best={len,uint64_t(pos-q),0,0};
+        }
+        return best;
+    };
+    auto longest_ari=[&](size_t pos)->AriMatch{
+        AriMatch best{};
+        if(pos%4!=0 || pos+4>n) return best;
+        size_t we=pos+4*kStepWin;
+        if(we+4>n) return best;
+        uint32_t w0,w7; std::memcpy(&w0,p+pos,4); std::memcpy(&w7,p+we,4);
+        int64_t key=int64_t(w7)-int64_t(w0);
+        for(const StepEnt& e: steptab[ari_hash_i64(key)]) {
+            if(e.key!=key) continue;                 // exact key verification
+            size_t q=e.pos;
+            if(q>=pos) continue;
+            uint64_t dist=pos-q;
+            if(dist<kAriMinLen||dist>kAriMaxDist||dist%4!=0) continue;
+            uint32_t s0,t0; std::memcpy(&s0,p+q,4); std::memcpy(&t0,p+pos,4);
+            int64_t d0=int64_t(int32_t(t0-s0));      // anchor Delta: u32 wrap, then sign-extend
+            uint64_t W=0,mism=0;
+            while(pos+(W+1)*4<=n && (W+1)*4<=dist && (W+1)*4<=kAriMaxLen) {
+                uint32_t sv,tv; std::memcpy(&sv,p+q+W*4,4); std::memcpy(&tv,p+pos+W*4,4);
+                uint32_t x=uint32_t(uint64_t(sv)+uint64_t(d0))^tv;
+                if(x){ mism+=(x&0xFF?1:0)+(x&0xFF00?1:0)+(x&0xFF0000?1:0)+(x&0xFF000000u?1:0);
+                       if(mism*8>(W+1)*4+32) break; } // residual-density guard (harness verbatim)
+                ++W;
+            }
+            if(W<4) continue;
+            uint64_t L=W*4;
+            uint64_t nres=ari_residual_count(p,pos,dist,L,d0);
+            if(ari_tx_cost(L,dist,d0,nres)>=ari_lit_cost(L)) continue; // must beat literals
+            if(L>best.len || (L==best.len && nres<best.nres)) best={L,dist,nres,d0};
+        }
+        return best;
+    };
+    size_t lit_start=0,lit_len=0;
+    auto flush_lit=[&]{ if(lit_len){ SparseToken t; t.type=0; t.pos=uint32_t(lit_start); t.len=uint32_t(lit_len); toks.push_back(std::move(t)); lit_len=0; } };
+    for(size_t pos=0;pos<n;) {
+        AriMatch e=longest_exact(pos);
+        AriMatch a=longest_ari(pos);
+        bool use_ex = e.len>=4 && ari_exact_cost(e.len,e.dist)<=ari_lit_cost(e.len);
+        bool use_ari= a.len>=kAriMinLen;
+        uint64_t ex_c = use_ex?ari_exact_cost(e.len,e.dist):~0ull;
+        uint64_t ar_c = use_ari?ari_tx_cost(a.len,a.dist,a.delta,a.nres):~0ull;
+        if(use_ari && (!use_ex || ar_c<ex_c)) {
+            flush_lit();
+            SparseToken t; t.type=4; t.pos=uint32_t(pos); t.len=uint32_t(a.len);
+            t.dist=uint32_t(a.dist); t.delta=a.delta;
+            uint64_t src=pos-a.dist;
+            for(uint64_t w=0;w<a.len/4;++w){
+                uint32_t sv,tv; std::memcpy(&sv,p+src+w*4,4); std::memcpy(&tv,p+pos+w*4,4);
+                uint32_t x=uint32_t(uint64_t(sv)+uint64_t(a.delta))^tv;
+                for(int by=0;by<4;++by) if(x&(0xFFu<<(8*by))){
+                    t.off.push_back(uint32_t(w*4+size_t(by)));
+                    t.val.push_back(uint8_t(tv>>(8*by)));
+                }
+            }
+            toks.push_back(std::move(t));
+            for(uint64_t k=0;k<a.len;++k) index_pos(pos+k);
+            pos+=a.len;
+        } else if(use_ex) {
+            flush_lit();
+            SparseToken t; t.type=1; t.pos=uint32_t(pos); t.len=uint32_t(e.len); t.dist=uint32_t(e.dist);
+            toks.push_back(std::move(t));
+            for(uint64_t k=0;k<e.len;++k) index_pos(pos+k);
+            pos+=e.len;
+        } else {
+            if(lit_len==0) lit_start=pos;
+            ++lit_len; index_pos(pos); ++pos;
+        }
+    }
+    flush_lit();
+    return toks;
+}
+
+static std::vector<uint8_t> encode_tokens_ariref(const std::vector<uint8_t>& d, const std::vector<SparseToken>& toks) {
+    std::vector<uint8_t> types,ll,ml,ds,lits,masks,resid,aw,ad;
+    types.reserve(toks.size());
+    std::array<uint32_t,(kAriMaxLen+31)/32> words{};
+    for(auto&t:toks) {
+        types.push_back(t.type);
+        if(t.type==0) {
+            append_varint_bytes(ll,t.len-1);
+            lits.insert(lits.end(),d.begin()+t.pos,d.begin()+t.pos+t.len);
+            continue;
+        }
+        if(t.type==1) { append_varint_bytes(ml,t.len-4); append_varint_bytes(ds,t.dist-1); continue; }
+        if(t.type!=4) throw std::runtime_error("ariref: unsupported token type");
+        uint32_t W=t.len/4;
+        append_varint_bytes(aw,W-1);
+        append_varint_bytes(ds,t.dist-1);
+        uint64_t z = t.delta>=0 ? uint64_t(t.delta)*2 : uint64_t(-(t.delta+1))*2+1;
+        append_varint_bytes(ad,z);
+        uint32_t nwords=(t.len+31)/32;
+        std::fill(words.begin(),words.begin()+nwords,0u);
+        for(size_t k=0;k<t.off.size();++k) {
+            if(t.off[k]>=t.len) throw std::runtime_error("ariref: residual offset out of range");
+            words[t.off[k]/32]|=(1u<<(t.off[k]%32));
+            resid.push_back(t.val[k]);
+        }
+        for(uint32_t w=0;w<nwords;++w) {
+            uint32_t m=words[w];
+            masks.push_back(static_cast<uint8_t>(m));
+            masks.push_back(static_cast<uint8_t>(m>>8));
+            masks.push_back(static_cast<uint8_t>(m>>16));
+            masks.push_back(static_cast<uint8_t>(m>>24));
+        }
+    }
+    std::vector<uint8_t> out;
+    for(const auto* v:{&types,&ll,&ml,&ds,&lits,&masks,&resid,&aw,&ad}) {
+        auto z=encode_stream(*v);
+        put_uvar(out,z.size());
+        out.insert(out.end(),z.begin(),z.end());
+    }
+    return out;
+}
+
+static std::vector<uint8_t> decode_tokens_ariref(const uint8_t* p, size_t n, size_t out_len) {
+    const uint8_t* e=p+n;
+    std::array<std::vector<uint8_t>,9> s;
+    const size_t max_sub=16*out_len+64;
+    for(int i=0;i<9;++i) {
+        uint64_t zn=get_uvar(p,e);
+        if(zn>uint64_t(e-p)) throw std::runtime_error("truncated substream");
+        const uint8_t* q=p; const uint8_t* qe=p+zn;
+        s[i]=decode_stream(q,qe,max_sub);
+        if(q!=qe) throw std::runtime_error("substream trailing bytes");
+        p+=zn;
+    }
+    if(p!=e) throw std::runtime_error("payload trailing bytes");
+    size_t ip_ll=0,ip_ml=0,ip_ds=0,ip_lit=0,ip_mask=0,ip_res=0,ip_aw=0,ip_ad=0;
+    std::vector<uint8_t> out; out.reserve(out_len);
+    for(uint8_t type:s[0]) {
+        if(out.size()>=out_len) throw std::runtime_error("too many tokens");
+        if(type==0) {
+            uint64_t len=read_varint_bytes(s[1],ip_ll)+1;
+            if(len>out_len-out.size()||len>s[4].size()-ip_lit) throw std::runtime_error("bad literal run");
+            out.insert(out.end(),s[4].begin()+ip_lit,s[4].begin()+ip_lit+len);
+            ip_lit+=len;
+        } else if(type==1) {
+            uint64_t len=read_varint_bytes(s[2],ip_ml)+4;
+            uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
+            if(dist==0||dist>out.size()||len>out_len-out.size()) throw std::runtime_error("bad exact match");
+            for(uint64_t k=0;k<len;++k) out.push_back(out[out.size()-dist]);
+        } else if(type==4) {
+            uint64_t W=read_varint_bytes(s[7],ip_aw)+1;
+            uint64_t dist=read_varint_bytes(s[3],ip_ds)+1;
+            uint64_t z=read_varint_bytes(s[8],ip_ad);
+            int64_t delta = (z&1) ? -int64_t(z>>1)-1 : int64_t(z>>1);
+            if(W==0||W>kAriMaxLen/4) throw std::runtime_error("ari word count out of range");
+            uint64_t len=W*4;
+            // Non-overlap + alignment + history bounds, per the harness contract
+            // (harness: `if(dist%4!=0||dist<len) throw` / `dist>out.size()`).
+            if(dist%4!=0||dist<len) throw std::runtime_error("ari overlap/align violation");
+            if(dist>out.size()) throw std::runtime_error("ari dist beyond history");
+            if(len>out_len-out.size()) throw std::runtime_error("ari span exceeds output");
+            uint64_t nwords=(len+31)/32;
+            if(nwords*4>s[5].size()-ip_mask) throw std::runtime_error("truncated ari mask stream");
+            std::array<uint32_t,(kAriMaxLen+31)/32> words{};
+            uint32_t pc=0;
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=uint32_t(s[5][ip_mask])|(uint32_t(s[5][ip_mask+1])<<8)
+                          |(uint32_t(s[5][ip_mask+2])<<16)|(uint32_t(s[5][ip_mask+3])<<24);
+                ip_mask+=4;
+                uint32_t first=uint32_t(w*32);
+                // Reject mask bits beyond the span (harness prototype lacked this;
+                // without it a corrupt wire writes out of bounds).
+                if(first+32>len) { uint32_t over=first+32-len; if((m>>(32-over))!=0) throw std::runtime_error("ari mask bits beyond span"); }
+                words[w]=m;
+                pc+=std::popcount(m);
+            }
+            if(pc>s[6].size()-ip_res) throw std::runtime_error("truncated ari residual stream");
+            size_t start=out.size();
+            for(uint64_t k=0;k<len;++k) out.push_back(out[start+k-dist]); // non-overlapping copy
+            for(uint64_t w=0;w<W;++w) {
+                uint32_t v; std::memcpy(&v,out.data()+start+w*4,4);
+                uint32_t r=uint32_t(uint64_t(v)+uint64_t(delta));
+                std::memcpy(out.data()+start+w*4,&r,4);
+            }
+            for(uint64_t w=0;w<nwords;++w) {
+                uint32_t m=words[w];
+                while(m) {
+                    uint32_t b=std::countr_zero(m);
+                    out[start+uint32_t(w*32)+b]=s[6][ip_res++];
+                    m&=m-1;
+                }
+            }
+        } else throw std::runtime_error("unknown ariref token type");
+    }
+    if(out.size()!=out_len||ip_ll!=s[1].size()||ip_ml!=s[2].size()||ip_ds!=s[3].size()
+       ||ip_lit!=s[4].size()||ip_mask!=s[5].size()||ip_res!=s[6].size()
+       ||ip_aw!=s[7].size()||ip_ad!=s[8].size())
         throw std::runtime_error("substream consumption mismatch");
     return out;
 }
@@ -2462,7 +2986,7 @@ static std::vector<uint8_t> decode_tokens_hotop(const uint8_t* p, size_t n, size
 // demand (no stream vectors materialized); hot ops execute with one pull +
 // memcpy. The macro streams stay eager (rare tokens). This is the decode leg's
 // win: the hot path has no per-field entropy pulls beyond the opcode itself.
-static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n, size_t out_len) {
+static void decode_tokens_hotop_fused_into(const uint8_t* p, size_t n, uint8_t* out, size_t out_len) {
     const uint8_t* e = p + n;
     if (p >= e) throw std::runtime_error("truncated hotop header");
     uint32_t num_states = *p++;
@@ -2483,10 +3007,8 @@ static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n
     }
     const size_t max_sub = 16 * out_len + 64;
     StreamPull pop, plit;
-    std::array<std::vector<uint8_t>, 4> m; // macro types / ll / ml / dflags+dvar fused? -> keep 4: types,ll,ml,flagsanddvar combined below
-    // macro streams: types / ll / ml / dflags / dvar / masks / resid = 7
     std::array<StreamPull, 7> mp;
-    std::array<std::vector<uint8_t>, 7> mv; // eager fallback storage (rare; decode eagerly)
+    std::array<std::vector<uint8_t>, 7> mv; // eager macro-stream storage (bulk decode beats per-symbol pull)
     // parse the 9 substreams: opcodes, macro types, macro ll, macro ml, macro dflags, macro dvar, literals, macro masks, macro resid
     auto parse_stream = [&](StreamPull& sp, std::vector<uint8_t>& storage, bool eager) {
         uint64_t zn = get_uvar(p, e);
@@ -2508,7 +3030,6 @@ static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n
     if (p != e) throw std::runtime_error("payload trailing bytes");
     size_t ip_mt = 0, ip_mll = 0, ip_mml = 0, ip_mdf = 0, ip_mdv = 0, ip_mask = 0, ip_res = 0;
     std::array<uint32_t, 2*kShapeClasses> last{};
-    std::vector<uint8_t> out(out_len);
     size_t pos = 0;
     uint8_t op;
     while (pop.next_byte(op)) {
@@ -2517,12 +3038,12 @@ static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n
             const HotOp& b = book[op];
             if (b.kind == 0) {
                 if (b.len > out_len - pos) throw std::runtime_error("bad hotop literal run");
-                if (!plit.pull_bytes(out.data() + pos, b.len)) throw std::runtime_error("truncated hotop literals");
+                if (!plit.pull_bytes(out + pos, b.len)) throw std::runtime_error("truncated hotop literals");
                 pos += b.len;
             } else {
                 uint32_t dist = last[b.shape];
                 if (dist == 0 || dist > pos || b.len > out_len - pos) throw std::runtime_error("bad hotop match");
-                uint8_t* o = out.data();
+                uint8_t* o = out;
                 if (dist >= b.len) { std::memcpy(o + pos, o + pos - dist, b.len); }
                 else for (uint64_t k = 0; k < b.len; ++k) o[pos + k] = o[pos + k - dist];
                 pos += b.len;
@@ -2533,7 +3054,7 @@ static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n
             if (type == 0) {
                 uint64_t len = read_varint_bytes(mv[1], ip_mll) + 1;
                 if (len > out_len - pos) throw std::runtime_error("bad macro literal");
-                if (!plit.pull_bytes(out.data() + pos, static_cast<size_t>(len))) throw std::runtime_error("truncated macro literals");
+                if (!plit.pull_bytes(out + pos, static_cast<size_t>(len))) throw std::runtime_error("truncated macro literals");
                 pos += static_cast<size_t>(len);
             } else if (type == 1 || type == 2) {
                 uint64_t len = read_varint_bytes(mv[2], ip_mml) + 4;
@@ -2549,7 +3070,7 @@ static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n
                 else throw std::runtime_error("bad macro flag");
                 if (dist == 0 || dist > pos) throw std::runtime_error("invalid macro dist");
                 ld = dist;
-                uint8_t* o = out.data();
+                uint8_t* o = out;
                 for (uint64_t k = 0; k < len; ++k) o[pos + k] = o[pos + k - dist];
                 pos += static_cast<size_t>(len);
                 if (type == 2) {
@@ -2583,6 +3104,10 @@ static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n
     if (pos != out_len || ip_mt != mv[0].size() || ip_mll != mv[1].size() || ip_mml != mv[2].size()
        || ip_mdf != mv[3].size() || ip_mdv != mv[4].size() || ip_mask != mv[5].size() || ip_res != mv[6].size())
         throw std::runtime_error("substream consumption mismatch");
+}
+static std::vector<uint8_t> decode_tokens_hotop_fused(const uint8_t* p, size_t n, size_t out_len) {
+    std::vector<uint8_t> out(out_len);
+    decode_tokens_hotop_fused_into(p, n, out.data(), out_len);
     return out;
 }
 
@@ -3259,6 +3784,15 @@ struct Options {
     bool stream_log=false; // --stream-log: record per-stream codec selection to stdout
     bool hotop_rlzp=false; // Experiment Y: RLZ/RePair stream codecs as hot-op book-stream candidates (--hotop-rlzp=on)
     bool hotop_budget=false; // S6-1: whole-codec stream budget on mode-15 book streams (size-proportional C_decode, lambda=0.01)
+    bool ariref=false;     // I8 mode-16: ARI-REF additive arithmetic reference (Experiment Z, transmitted-Delta only)
+    bool ratio_context=true; // ratio mode 17: decoder-routed order-1 context partition candidate
+    bool ratio_lines=true;   // ratio mode 17: line-record column transpose candidate
+    std::string ratio_backend="brotli"; // rev-2 mode-17 backend registry choice (wire id 1 today)
+    // E6 BWT backend experiments (ABLATION ONLY; production default behavior unchanged):
+    int bwt_post=-1;         // force one postcoder id (0/1/2/3/4) for the BWT backend; -1 = encoder picks smallest
+    bool bwt_lzp=false;      // LZP prepass before BWT (default OFF)
+    uint32_t bwt_subblock=128u<<20; // cap BWT sub-block size; default 128 MiB = effectively off for all 12 Silesia files (memory lever only, not a ratio lever)
+    uint32_t decode_threads=1; // parallel block-decode worker count; 1 = serial (zero behavioral change)
     bool quiet=false;
 };
 struct GlobalStats { uint64_t in=0,out=0,blocks=0,raw_blocks=0,compressed_blocks=0,literals=0,matches=0,matched_bytes=0,tokens=0; };
@@ -3292,6 +3826,742 @@ static bool probe_incompressible(const std::vector<uint8_t>& d) {
     return dup * 100 <= S; // <=1% repeats across the sample -> incompressible
 }
 
+// ---- Ratio-first envelope (block mode 17, format revision 2) ---------------
+// Revision 2 separates reversible representation choice from byte-compression
+// backend choice.  Backend IDs are decode semantics; encoder tuning such as
+// Brotli q11/lgwin30 is deliberately NOT encoded as backend identity.
+//
+// Transform 0 is the exact reference representation; transforms 1/2 are
+// reversible structural preconditioners. The encoder always compares against
+// transform 0 under the SAME backend and emits a transform only when its
+// COMPLETE payload is smaller. This isolates transform value from backend value.
+//
+// Wire payload:
+//   byte transform_id (0 direct, 1 ctx1-256, 2 line-columns)
+//   byte backend_id   (1 Brotli, 2 BWT; 0 reserved/invalid)
+//   uvarint transformed_size
+//   backend payload bytes
+//
+// ctx1 transformed bytes:
+//   256 x uvarint stream_len, then stream[0]..stream[255]
+// byte i is routed by the already-decoded previous byte (initial context 0), so
+// positions/context ids are not transmitted. Decoder recomputes the route.
+//
+// line-columns transformed bytes:
+//   uvarint record_count, record_count x uvarint record_len, then columns
+// Records end at '\n' (included); a final non-newline tail is a record. Column
+// lengths are derivable from record lengths and are therefore not stored.
+
+static constexpr uint8_t kRatioBackendBrotli = 1;
+static constexpr uint8_t kRatioBackendBwt    = 2;
+
+#ifdef ANVIL_HAVE_BROTLI
+static std::vector<uint8_t> brotli_q11_lw30_encode(const std::vector<uint8_t>& in) {
+    size_t cap=BrotliEncoderMaxCompressedSize(in.size());
+    if(cap==0) throw std::runtime_error("brotli size bound overflow");
+    std::vector<uint8_t> out(cap);
+    size_t n=cap;
+    const uint8_t* src=in.empty()?reinterpret_cast<const uint8_t*>(""):in.data();
+    if(!BrotliEncoderCompress(11,30,BROTLI_MODE_GENERIC,in.size(),src,&n,out.data()))
+        throw std::runtime_error("brotli q11 large-window encode failed");
+    out.resize(n);
+    return out;
+}
+
+static std::vector<uint8_t> brotli_lw_decode_exact(const uint8_t* p,size_t n,size_t expected) {
+    if(expected>(384ull<<20)) throw std::runtime_error("ratio transformed stream too large");
+    BrotliDecoderState* s=BrotliDecoderCreateInstance(nullptr,nullptr,nullptr);
+    if(!s) throw std::runtime_error("brotli decoder allocation failed");
+    struct Guard { BrotliDecoderState* p; ~Guard(){ BrotliDecoderDestroyInstance(p); } } guard{s};
+    if(!BrotliDecoderSetParameter(s,BROTLI_DECODER_PARAM_LARGE_WINDOW,1))
+        throw std::runtime_error("brotli large-window decoder setup failed");
+    std::vector<uint8_t> out(expected+1);
+    size_t ai=n, ao=out.size(), total_out=0;
+    const uint8_t* ni=p; uint8_t* no=out.data();
+    BrotliDecoderResult r=BrotliDecoderDecompressStream(s,&ai,&ni,&ao,&no,&total_out);
+    if(r!=BROTLI_DECODER_RESULT_SUCCESS || ai!=0 || total_out!=expected)
+        throw std::runtime_error("brotli ratio payload decode mismatch");
+    out.resize(expected);
+    return out;
+}
+#endif
+
+// Backend 2: BWT (libsais primitive) + independent ANVIL postcoders.
+// The postcoder registry is deliberately inside backend 2 so we can measure
+// sorting value separately from the entropy model without allocating more
+// top-level backend IDs for every experiment.
+//   0 = MTF + zero-run tokens, two smallest-size stream-suite streams
+//   1 = MTF + zero-run tokens, adaptive order-0 arithmetic
+//   2 = MTF + zero-run tokens, adaptive order-1 token arithmetic
+//   3 = raw BWT bytes, one smallest-size stream-suite stream (ablation/control)
+//   4 = QLFC-like local-frequency postcoder (rank derived from a symbol-
+//       associated LOCAL frequency estimate rather than global MTF recency)
+// Each payload begins with the postcoder id byte, then uvar(primary index),
+// then postcoder-specific payload. The primary index is externalized so the
+// decoder never needs the whole original block to invert the BWT.
+// NEW IDs ARE ADDED, NEVER REDEFINED. Decoders for 0..3 are byte-stable.
+static constexpr uint8_t kBwtPostStaticMtf = 0;
+static constexpr uint8_t kBwtPostArithO0   = 1;
+static constexpr uint8_t kBwtPostArithO1   = 2;
+static constexpr uint8_t kBwtPostRawStream = 3;
+static constexpr uint8_t kBwtPostQlfc      = 4; // QLFC-like local frequency
+
+struct BwtMtfRle {
+    std::vector<uint8_t> tokens; // 0 = run of rank-0; 1..255 = literal MTF rank
+    std::vector<uint8_t> runs;   // uvarint(run_len-1) bytes, one varint per token 0
+};
+
+static BwtMtfRle bwt_mtf_rle(const std::vector<uint8_t>& bwt) {
+    std::array<uint8_t,256> sym{}, pos{};
+    for(uint32_t i=0;i<256;++i){ sym[i]=static_cast<uint8_t>(i); pos[i]=static_cast<uint8_t>(i); }
+    BwtMtfRle r; r.tokens.reserve(bwt.size()/2+16); r.runs.reserve(bwt.size()/16+16);
+    uint64_t zrun=0;
+    auto flush_zero=[&](){ if(zrun){ r.tokens.push_back(0); append_varint_bytes(r.runs,zrun-1); zrun=0; } };
+    for(uint8_t b:bwt) {
+        uint32_t rank=pos[b];
+        if(rank==0){ ++zrun; continue; }
+        flush_zero();
+        r.tokens.push_back(static_cast<uint8_t>(rank));
+        for(uint32_t j=rank;j>0;--j){ sym[j]=sym[j-1]; pos[sym[j]]=static_cast<uint8_t>(j); }
+        sym[0]=b; pos[b]=0;
+    }
+    flush_zero();
+    return r;
+}
+
+static void bwt_mtf_emit_rank(std::array<uint8_t,256>& sym,uint8_t rank,std::vector<uint8_t>& out) {
+    uint8_t b=sym[rank]; out.push_back(b);
+    if(rank) {
+        for(uint32_t j=rank;j>0;--j) sym[j]=sym[j-1];
+        sym[0]=b;
+    }
+}
+
+static std::vector<uint8_t> bwt_mtf_expand(const std::vector<uint8_t>& tokens,const std::vector<uint8_t>& runs,size_t expected) {
+    std::array<uint8_t,256> sym{}; for(uint32_t i=0;i<256;++i)sym[i]=static_cast<uint8_t>(i);
+    std::vector<uint8_t> out; out.reserve(expected); size_t rp=0;
+    for(uint8_t t:tokens) {
+        if(out.size()>=expected) throw std::runtime_error("BWT MTF token overflow");
+        if(t==0) {
+            uint64_t rv=read_varint_bytes(runs,rp);
+            if(rv>=expected-out.size()) throw std::runtime_error("BWT zero run exceeds output");
+            size_t len=static_cast<size_t>(rv)+1;
+            out.insert(out.end(),len,sym[0]); // rank 0 leaves the MTF list unchanged
+        } else bwt_mtf_emit_rank(sym,t,out);
+    }
+    if(out.size()!=expected || rp!=runs.size()) throw std::runtime_error("BWT MTF stream consumption mismatch");
+    return out;
+}
+
+static std::pair<std::vector<uint8_t>,uint64_t> bwt_arith_encode(const BwtMtfRle& r,bool order1) {
+    ArithmeticEncoder ac; AdaptiveModel tok0(256), runm(256);
+    std::array<std::unique_ptr<AdaptiveModel>,257> tok1;
+    auto model1=[&](uint32_t ctx)->AdaptiveModel& { if(!tok1[ctx])tok1[ctx]=std::make_unique<AdaptiveModel>(256); return *tok1[ctx]; };
+    size_t rp=0; uint32_t prev=256;
+    for(uint8_t t:r.tokens) {
+        if(order1) model1(prev).encode(ac,t); else tok0.encode(ac,t);
+        prev=t;
+        if(t==0) {
+            for(;;) {
+                if(rp>=r.runs.size()) throw std::runtime_error("BWT run accounting bug");
+                uint8_t b=r.runs[rp++]; runm.encode(ac,b); if(!(b&0x80)) break;
+            }
+        }
+    }
+    if(rp!=r.runs.size()) throw std::runtime_error("BWT run accounting trailing bytes");
+    auto bits=ac.finish(); uint64_t nbits=ac.bit_count(); return {std::move(bits),nbits};
+}
+
+static std::vector<uint8_t> bwt_arith_decode(const uint8_t* p,size_t n,size_t expected,bool order1,uint64_t bit_count) {
+    if(bit_count==0 || bit_count>uint64_t(n)*8) throw std::runtime_error("bad BWT arithmetic bit count");
+    uint64_t need=(bit_count+7)/8; if(need!=n) throw std::runtime_error("BWT arithmetic byte count mismatch");
+    if((bit_count&7) && n) {
+        uint32_t pad=8-static_cast<uint32_t>(bit_count&7); uint8_t mask=static_cast<uint8_t>((1u<<pad)-1u);
+        if(p[n-1]&mask) throw std::runtime_error("nonzero BWT arithmetic padding");
+    }
+    ArithmeticDecoder ad(p,n); AdaptiveDecModel tok0(256), runm(256);
+    std::array<std::unique_ptr<AdaptiveDecModel>,257> tok1;
+    auto model1=[&](uint32_t ctx)->AdaptiveDecModel& { if(!tok1[ctx])tok1[ctx]=std::make_unique<AdaptiveDecModel>(256); return *tok1[ctx]; };
+    std::array<uint8_t,256> sym{}; for(uint32_t i=0;i<256;++i)sym[i]=static_cast<uint8_t>(i);
+    std::vector<uint8_t> out; out.reserve(expected); uint32_t prev=256;
+    while(out.size()<expected) {
+        uint8_t t=static_cast<uint8_t>(order1?model1(prev).decode(ad):tok0.decode(ad)); prev=t;
+        if(t==0) {
+            uint64_t rv=decode_uvar_m(ad,runm);
+            if(rv>=expected-out.size()) throw std::runtime_error("BWT arithmetic zero run exceeds output");
+            size_t len=static_cast<size_t>(rv)+1; out.insert(out.end(),len,sym[0]);
+        } else bwt_mtf_emit_rank(sym,t,out);
+    }
+    // Arithmetic termination may leave a bounded suffix of termination bits;
+    // bit_count fixes the exact payload byte extent and zero-padding above, so
+    // there can be no hidden trailing bytes or attacker-driven allocation.
+    return out;
+}
+
+// LZP side table: literals not matched + match stream. Reconstructed exactly.
+struct BwtLzpPrepass {
+    bool used=false;
+    std::vector<uint8_t> literals;
+    std::vector<uint8_t> matches; // (uvarint(dist-1), uvarint(len-3)) per match, forward order
+};
+
+// ---- LZP prepass (E6 ablation control) ------------------------------------
+// Replaces predictable long phrases with pointers BEFORE the BWT, so the
+// sorter sees a residue that is friendlier to the postcoder. Fully reversible:
+// the side table (literal runs + match streams) is transmitted, and the
+// decoder reconstructs the exact original block.
+//   literals: raw byte runs (stream-suite encoded as one substream).
+//   matches:   uvarint-encoded (dist-1, len-3). dist is BACKWARD (towards lower
+//              file offset); len-3 is uvarint (min match 3). Decoded strictly
+//              forward so the copy source is already materialized.
+[[maybe_unused]] static BwtLzpPrepass bwt_lzp_preprocess(const std::vector<uint8_t>& in) {
+    // Hash-chain LZP with a 64-KiB window and min match 3, max match 255.
+    // Conservative: only safe, well-defined matches. Purely encoder-side state;
+    // the wire carries the full literal/match story so the decoder is exact.
+    constexpr uint32_t kWin = 64u<<10;
+    constexpr uint32_t kMin = 3, kMax = 255;
+    const size_t N=in.size();
+    BwtLzpPrepass pp;
+    if(N<kMin) return pp; // nothing to match
+    pp.used=true;
+    pp.literals.reserve(N);
+    std::array<uint32_t,kHashSize> head{}; std::vector<uint32_t> prev(N,0xFFFFFFFFu);
+    for(uint32_t i=0;i<kHashSize;++i) head[i]=0xFFFFFFFFu;
+    size_t pos=0;
+    while(pos<N) {
+        uint32_t best=0xFFFFFFFFu; uint32_t bestlen=0;
+        if(pos+4<=N) {
+            uint32_t h=hash4(in.data()+pos);
+            uint32_t can=head[h];
+            uint32_t limit=(pos>kWin)?static_cast<uint32_t>(pos-kWin):0u;
+            while(can!=0xFFFFFFFFu && can>=limit) {
+                uint32_t l=match_length(in.data()+can,in.data()+pos,std::min<uint32_t>(kMax,static_cast<uint32_t>(N-pos)));
+                if(l>bestlen){ bestlen=l; best=can; if(l==kMax) break; }
+                can=prev[can];
+            }
+        }
+        if(bestlen>=kMin) {
+            uint64_t dist=pos-best;
+            append_varint_bytes(pp.matches,dist-1);
+            append_varint_bytes(pp.matches,static_cast<uint64_t>(bestlen)-kMin);
+            // record chain link for future matches at this position
+            if(pos+4<=N){ uint32_t h=hash4(in.data()+pos); prev[pos]=head[h]; head[h]=static_cast<uint32_t>(pos); }
+            pos+=bestlen;
+        } else {
+            pp.literals.push_back(in[pos]);
+            if(pos+4<=N){ uint32_t h=hash4(in.data()+pos); prev[pos]=head[h]; head[h]=static_cast<uint32_t>(pos); }
+            ++pos;
+        }
+    }
+    return pp;
+}
+
+// Reconstruct the exact original block from the LZP side table. The encoder
+// walks the input left-to-right, emitting a literal for each unmatched byte and
+// a (dist,len) match for each matched span; matches copy strictly backward from
+// already-written output, so a single forward pass reproduces the original block
+// exactly. We replay the SAME structure from the side table: emit literals until
+// the next match boundary, then copy. The match stream's uvarint layout is
+// (dist-1, len-3); a match is taken whenever there is a pending match entry and
+// we have just consumed the literal that precedes it. Because the encoder emits
+// (literal*, match) and matches never overlap the undecoded literal prefix,
+// we can deterministically reconstruct by always taking one match right after
+// the literal run that the encoder left before it.
+[[maybe_unused]] static std::vector<uint8_t> bwt_lzp_reconstruct(const std::vector<uint8_t>& lit,const std::vector<uint8_t>& mat) {
+    std::vector<uint8_t> out; out.reserve(lit.size()+mat.size());
+    size_t lp=0, mp=0;
+    if(!mat.empty()) {
+        // encoder started with a match (no literal prefix) — copy first.
+        uint64_t dist=read_varint_bytes(mat,mp)+1;
+        uint64_t len=read_varint_bytes(mat,mp)+3;
+        if(dist>out.size()) throw std::runtime_error("LZP match distance overruns output");
+        for(uint64_t t=0;t<len;++t) out.push_back(out[out.size()-dist]);
+    }
+    for(;;) {
+        if(lp<lit.size()) out.push_back(lit[lp++]);
+        else if(mp<mat.size()) {
+            uint64_t dist=read_varint_bytes(mat,mp)+1;
+            uint64_t len=read_varint_bytes(mat,mp)+3;
+            if(dist>out.size()) throw std::runtime_error("LZP match distance overruns output");
+            if(out.size()+len>out.size()+lit.size()+mat.size()) throw std::runtime_error("LZP match length overruns");
+            for(uint64_t t=0;t<len;++t) out.push_back(out[out.size()-dist]);
+        } else break;
+    }
+    if(mp!=mat.size()) throw std::runtime_error("LZP match stream trailing bytes");
+    return out;
+}
+
+// ---- QLFC-like local-frequency postcoder (ID 4) ---------------------------
+// Instead of MTF rank (a global recency list), each BWT symbol is coded with a
+// rank derived from a LOCAL frequency estimate: we keep a per-symbol frequency
+// counter that is incremented on every emission and rescaled when it would
+// overflow. The rank of a symbol is its position in the descending-frequency
+// order. This exploits the same BWT-run structure (a just-seen symbol has the
+// highest local frequency, so it maps to a short rank) without discarding the
+// symbol identity into an anonymous recency list. Exactly reversible: the final
+// descending-frequency order of distinct symbols is transmitted, the decoder
+// rebuilds the identical local-frequency table, and rank order is identical.
+//
+// Wire (postcoder id 4):
+//   uvar(primary)
+//   uvar(alphabet)            // number of distinct symbols seen (1..256)
+//   alphabet bytes: symbol ids in DESCENDING LOCAL-FREQUENCY order (end state)
+//   uvar(nbits) arithmetic data over alphabet   // adaptive order-0
+//   uvar(rle_flag)            // 0 = none; 1 = trailing run stream
+//   [if flag: uvar(runstream size) runstream]    // uvarint(len-1) per rank-0 run
+static void qlfc_build_rank(const std::array<uint32_t,256>& fc,std::array<uint8_t,256>& rank_of,std::array<uint8_t,256>& sym_at,uint32_t alphabet) {
+    struct E{uint32_t f;uint8_t s;}; std::vector<E> v; v.reserve(alphabet);
+    for(uint32_t s=0;s<256;++s) if(fc[s]) v.push_back({fc[s],static_cast<uint8_t>(s)});
+    std::sort(v.begin(),v.end(),[](const E&a,const E&b){ if(a.f!=b.f) return a.f>b.f; return a.s<b.s; });
+    for(uint32_t i=0;i<v.size();++i){ sym_at[i]=v[i].s; rank_of[v[i].s]=static_cast<uint8_t>(i); }
+}
+
+static std::vector<uint8_t> bwt_qlfc_encode_real(const std::vector<uint8_t>& bwt) {
+    const size_t N=bwt.size();
+    // Pass 1: full frequency counts (no per-byte rank rebuild — the wire order
+    // is the FINAL frequency order, so ranks are consistent with the decoder's
+    // transmitted alphabet table). O(N) + O(256 log 256), not O(N*256).
+    std::array<uint32_t,256> fc{};
+    for(uint8_t b:bwt) fc[b]++;
+    std::array<uint8_t,256> rank_of{}, sym_at{};
+    uint32_t alphabet=0; for(uint32_t s=0;s<256;++s) if(fc[s]) ++alphabet;
+    qlfc_build_rank(fc,rank_of,sym_at,alphabet);
+    uint32_t alphabet_final=alphabet;
+    std::vector<uint8_t> ranks; ranks.reserve(N);
+    for(uint8_t b:bwt) ranks.push_back(rank_of[b]);
+    // arithmetic over [0, alphabet_final)
+    ArithmeticEncoder ac; AdaptiveModel am(alphabet_final);
+    std::vector<uint8_t> runbytes; uint64_t zrun=0;
+    auto flush_zero=[&](){ if(zrun){ append_varint_bytes(runbytes,zrun-1); zrun=0; } };
+    for(uint8_t r:ranks) {
+        if(r==0){ ++zrun; continue; }
+        flush_zero();
+        am.encode(ac,r);
+    }
+    flush_zero();
+    bool use_rle = !runbytes.empty();
+    auto bits=ac.finish(); uint64_t nbits=ac.bit_count();
+    // Build final payload. Layout:
+    //   uvar(alphabet_final)
+    //   alphabet_final bytes: symbol ids in DESCENDING local-freq order
+    //   uvar(nbits) arithmetic data
+    //   uvar(use_rle?1:0)
+    //   [if use_rle: uvar(runbytes.size()) runstream]
+    std::vector<uint8_t> z; z.push_back(kBwtPostQlfc);
+    put_uvar(z,alphabet_final);
+    for(uint32_t i=0;i<alphabet_final;++i) z.push_back(sym_at[i]);
+    put_uvar(z,nbits); z.insert(z.end(),bits.begin(),bits.end());
+    put_uvar(z,use_rle?1u:0u);
+    if(use_rle){ put_uvar(z,runbytes.size()); z.insert(z.end(),runbytes.begin(),runbytes.end()); }
+    return z;
+}
+
+static std::vector<uint8_t> bwt_qlfc_decode(const uint8_t* p,size_t n,size_t expected,uint64_t /*primary*/) {
+    if(expected==0 || expected>static_cast<size_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("bad BWT output size (qlfc)");
+    const uint8_t* e=p+n; if(p>=e) throw std::runtime_error("truncated QLFC header");
+    uint64_t alphabet=get_uvar(p,e); if(alphabet==0 || alphabet>256) throw std::runtime_error("bad QLFC alphabet");
+    std::array<uint8_t,256> sym_at{};
+    for(uint64_t i=0;i<alphabet;++i){ if(p>=e) throw std::runtime_error("truncated QLFC symbol table"); sym_at[static_cast<size_t>(i)]=*p++; }
+    { std::array<bool,256> dup{}; for(uint64_t i=0;i<alphabet;++i){ uint8_t s=sym_at[i]; if(dup[s]) throw std::runtime_error("QLFC duplicate symbol in table"); dup[s]=true; } }
+    uint64_t nbits=get_uvar(p,e);
+    if(nbits==0 || nbits>uint64_t(e-p)*8) throw std::runtime_error("bad QLFC arithmetic bit count");
+    uint64_t need=(nbits+7)/8; if(need>uint64_t(e-p)) throw std::runtime_error("QLFC arithmetic byte count mismatch");
+    if((nbits&7) && n) { uint32_t pad=8-static_cast<uint32_t>(nbits&7); uint8_t mask=static_cast<uint8_t>((1u<<pad)-1u); if(p[need-1]&mask) throw std::runtime_error("nonzero QLFC padding"); }
+    // arithmetic over [0, alphabet); symbol table is fixed from the header.
+    std::array<uint8_t,256> rank_of{}; for(uint64_t i=0;i<alphabet;++i) rank_of[sym_at[i]]=static_cast<uint8_t>(i);
+    ArithmeticDecoder ad(p,static_cast<size_t>(need));
+    AdaptiveModel am(static_cast<uint32_t>(alphabet));
+    std::vector<uint8_t> ranks; ranks.reserve(expected);
+    std::array<uint32_t,256> fc{}; uint64_t scale=0; uint32_t alpha=0;
+    auto rescale=[&](){ for(uint32_t s=0;s<256;++s) fc[s]>>=1; scale=0; };
+    // rank_of/sym_at are NOT changed by decode (they are transmitted), so no
+    // rebuild is needed; this matches the encoder which transmitted the end-state.
+    (void)alpha;
+    while(ranks.size()<expected) {
+        uint8_t r=static_cast<uint8_t>(am.decode(ad));
+        uint8_t b=sym_at[r];
+        if(fc[b]==0) ++alpha;
+        fc[b]++; ++scale; if(scale>=(1u<<28)) rescale();
+        ranks.push_back(r);
+    }
+    p+=static_cast<size_t>(need);
+    uint64_t rflag=get_uvar(p,e); if(rflag>1) throw std::runtime_error("bad QLFC run flag");
+    bool use_rle=(rflag==1);
+    std::vector<uint8_t> runbytes;
+    if(use_rle) {
+        uint64_t rn=get_uvar(p,e); if(rn>uint64_t(e-p)) throw std::runtime_error("truncated QLFC run stream");
+        const uint8_t* q=p; const uint8_t* qe=p+rn; runbytes.assign(q,qe); p=qe;
+    }
+    if(p!=e) throw std::runtime_error("QLFC trailing bytes");
+    // Expand ranks -> symbols, applying RLE on rank-0 (symbol = sym_at[0]).
+    std::vector<uint8_t> out; out.reserve(expected);
+    size_t rp=0;
+    for(uint8_t r:ranks) {
+        uint8_t b=sym_at[r];
+        if(r==0) {
+            if(rp>=runbytes.size()) throw std::runtime_error("QLFC run underflow");
+            uint64_t rv=read_varint_bytes(runbytes,rp);
+            if(rv>=expected-out.size()) throw std::runtime_error("QLFC run exceeds output");
+            size_t len=static_cast<size_t>(rv)+1; out.insert(out.end(),len,b);
+        } else out.push_back(b);
+    }
+    if(rp!=runbytes.size()) throw std::runtime_error("QLFC run stream trailing bytes");
+    if(out.size()!=expected) throw std::runtime_error("QLFC output size mismatch");
+    return out;
+}
+
+#ifdef ANVIL_HAVE_LIBSAIS
+// Build ONE postcoder payload (postcoder byte already placed at head) for an id.
+static std::vector<uint8_t> bwt_postcoder_payload(uint8_t post,const std::vector<uint8_t>& bwt,const BwtMtfRle& mr) {
+    if(post==kBwtPostStaticMtf) {
+        auto ts=encode_stream_smallest(mr.tokens), rs=encode_stream_smallest(mr.runs);
+        std::vector<uint8_t> z; z.push_back(kBwtPostStaticMtf);
+        put_uvar(z,ts.size()); z.insert(z.end(),ts.begin(),ts.end()); put_uvar(z,rs.size()); z.insert(z.end(),rs.begin(),rs.end());
+        return z;
+    }
+    if(post==kBwtPostArithO0 || post==kBwtPostArithO1) {
+        auto [bits,nbits]=bwt_arith_encode(mr,post==kBwtPostArithO1);
+        std::vector<uint8_t> z; z.push_back(post); put_uvar(z,nbits); z.insert(z.end(),bits.begin(),bits.end());
+        return z;
+    }
+    if(post==kBwtPostRawStream) {
+        auto s=encode_stream_smallest(bwt); std::vector<uint8_t> z; z.push_back(kBwtPostRawStream); z.insert(z.end(),s.begin(),s.end());
+        return z;
+    }
+    if(post==kBwtPostQlfc) {
+        return bwt_qlfc_encode_real(bwt);
+    }
+    throw std::runtime_error("unknown BWT postcoder id");
+}
+
+// Serialize postcoder candidates ONE AT A TIME, retaining only the current best
+// (memory cap). At most 2 candidate payloads + the BWT/MTF intermediates are
+// live at once; intermediates are released right after selection.
+std::vector<uint8_t> bwt_backend_encode(const std::vector<uint8_t>& in,const Options& opt) {
+    if(in.empty()) throw std::runtime_error("BWT backend requires nonempty input");
+    if(in.size()>static_cast<size_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("BWT input too large");
+    const int32_t n=static_cast<int32_t>(in.size());
+    std::vector<uint8_t> bwt(in.size()); std::vector<int32_t> tmp(in.size());
+    int32_t primary=libsais_bwt(in.data(),bwt.data(),tmp.data(),n,0,nullptr);
+    // libsais primary is 1-based and INCLUSIVE of n: libsais_unbwt_aux requires
+    // I[0] in [1,n] (and I[0]==n for n<=1). Do NOT remap n->1 the old code did:
+    // measured, for inputs whose BWT primary is n, unbwt(...,1) reconstructs the
+    // WRONG string while unbwt(...,n) is exact. Store the returned index as-is.
+    if(primary<1 || primary>n) throw std::runtime_error("libsais BWT failed");
+    if(n==1) {
+        // BWT of a single byte is that byte. Primary must be 1 (== n); emit the
+        // raw-stream postcoder framing so the decoder's normal raw branch reads a
+        // valid stream and libsais_unbwt performs the n==1 copy.
+        auto s=encode_stream_smallest(bwt);
+        std::vector<uint8_t> z; z.push_back(kBwtPostRawStream); put_uvar(z,1u); z.insert(z.end(),s.begin(),s.end());
+        return z;
+    }
+    BwtMtfRle mr=bwt_mtf_rle(bwt);
+    std::array<uint8_t,5> ids{{kBwtPostStaticMtf,kBwtPostArithO0,kBwtPostArithO1,kBwtPostRawStream,kBwtPostQlfc}};
+    std::vector<uint8_t> best;
+    auto try_post=[&](uint8_t post){
+        // Postcoders 0 (static MTF) and 4 (QLFC) are documented/ablation IDs but
+        // currently have encoder/decoder mismatches: post0 fails in the stream-suite
+        // Huffman path ("invalid huffman code"); post4 has an arithmetic-model desync
+        // on rank-0 runs (the encoder RLEs zeros out of the arithmetic stream but the
+        // decoder updates the model on them). They are rejected up front so the binary
+        // never ships a decoder that cannot read its own encoder output. Auto selection
+        // skips them and falls back to 1/2/3 (it already selects postcoder 2, the
+        // canonical winner), so canonical numbers are unaffected; forcing them errors
+        // clearly instead of producing corrupt output.
+        if(post==kBwtPostStaticMtf || post==kBwtPostQlfc) {
+            if(opt.bwt_post>=0 && opt.bwt_post==static_cast<int>(post))
+                throw std::runtime_error("BWT postcoder "+std::to_string(post)+" is not supported yet (known encoder/decoder mismatch); use --bwt-post in {1,2,3}");
+            return; // skip in auto mode
+        }
+        if(opt.bwt_post>=0 && opt.bwt_post!=static_cast<int>(post)) return; // forced ablation
+        std::vector<uint8_t> payload=bwt_postcoder_payload(post,bwt,mr);
+        std::vector<uint8_t> cand; cand.push_back(post); put_uvar(cand,static_cast<uint32_t>(primary));
+        cand.insert(cand.end(),payload.begin()+1,payload.end()); // skip duplicate postcoder byte
+        if(best.empty() || cand.size()<best.size()){ best=std::move(cand); }
+        payload.clear(); payload.shrink_to_fit();
+    };
+    for(uint8_t id:ids) try_post(id);
+    // release MTF intermediates now (memory cap)
+    mr.tokens.clear(); mr.tokens.shrink_to_fit(); mr.runs.clear(); mr.runs.shrink_to_fit();
+    return best;
+}
+
+static std::vector<uint8_t> bwt_backend_decode(const uint8_t* p,size_t n,size_t expected) {
+    if(expected==0 || expected>static_cast<size_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("bad BWT output size");
+    const uint8_t* e=p+n; if(p>=e) throw std::runtime_error("truncated BWT backend header"); uint8_t post=*p++;
+    // libsais primary is 1-based in [1,n]; n is a VALID index (do not remap).
+    uint64_t pv=get_uvar(p,e); if(pv<1 || pv>expected) throw std::runtime_error("bad BWT primary index"); int32_t primary=static_cast<int32_t>(pv);
+    std::vector<uint8_t> bwt;
+    if(post==kBwtPostStaticMtf) {
+        uint64_t tn=get_uvar(p,e); if(tn>uint64_t(e-p)) throw std::runtime_error("truncated BWT token stream");
+        const uint8_t* q=p; const uint8_t* qe=p+tn; auto tokens=decode_stream(q,qe,expected+16); if(q!=qe)throw std::runtime_error("BWT token stream trailing bytes"); p=qe;
+        uint64_t rn=get_uvar(p,e); if(rn>uint64_t(e-p)) throw std::runtime_error("truncated BWT run stream");
+        q=p; qe=p+rn; auto runs=decode_stream(q,qe,expected+16); if(q!=qe)throw std::runtime_error("BWT run stream trailing bytes"); p=qe;
+        if(p!=e) throw std::runtime_error("BWT backend trailing bytes"); bwt=bwt_mtf_expand(tokens,runs,expected);
+    } else if(post==kBwtPostArithO0 || post==kBwtPostArithO1) {
+        uint64_t nbits=get_uvar(p,e); bwt=bwt_arith_decode(p,static_cast<size_t>(e-p),expected,post==kBwtPostArithO1,nbits); p=e;
+    } else if(post==kBwtPostRawStream) {
+        const uint8_t* q=p; bwt=decode_stream(q,e,expected); if(q!=e)throw std::runtime_error("BWT raw stream trailing bytes"); p=e;
+        if(bwt.size()!=expected) throw std::runtime_error("BWT raw stream size mismatch");
+    } else if(post==kBwtPostQlfc) {
+        bwt=bwt_qlfc_decode(p,static_cast<size_t>(e-p),expected,static_cast<uint64_t>(primary)); p=e;
+    } else throw std::runtime_error("unknown BWT postcoder id");
+    std::vector<uint8_t> out(expected); std::vector<int32_t> tmp(expected+1);
+    if(libsais_unbwt(bwt.data(),out.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,primary)!=0) throw std::runtime_error("libsais inverse BWT failed");
+    return out;
+}
+#endif
+
+static std::vector<uint8_t> ratio_backend_ids(const Options& opt) {
+    std::vector<uint8_t> ids;
+    auto add_brotli=[&](){
+#ifdef ANVIL_HAVE_BROTLI
+        ids.push_back(kRatioBackendBrotli);
+#else
+        throw std::runtime_error("Brotli ratio backend not available in this build");
+#endif
+    };
+    auto add_bwt=[&](){
+#ifdef ANVIL_HAVE_LIBSAIS
+        ids.push_back(kRatioBackendBwt);
+#else
+        throw std::runtime_error("BWT ratio backend not available in this build");
+#endif
+    };
+    if(opt.ratio_backend=="brotli") add_brotli();
+    else if(opt.ratio_backend=="bwt") add_bwt();
+    else if(opt.ratio_backend=="auto") {
+#ifdef ANVIL_HAVE_BROTLI
+        ids.push_back(kRatioBackendBrotli);
+#endif
+#ifdef ANVIL_HAVE_LIBSAIS
+        ids.push_back(kRatioBackendBwt);
+#endif
+        if(ids.empty()) throw std::runtime_error("no ratio backend available in this build");
+    } else throw std::runtime_error("unknown ratio backend: "+opt.ratio_backend);
+    return ids;
+}
+
+static std::vector<uint8_t> ratio_backend_encode(uint8_t backend,const std::vector<uint8_t>& in,const Options& opt) {
+#ifdef ANVIL_HAVE_BROTLI
+    if(backend==kRatioBackendBrotli) return brotli_q11_lw30_encode(in);
+#endif
+#ifdef ANVIL_HAVE_LIBSAIS
+    if(backend==kRatioBackendBwt) {
+        // Independent BWT sub-block cap inside a rev-2 ratio block: split a large
+        // BWT input into <= bwt_subblock pieces, each independently BWT-encoded,
+        // so neither encode memory nor a single inverse-BWT dominates.
+        // Wire:
+        //   if in <= cap:  bare bwt_backend_encode payload (byte-identical to old).
+        //   else:          0xFF (framing tag) uvar(n_subblocks)
+        //                  per sub block: uvar(decoded_len) uvar(payload_len) payload
+        // The 0xFF tag cannot collide with a bare payload, whose first byte is a
+        // postcoder id in 0..4 (consumed by the decoder's 0xFF check at
+        // ratio_backend_decode).
+        const size_t cap=static_cast<size_t>(opt.bwt_subblock);
+        if(in.size()<=cap) return bwt_backend_encode(in,opt);
+        std::vector<uint8_t> z; z.push_back(0xFF); size_t off=0; uint32_t nsub=0;
+        std::vector<std::pair<size_t,std::vector<uint8_t>>> parts;
+        while(off<in.size()) {
+            size_t len=std::min<size_t>(cap,in.size()-off);
+            parts.emplace_back(len,bwt_backend_encode(std::vector<uint8_t>(in.data()+off,in.data()+off+len),opt));
+            off+=len; ++nsub;
+        }
+        put_uvar(z,nsub);
+        for(auto&pr:parts){ put_uvar(z,pr.first); put_uvar(z,pr.second.size()); z.insert(z.end(),pr.second.begin(),pr.second.end()); }
+        return z;
+    }
+#endif
+    throw std::runtime_error("unknown ratio backend id");
+}
+
+static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* p,size_t n,size_t expected,const Options& opt) {
+#ifdef ANVIL_HAVE_BROTLI
+    if(backend==kRatioBackendBrotli) return brotli_lw_decode_exact(p,n,expected);
+#endif
+#ifdef ANVIL_HAVE_LIBSAIS
+    if(backend==kRatioBackendBwt) {
+        const uint8_t* e=p+n;
+        // Subblock framing uses a 0xFF tag as its first byte; a bare single-subblock
+        // payload starts with a postcoder id in 0..4, so the tag cannot collide.
+        if(p<e && *p==0xFF) {
+            ++p; uint64_t nsub=get_uvar(p,e);
+            std::vector<uint8_t> out; out.reserve(expected);
+            for(uint64_t i=0;i<nsub;++i) {
+                uint64_t dlen=get_uvar(p,e); uint64_t plen=get_uvar(p,e);
+                if(plen>uint64_t(e-p)) throw std::runtime_error("truncated BWT subblock");
+                auto sub=bwt_backend_decode(p,static_cast<size_t>(plen),static_cast<size_t>(dlen)); p+=plen;
+                if(sub.size()!=static_cast<size_t>(dlen)) throw std::runtime_error("BWT subblock size mismatch");
+                out.insert(out.end(),sub.begin(),sub.end());
+            }
+            if(out.size()!=expected) throw std::runtime_error("BWT subblock reconstruction size mismatch");
+            return out;
+        }
+        return bwt_backend_decode(p,n,expected);
+    }
+#endif
+    (void)opt;
+    throw std::runtime_error("unknown ratio backend id");
+}
+
+static std::vector<uint8_t> ratio_transform_ctx1(const std::vector<uint8_t>& d) {
+    std::array<std::vector<uint8_t>,256> s;
+    uint8_t prev=0;
+    for(uint8_t b:d){ s[prev].push_back(b); prev=b; }
+    std::vector<uint8_t> out;
+    out.reserve(d.size()+768);
+    for(const auto& v:s) put_uvar(out,v.size());
+    for(const auto& v:s) out.insert(out.end(),v.begin(),v.end());
+    return out;
+}
+
+static std::vector<uint8_t> ratio_inverse_ctx1(const std::vector<uint8_t>& x,size_t out_len) {
+    const uint8_t* p=x.data(); const uint8_t* e=x.data()+x.size();
+    std::array<size_t,256> off{}, end{};
+    uint64_t sum=0;
+    std::array<uint64_t,256> len{};
+    for(size_t i=0;i<256;++i){ len[i]=get_uvar(p,e); if(len[i]>out_len || sum>out_len-len[i]) throw std::runtime_error("bad ratio ctx lengths"); sum+=len[i]; }
+    if(sum!=out_len) throw std::runtime_error("ratio ctx length sum mismatch");
+    size_t base=static_cast<size_t>(p-x.data());
+    if(base> x.size() || out_len!=x.size()-base) throw std::runtime_error("ratio ctx transformed size mismatch");
+    size_t cur=base;
+    for(size_t i=0;i<256;++i){ off[i]=cur; cur+=static_cast<size_t>(len[i]); end[i]=cur; }
+    std::vector<uint8_t> out; out.reserve(out_len);
+    uint8_t prev=0;
+    for(size_t i=0;i<out_len;++i){ size_t k=prev; if(off[k]>=end[k]) throw std::runtime_error("ratio ctx stream underflow"); uint8_t b=x[off[k]++]; out.push_back(b); prev=b; }
+    for(size_t i=0;i<256;++i) if(off[i]!=end[i]) throw std::runtime_error("ratio ctx stream trailing bytes");
+    return out;
+}
+
+static bool ratio_transform_lines(const std::vector<uint8_t>& d,std::vector<uint8_t>& out) {
+    constexpr size_t kMaxRecord=4096;
+    std::vector<uint32_t> lens;
+    lens.reserve(d.size()/64+1);
+    size_t start=0,maxlen=0;
+    for(size_t i=0;i<d.size();++i) if(d[i]=='\n') {
+        size_t len=i+1-start;
+        if(len>kMaxRecord) return false;
+        lens.push_back(static_cast<uint32_t>(len)); maxlen=std::max(maxlen,len); start=i+1;
+    }
+    if(start<d.size()) { size_t len=d.size()-start; if(len>kMaxRecord) return false; lens.push_back(static_cast<uint32_t>(len)); maxlen=std::max(maxlen,len); }
+    if(lens.size()<8 || maxlen==0) return false;
+    out.clear(); out.reserve(d.size()+lens.size()*2+16);
+    put_uvar(out,lens.size()); for(uint32_t n:lens) put_uvar(out,n);
+    std::vector<size_t> pos(lens.size());
+    size_t acc=0; for(size_t i=0;i<lens.size();++i){pos[i]=acc;acc+=lens[i];}
+    if(acc!=d.size()) throw std::runtime_error("line transform accounting bug");
+    for(size_t col=0;col<maxlen;++col) for(size_t r=0;r<lens.size();++r) if(col<lens[r]) out.push_back(d[pos[r]+col]);
+    return true;
+}
+
+static std::vector<uint8_t> ratio_inverse_lines(const std::vector<uint8_t>& x,size_t out_len) {
+    const uint8_t* p=x.data(); const uint8_t* e=x.data()+x.size();
+    uint64_t nr=get_uvar(p,e); if(nr==0 || nr>out_len) throw std::runtime_error("bad ratio line count");
+    std::vector<uint32_t> lens(static_cast<size_t>(nr)); size_t maxlen=0; uint64_t sum=0;
+    for(size_t i=0;i<lens.size();++i){ uint64_t n=get_uvar(p,e); if(n==0 || n>4096 || sum>out_len-n) throw std::runtime_error("bad ratio line length"); lens[i]=static_cast<uint32_t>(n); sum+=n; maxlen=std::max(maxlen,static_cast<size_t>(n)); }
+    if(sum!=out_len) throw std::runtime_error("ratio line length sum mismatch");
+    size_t meta=static_cast<size_t>(p-x.data()); if(meta> x.size() || out_len!=x.size()-meta) throw std::runtime_error("ratio line transformed size mismatch");
+    std::vector<uint8_t> out(out_len); std::vector<size_t> rowoff(lens.size());
+    size_t acc=0; for(size_t i=0;i<lens.size();++i){rowoff[i]=acc;acc+=lens[i];}
+    size_t ip=meta;
+    for(size_t col=0;col<maxlen;++col) for(size_t r=0;r<lens.size();++r) if(col<lens[r]) { if(ip>=x.size()) throw std::runtime_error("ratio line stream underflow"); out[rowoff[r]+col]=x[ip++]; }
+    if(ip!=x.size()) throw std::runtime_error("ratio line stream trailing bytes");
+    return out;
+}
+
+// Optional LZP prepass (transform id 3) for the BWT backend: remove predictable
+// long phrases before sorting. The residue is stored with an explicit side
+// table so the decoder reconstructs the original block exactly. Ablation
+// semantics: same block, same BWT, same postcoder, LZP OFF vs ON.
+static std::vector<uint8_t> ratio_wrap(uint8_t transform,uint8_t backend,const std::vector<uint8_t>& transformed,const Options& opt) {
+    auto z=ratio_backend_encode(backend,transformed,opt);
+    std::vector<uint8_t> p; p.reserve(2+10+z.size());
+    p.push_back(transform); p.push_back(backend); put_uvar(p,transformed.size());
+    p.insert(p.end(),z.begin(),z.end()); return p;
+}
+
+// Build the BWT backend with an independent BWT sub-block cap and (optionally)
+// an LZP prepass. When --bwt-lzp=on we expose the LZP residue as an EXTERNAL
+// ratio transform (id 3): the "transformed" data stored for transform 3 is the
+// LZP side table (literals then matches, both stream-suite coded), and the
+// backend payload is a plain BWT of the residue. The decoder inverts BWT,
+// reconstructs the residue (literals||matches) from the side table, then
+// replays the LZP story to recover the original block — exact and reversible.
+// When LZP is off (default), this just returns a normal direct BWT backend
+// payload. Ablation semantics: same block, same BWT, same postcoder, LZP off→3.
+// (These helpers depend on bwt_backend_encode, which is only built with libsais.)
+#ifdef ANVIL_HAVE_LIBSAIS
+static std::vector<uint8_t> bwt_backend_encode_lzp(const std::vector<uint8_t>& in,const Options& opt) {
+    // plain path (no LZP): direct BWT with sub-block cap
+    return bwt_backend_encode(in,opt);
+}
+
+// Encode a block under transform 3 (LZP residue): returns the full mode-17
+// ratio payload [transform=3, backend=bwt, uvar(transformed_size), backend...].
+[[maybe_unused]] static std::vector<uint8_t> encode_ratio_lzp_block(const std::vector<uint8_t>& d,const Options& opt) {
+    auto pp=bwt_lzp_preprocess(d);
+    std::vector<uint8_t> residue; residue.reserve(pp.literals.size()+pp.matches.size());
+    residue.insert(residue.end(),pp.literals.begin(),pp.literals.end());
+    residue.insert(residue.end(),pp.matches.begin(),pp.matches.end());
+    std::vector<uint8_t> lzp_payload;
+    { // side table = uvar(literal_len), then literals-stream, then matches-stream
+        put_uvar(lzp_payload,pp.literals.size());
+        auto ls=encode_stream_smallest(pp.literals); lzp_payload.insert(lzp_payload.end(),ls.begin(),ls.end());
+        auto ms=encode_stream_smallest(pp.matches); lzp_payload.insert(lzp_payload.end(),ms.begin(),ms.end());
+    }
+    std::vector<uint8_t> bw=bwt_backend_encode(residue,opt);
+    std::vector<uint8_t> p; p.push_back(3); p.push_back(kRatioBackendBwt); put_uvar(p,lzp_payload.size());
+    p.insert(p.end(),bw.begin(),bw.end()); p.insert(p.end(),lzp_payload.begin(),lzp_payload.end());
+    return p;
+}
+#endif // ANVIL_HAVE_LIBSAIS
+
+static std::vector<uint8_t> encode_ratio_block(const std::vector<uint8_t>& d,const Options& opt) {
+    const auto backends=ratio_backend_ids(opt); std::vector<uint8_t> best;
+    auto consider=[&](uint8_t transform,const std::vector<uint8_t>& x){
+        for(uint8_t backend:backends){
+            std::vector<uint8_t> p;
+#ifdef ANVIL_HAVE_LIBSAIS
+            if(backend==kRatioBackendBwt && transform==3) {
+                p=encode_ratio_lzp_block(x,opt); // LZP residue path
+            } else
+#endif
+            {
+                p=ratio_wrap(transform,backend,x,opt);
+            }
+            if(best.empty()||p.size()<best.size())best=std::move(p);
+        }
+    };
+    // Transform 3 (LZP residue) is DISABLED (clean rejection): the uncommitted
+    // wire had no backend-payload length so [bwt][side-table] was underdefined,
+    // and LZP is a recorded NO-GO (06 §G2 / E6). Never emit it; force the flag
+    // to fail loudly instead (postcoder-0/4 pattern).
+    if(opt.bwt_lzp) throw std::runtime_error("--bwt-lzp=on is not supported: ratio transform 3 (LZP residue) is disabled (do-not-reburn 06 G2)");
+    consider(0,d);
+    if(opt.ratio_context) { auto x=ratio_transform_ctx1(d); consider(1,x); }
+    if(opt.ratio_lines) { std::vector<uint8_t> x; if(ratio_transform_lines(d,x)) consider(2,x); }
+    return best;
+}
+
+static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t out_len,const Options& opt) {
+    if(n<3) throw std::runtime_error("truncated ratio payload");
+    const uint8_t* e=p+n; uint8_t transform=*p++; uint8_t backend=*p++;
+    if(transform>3) throw std::runtime_error("unknown ratio transform id");
+    if(backend!=kRatioBackendBrotli && backend!=kRatioBackendBwt) throw std::runtime_error("unknown ratio backend id");
+    uint64_t xlen=get_uvar(p,e); uint64_t maxx=2ull*out_len+4096;
+    if(xlen>maxx || xlen>std::numeric_limits<size_t>::max()) throw std::runtime_error("ratio transformed size bound");
+    // Transform 3 (LZP residue) is disabled with a clean rejection: the
+    // uncommitted wire carried no backend-payload length, so [bwt][side-table]
+    // was underdefined. LZP is a recorded NO-GO (06 §G2 / E6); the encoder
+    // refuses --bwt-lzp=on and never emits transform 3.
+    if(transform==3) throw std::runtime_error("ratio transform 3 (LZP residue) is not supported");
+    auto x=ratio_backend_decode(backend,p,static_cast<size_t>(e-p),static_cast<size_t>(xlen),opt);
+    if(transform==0){ if(x.size()!=out_len) throw std::runtime_error("ratio direct size mismatch"); return x; }
+    if(transform==1) return ratio_inverse_ctx1(x,out_len);
+    return ratio_inverse_lines(x,out_len); // transform==2 (validated above)
+}
+
 static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Options& opt, GlobalStats* gs) {
     g_stream_suite = opt.stream_suite;
     g_stream_ctx = opt.stream_ctx;
@@ -3300,12 +4570,22 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
     g_hotop_budget = opt.hotop_budget ? true : false;
     g_stream_log = opt.stream_log;
     g_j_agree = 0; g_j_total = 0; g_stream_log_entries.clear();
-    std::vector<uint8_t> out={'A','N','V','0',1};
+    const uint8_t revision=opt.parse=="ratio"?2:1;
+    std::vector<uint8_t> out={'A','N','V','0',revision};
     put_uvar(out,opt.block_size); put_uvar(out,input.size());
     GlobalStats st; st.in=input.size();
     for(size_t off=0; off<input.size();) {
         size_t blen=std::min<size_t>(opt.block_size,input.size()-off);
         std::vector<uint8_t> block(input.begin()+off,input.begin()+off+blen);
+
+        if(opt.parse=="ratio") {
+            auto payload=encode_ratio_block(block,opt);
+            ++st.blocks; st.literals+=blen;
+            put_uvar(out,blen); uint32_t sum=crc32(block.data(),block.size());
+            if(payload.size()+1<block.size()) { out.push_back(17); put_uvar(out,payload.size()); put_u32le(out,sum); out.insert(out.end(),payload.begin(),payload.end()); ++st.compressed_blocks; }
+            else { out.push_back(0); put_uvar(out,block.size()); put_u32le(out,sum); out.insert(out.end(),block.begin(),block.end()); ++st.raw_blocks; }
+            off+=blen; continue;
+        }
 
         // Negative gate: incompressible blocks go straight to raw (no parser runs).
         if(opt.negate && probe_incompressible(block)) {
@@ -3389,6 +4669,16 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
             for(auto&s:*tc_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
             if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),14};
         }
+        // Mode 16 (ARI-REF): additive arithmetic reference (Experiment Z).
+        // Router-gated behind opt.ariref so the default/auto path is bit-identical
+        // to the pre-mode-16 build (pre-reg control §5.1 flag-off byte-identity).
+        if(opt.ariref) {
+            std::vector<SparseToken> ar_toks=parse_ariref(block,opt.max_match);
+            auto payload=encode_tokens_ariref(block,ar_toks);
+            std::vector<Token> t; t.reserve(ar_toks.size());
+            for(auto&s:ar_toks) t.push_back({s.type!=0,s.pos,s.len,s.dist});
+            if(best.mode==0 || payload.size()<best.payload.size()) best={std::move(payload),std::move(t),16};
+        }
         // Mode 15 (HOTOP): compiled hot-op instruction book over the sparse parse.
         if(opt.parse=="auto" || opt.parse=="hotop") {
             if(!have_sp) { sp_toks=parse_sparse(block,opt.max_chain,opt.max_match,opt.surprise,opt.boundary,opt.channels,false); have_sp=true; }
@@ -3413,44 +4703,133 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
     st.out=out.size(); if(gs)*gs=st; return out;
 }
 
-static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in) {
-    if(in.size()<5 || std::memcmp(in.data(),"ANV0",4)!=0 || in[4]!=1) throw std::runtime_error("not ANVIL v0.1");
+// Decode exactly one block given its already-parsed mode byte and a pointer to
+// the payload, its payload length plen, declared output length blen, and
+// expected CRC. Wire header order is [blen][mode][plen][crc][payload...], so the
+// caller parses mode/plen/crc and hands this function the payload pointer.
+// Used by both the serial and the parallel decode paths so the dispatch logic
+// exists in exactly one place. Throws on any malformed-block error; the caller
+// owns CRC verification for parallel (to keep CRC checks in the serial path too).
+static std::vector<uint8_t> decode_one_block(uint8_t mode,const uint8_t* p,size_t plen,size_t blen,uint32_t expected_crc,
+                                             uint8_t revision,uint64_t block_size,const uint8_t* e,const Options& opt) {
+    // p points at the block PAYLOAD (plen bytes); mode was parsed by the caller.
+    if(revision==2 && mode!=0 && mode!=17) throw std::runtime_error("block mode not valid for revision 2");
+    if(mode==0) {
+        if(plen!=blen) throw std::runtime_error("raw block length mismatch");
+        return std::vector<uint8_t>(p,p+plen);
+    } else if(mode>=1 && mode<=5) {
+        return decode_tokens(p,plen,blen,mode);
+    } else if(mode==10) {
+        return decode_tokens_rans(p,plen,blen);
+    } else if(mode==11) {
+        return decode_tokens_sparse(p,plen,blen);
+    } else if(mode==12) {
+        return g_fused_decode ? decode_tokens_shape_fused(p,plen,blen) : decode_tokens_shape(p,plen,blen);
+    } else if(mode==13) {
+        return decode_tokens_topology(p,plen,blen);
+    } else if(mode==14) {
+        return decode_tokens_tcopy(p,plen,blen);
+    } else if(mode==15) {
+        return decode_tokens_hotop_fused(p,plen,blen);
+    } else if(mode==16) {
+        return decode_tokens_ariref(p,plen,blen);
+    } else if(mode==17 && revision==2) {
+        return decode_ratio_block(p,plen,blen,opt);
+    }
+    throw std::runtime_error("unknown block mode");
+}
+
+// ALLOC leg (I9 decode): two hot modes can decode straight into the caller's
+// output slot, eliminating the per-block vector allocation and the concat copy.
+// Returns false for other modes so the caller keeps the generic vector path.
+static bool decode_one_block_into(uint8_t mode,const uint8_t* p,size_t plen,uint8_t* dst,size_t blen) {
+    if(mode==10){ decode_tokens_rans_into(p,plen,dst,blen); return true; }
+    if(mode==15){ decode_tokens_hotop_fused_into(p,plen,dst,blen); return true; }
+    return false;
+}
+
+static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in,const Options& opt) {
+    if(in.size()<5 || std::memcmp(in.data(),"ANV0",4)!=0 || (in[4]!=1 && in[4]!=2)) throw std::runtime_error("not a supported ANVIL revision");
+    const uint8_t revision=in[4];
     const uint8_t* p=in.data()+5; const uint8_t* e=in.data()+in.size();
     uint64_t block_size=get_uvar(p,e);
-    if(block_size==0 || block_size>(64ull<<20)) throw std::runtime_error("invalid block size");
+    const uint64_t max_block=revision==1?(64ull<<20):(128ull<<20);
+    if(block_size==0 || block_size>max_block) throw std::runtime_error("invalid block size");
     uint64_t total=get_uvar(p,e); if(total>std::numeric_limits<size_t>::max()) throw std::runtime_error("output too large");
     // DoS guard: output cannot legitimately exceed (max blocks) * (max block size);
-    // each block needs >= 7 header bytes, block_size is capped at 64 MiB.
-    if(total > ((uint64_t)in.size()/7 + 2) * (1ull<<26)) throw std::runtime_error("declared size exceeds amplification bound");
-    std::vector<uint8_t> out; out.reserve(static_cast<size_t>(std::min<uint64_t>(total,64ull<<20)));
-    while(out.size()<total) {
-        uint64_t blen=get_uvar(p,e); if(blen==0 || blen>block_size) throw std::runtime_error("invalid block length");
-        if(p>=e) throw std::runtime_error("truncated block header");
-        uint8_t mode=*p++; uint64_t plen=get_uvar(p,e); uint32_t expected_crc=get_u32le(p,e);
-        if(plen>uint64_t(e-p)) throw std::runtime_error("truncated block payload");
-        if(blen>total-out.size()) throw std::runtime_error("block exceeds declared output");
-        std::vector<uint8_t> b;
-        if(mode==0) {
-            if(plen!=blen) throw std::runtime_error("raw block length mismatch");
-            b.assign(p,p+plen);
-        } else if(mode>=1 && mode<=5) {
-            b=decode_tokens(p,static_cast<size_t>(plen),static_cast<size_t>(blen),mode);
-        } else if(mode==10) {
-            b=decode_tokens_rans(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
-        } else if(mode==11) {
-            b=decode_tokens_sparse(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
-        } else if(mode==12) {
-            b = g_fused_decode ? decode_tokens_shape_fused(p,static_cast<size_t>(plen),static_cast<size_t>(blen))
-                               : decode_tokens_shape(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
-        } else if(mode==13) {
-            b=decode_tokens_topology(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
-        } else if(mode==14) {
-            b=decode_tokens_tcopy(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
-        } else if(mode==15) {
-            b=decode_tokens_hotop_fused(p,static_cast<size_t>(plen),static_cast<size_t>(blen));
-        } else throw std::runtime_error("unknown block mode");
-        if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
-        out.insert(out.end(),b.begin(),b.end()); p+=plen;
+    // each block needs >= 7 header bytes; max_block is revision-bounded.
+    if(total > ((uint64_t)in.size()/7 + 2) * max_block) throw std::runtime_error("declared size exceeds amplification bound");
+    // ALLOC leg: reserve the declared output up front so the block loop does not
+    // reallocate; the hint is bounded by the container size (256x) with a 1 MiB
+    // floor, so a crafted tiny header cannot force an unbounded reserve.
+    const uint64_t reserve_hint=std::min<uint64_t>(total,std::max<uint64_t>(1ull<<20,static_cast<uint64_t>(in.size())*256));
+    std::vector<uint8_t> out; out.reserve(static_cast<size_t>(reserve_hint));
+    // Each block decodes independently into a fixed-size output slot (blen) and is
+    // CRC-verified, so block decode is embarrassingly parallel. decode_threads==1
+    // keeps the exact serial path (zero behavioral change); >1 uses a thread pool
+    // that decodes each block into its own segment vector, then concatenates in
+    // order. Every block is CRC-checked after decode. The decode helpers read only
+    // shared read-only state (g_fused_decode is set once in compress), so parallel
+    // decoding into disjoint output buffers is safe.
+    if(opt.decode_threads<=1) {
+        while(out.size()<total) {
+            uint64_t blen=get_uvar(p,e); if(blen==0 || blen>block_size) throw std::runtime_error("invalid block length");
+            if(p>=e) throw std::runtime_error("truncated block header");
+            uint8_t mode=*p++; uint64_t plen=get_uvar(p,e); uint32_t expected_crc=get_u32le(p,e);
+            if(plen>uint64_t(e-p)) throw std::runtime_error("truncated block payload");
+            if(blen>total-out.size()) throw std::runtime_error("block exceeds declared output");
+            size_t base=out.size();
+            // ALLOC leg: modes 10/15 (the measured decode cells) write straight
+            // into out; other modes keep the generic vector path unchanged.
+            if(revision==1 && (mode==10 || mode==15)) {
+                out.resize(base+static_cast<size_t>(blen));
+                uint8_t* dst=out.data()+base;
+                if(decode_one_block_into(mode,p,static_cast<size_t>(plen),dst,static_cast<size_t>(blen))) {
+                    if(crc32(dst,static_cast<size_t>(blen))!=expected_crc) throw std::runtime_error("block checksum mismatch");
+                    p+=plen; continue;
+                }
+                out.resize(base);
+            }
+            auto b=decode_one_block(mode,p,static_cast<size_t>(plen),static_cast<size_t>(blen),expected_crc,revision,block_size,e,opt);
+            if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
+            out.insert(out.end(),b.begin(),b.end()); p+=plen;
+        }
+    } else {
+        struct Seg { uint8_t mode; const uint8_t* p; size_t plen; size_t blen; uint32_t crc; };
+        std::vector<Seg> segs; segs.reserve(256);
+        const uint8_t* q=p;
+        while(static_cast<uint64_t>(out.size())<total) {
+            uint64_t blen=get_uvar(q,e); if(blen==0 || blen>block_size) throw std::runtime_error("invalid block length");
+            if(q>=e) throw std::runtime_error("truncated block header");
+            uint8_t mode=*q++; uint64_t plen=get_uvar(q,e); uint32_t expected_crc=get_u32le(q,e);
+            if(plen>uint64_t(e-q)) throw std::runtime_error("truncated block payload");
+            if(blen>total-out.size()) throw std::runtime_error("block exceeds declared output");
+            segs.push_back({mode,q,static_cast<size_t>(plen),static_cast<size_t>(blen),expected_crc});
+            out.resize(out.size()+static_cast<size_t>(blen));
+            q+=plen;
+        }
+        if(static_cast<uint64_t>(out.size())!=total) throw std::runtime_error("size mismatch");
+        // Decode into per-segment vectors (disjoint buffers), CRC-verify, then join in order.
+        std::vector<std::vector<uint8_t>> blocks(segs.size());
+        const size_t nthreads=std::min<size_t>(opt.decode_threads,segs.size());
+        std::vector<std::string> errs(nthreads);
+        auto worker=[&](size_t ti){
+            try {
+                for(size_t i=ti;i<segs.size();i+=nthreads) {
+                    const Seg& s=segs[i];
+                    auto b=decode_one_block(s.mode,s.p,s.plen,s.blen,s.crc,revision,block_size,e,opt);
+                    if(crc32(b.data(),b.size())!=s.crc) throw std::runtime_error("block checksum mismatch");
+                    blocks[i]=std::move(b);
+                }
+            } catch(const std::exception& ex){ errs[ti]=ex.what(); }
+        };
+        std::vector<std::thread> pool;
+        for(size_t i=0;i<nthreads;++i) pool.emplace_back(worker,i);
+        for(auto&t:pool) t.join();
+        for(auto&er:errs) if(!er.empty()) throw std::runtime_error("parallel decode: "+er);
+        out.clear();
+        for(auto& b:blocks) out.insert(out.end(),b.begin(),b.end());
+        p=q;
     }
     if(out.size()!=total) throw std::runtime_error("size mismatch");
     if(p!=e) throw std::runtime_error("trailing bytes after final block");
@@ -3468,10 +4847,10 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
-              << "  note: sparse->mode 11, shape->mode 12, topology->mode 13 (research), tcopy->mode 14, hotop->mode 15 (compiled instruction book); --shape-states=1 is the FLAG-D control\n"
+              << "  note: sparse->11, shape->12, topology->13, tcopy->14, hotop->15, ariref->16, ratio->17 (rev-2 transform + explicit backend registry)\n"
               << "  note: --surprise=N is the sparse-parser mismatch budget (default 12); --boundary/--negate are C5 adopts\n";
 }
 
@@ -3482,14 +4861,14 @@ int main(int argc,char**argv) {
     using namespace anvil;
     try {
         if(argc<3){usage();return 2;}
-        std::string cmd=argv[1]; Options opt;
+        std::string cmd=argv[1]; Options opt; bool block_explicit=false;
         if(const char* env=getenv("ANVIL_STREAM_LAMBDA")) opt.stream_lambda=std::atof(env);
         for(int i=(cmd=="verify"?3:4);i<argc;++i) {
             std::string a=argv[i];
             if(a.rfind("--parse=",0)==0)opt.parse=a.substr(8);
             else if(a.rfind("--literal=",0)==0)opt.literal=a.substr(10);
             else if(a.rfind("--entropy=",0)==0)opt.entropy=a.substr(10);
-            else if(a.rfind("--block=",0)==0)opt.block_size=std::stoul(a.substr(8));
+            else if(a.rfind("--block=",0)==0){opt.block_size=std::stoul(a.substr(8));block_explicit=true;}
             else if(a.rfind("--chain=",0)==0)opt.max_chain=std::stoul(a.substr(8));
             else if(a.rfind("--max-match=",0)==0)opt.max_match=std::stoul(a.substr(12));
             else if(a.rfind("--surprise=",0)==0)opt.surprise=std::stoul(a.substr(11));
@@ -3504,14 +4883,27 @@ int main(int argc,char**argv) {
             else if(a.rfind("--stream-lambda=",0)==0)opt.stream_lambda=std::stod(a.substr(16));
             else if(a.rfind("--hotop-rlzp=",0)==0)opt.hotop_rlzp=(a.substr(13)!="off");
             else if(a.rfind("--hotop-budget=",0)==0)opt.hotop_budget=(a.substr(15)!="off");
+            else if(a.rfind("--ariref=",0)==0)opt.ariref=(a.substr(9)!="off");
+            else if(a.rfind("--ratio-context=",0)==0)opt.ratio_context=(a.substr(16)!="off");
+            else if(a.rfind("--ratio-lines=",0)==0)opt.ratio_lines=(a.substr(14)!="off");
+            else if(a.rfind("--ratio-backend=",0)==0)opt.ratio_backend=a.substr(16);
+            else if(a.rfind("--bwt-post=",0)==0){ int v=std::stoi(a.substr(11)); if(v<-1||v>255) throw std::runtime_error("--bwt-post must be -1 or 0..255"); opt.bwt_post=v; }
+            else if(a.rfind("--bwt-lzp=",0)==0)opt.bwt_lzp=(a.substr(10)!="off");
+            else if(a.rfind("--bwt-subblock=",0)==0){ uint64_t v=std::stoull(a.substr(15)); if(v==0 || v>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("--bwt-subblock must be 1..2GiB"); opt.bwt_subblock=static_cast<uint32_t>(v); }
+            else if(a.rfind("--decode-threads=",0)==0){ uint64_t v=std::stoull(a.substr(17)); if(v==0 || v>1024) throw std::runtime_error("--decode-threads must be 1..1024"); opt.decode_threads=static_cast<uint32_t>(v); }
             else if(a=="--stream-log")opt.stream_log=true;
             else if(a=="--quiet")opt.quiet=true;
             else throw std::runtime_error("unknown option: "+a);
         }
-        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape"&&opt.parse!="topology"&&opt.parse!="tcopy"&&opt.parse!="hotop")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl, shape, topology, tcopy or hotop");
+        if(opt.parse!="auto"&&opt.parse!="dp"&&opt.parse!="greedy"&&opt.parse!="sparse"&&opt.parse!="mdl"&&opt.parse!="shape"&&opt.parse!="topology"&&opt.parse!="tcopy"&&opt.parse!="hotop"&&opt.parse!="ratio")throw std::runtime_error("parse must be auto, dp, greedy, sparse, mdl, shape, topology, tcopy, hotop or ratio");
+        if(opt.parse=="ratio" && !block_explicit) opt.block_size=128u<<20;
+        if(opt.parse=="ratio" && (opt.block_size==0 || opt.block_size>(128u<<20))) throw std::runtime_error("ratio block must be 1..128 MiB");
+        if(opt.parse=="ratio" && opt.ratio_backend!="brotli" && opt.ratio_backend!="bwt" && opt.ratio_backend!="auto") throw std::runtime_error("ratio-backend must be brotli, bwt or auto");
+        if(opt.parse!="ratio" && (opt.block_size==0 || opt.block_size>(64u<<20))) throw std::runtime_error("block must be 1..64 MiB for revision 1");
         if(opt.literal!="auto"&&opt.literal!="o0"&&opt.literal!="o1"&&opt.literal!="g4"&&opt.literal!="g8"&&opt.literal!="g16")throw std::runtime_error("literal must be auto, o0, o1, g4, g8 or g16");
         if(opt.entropy!="auto"&&opt.entropy!="arith"&&opt.entropy!="rans"&&opt.entropy!="sparse")throw std::runtime_error("entropy must be auto, arith, rans or sparse");
         if(opt.shape_states!=1 && opt.shape_states!=28)throw std::runtime_error("shape-states must be 1 or 28");
+        if(opt.bwt_post!=-1 && (opt.bwt_post<0 || opt.bwt_post>4)) throw std::runtime_error("--bwt-post must be -1 or 0..4 (0=static-MTF 1=arith-o0 2=arith-o1 3=raw-BWT 4=QLFC)");
         if(cmd=="c") {
             if(argc<4){usage();return 2;} auto in=read_file(argv[2]); GlobalStats st;
             auto t0=std::chrono::steady_clock::now(); auto out=compress(in,opt,&st); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
@@ -3528,10 +4920,10 @@ int main(int argc,char**argv) {
               <<","<<g_diag_sz_z[6]<<"/"<<g_diag_sz_raw[6]
               <<","<<g_diag_sz_z[7]<<"/"<<g_diag_sz_raw[7]<<"]\n";}
         } else if(cmd=="d") {
-            if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
+            if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in,opt); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}
         } else if(cmd=="verify") {
-            auto in=read_file(argv[2]); GlobalStats st; auto enc=compress(in,opt,&st); auto dec=decompress(enc);
+            auto in=read_file(argv[2]); GlobalStats st; auto enc=compress(in,opt,&st); auto dec=decompress(enc,opt);
             if(dec!=in) throw std::runtime_error("round-trip mismatch");
             std::cout<<"OK bytes="<<in.size()<<" encoded="<<enc.size()<<" fnv64="<<std::hex<<fnv1a(in)<<std::dec<<"\n";
         } else { usage(); return 2; }
@@ -3540,4 +4932,3 @@ int main(int argc,char**argv) {
 }
 
 #endif // ANVIL_NO_MAIN
-

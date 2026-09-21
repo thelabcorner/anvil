@@ -1,0 +1,7 @@
+variant,rep,seconds
+baseline_full_decompress,0,0.823982
+post_full,0,0.411851
+model_build_x257,0,0.000386
+post_setup_only,0,0.000002
+post_no_emit(token+uvar only),0,0.363553
+post_no_out(mtf, no writes),0,0.387821

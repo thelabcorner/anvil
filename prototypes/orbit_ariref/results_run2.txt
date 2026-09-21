@@ -1,0 +1,170 @@
+ARI-REF Experiment Z harness (token economics; counted/varint wire; NO rANS, NO container)
+file                               orig raw(exact)     ari-tx   ari-impl   ariTok     d_tx%   d_impl%      rt note
+diag:prog-pure-u32               256000     256006      52023      44021     4001    -79.68    -82.80       y rt-ok
+    impl-vs-tx: -15.38%
+diag:prog-jitter-u32             256000     256109      87965     123633     2121    -65.65    -51.73       y rt-ok
+    impl-vs-tx: +40.55%
+tests/corpus/synth-arith.bin     256000     257124      89363     123638     2160    -65.25    -51.92       y rt-ok
+    (forced-literal parse-true wire: 261212; base tokens 3501, ari-parse tokens 2239)
+tests/corpus/synth-timeseries.bin     280000     275937     276012     276247       33      0.03      0.11       y rt-ok
+    (forced-literal parse-true wire: 276075; base tokens 40913, ari-parse tokens 40909)
+tests/corpus/synth-jitter.bin     974920     190137     190135     190130        1     -0.00     -0.00       y rt-ok
+    (forced-literal parse-true wire: 190141; base tokens 45354, ari-parse tokens 45356)
+tests/corpus/synth-columnar-align.bin     276000     312402     312402     312402        0      0.00      0.00       y rt-ok
+tests/corpus/synth-drift-stride.bin     615376     360194     360328     360952       66      0.04      0.21       y rt-ok
+    (forced-literal parse-true wire: 360600; base tokens 88568, ari-parse tokens 88435)
+tests/corpus/synth-counters.log    1107326     418803     420373     424873      186      0.37      1.45       y rt-ok
+    (forced-literal parse-true wire: 423354; base tokens 95668, ari-parse tokens 95155)
+tests/corpus/doc.md                2724       2214       2214       2214        0      0.00      0.00       y rt-ok
+tests/corpus/src.cpp              32512      15957      15957      15957        0      0.00      0.00       y rt-ok
+tests/corpus/generated.json      827664     249076     249094     249262        5      0.01      0.07       y rt-ok
+    (forced-literal parse-true wire: 249215; base tokens 53645, ari-parse tokens 53630)
+tests/corpus/generated.jsonl    2815267     473886     475058     488562       72      0.25      3.10       y rt-ok
+    (forced-literal parse-true wire: 486452; base tokens 102433, ari-parse tokens 101862)
+tests/corpus/generated.log      1942280     359539     359575     359898        1      0.01      0.10       y rt-ok
+    (forced-literal parse-true wire: 359848; base tokens 78117, ari-parse tokens 78104)
+tests/corpus/generated.sqlite    1740800     487677     487222     488049       43     -0.09      0.08       y rt-ok
+    (forced-literal parse-true wire: 488348; base tokens 104215, ari-parse tokens 104152)
+tests/corpus/generated.repeat.jsonl     940000        253        253        253        0      0.00      0.00       y rt-ok
+tests/corpus/random.bin          262144     262179     262179     262179        0      0.00      0.00       y rt-ok
+tests/corpus/anvil.exe           268800     185123     184984     185717       52     -0.08      0.32       y rt-ok
+    (forced-literal parse-true wire: 185484; base tokens 38787, ari-parse tokens 38656)
+tests/corpus/anvil_bench.exe    1929216    1404366    1384417    1408356      960     -1.42      0.28       y rt-ok
+    (forced-literal parse-true wire: 1405198; base tokens 280963, ari-parse tokens 276822)
+tests/corpus/pe-winver.exe        28672       8242       8229       8251        3     -0.16      0.11       y rt-ok
+    (forced-literal parse-true wire: 8253; base tokens 1373, ari-parse tokens 1370)
+tests/corpus/pe-where.exe         61440      36052      36044      36061        2     -0.02      0.02       y rt-ok
+    (forced-literal parse-true wire: 36060; base tokens 6806, ari-parse tokens 6805)
+tests/corpus/pe-notepad.exe      360448     281668     281410     282618       88     -0.09      0.34       y rt-ok
+    (forced-literal parse-true wire: 282996; base tokens 38354, ari-parse tokens 38171)
+tests/corpus/pe-python.exe       103704      63313      63151      64444       58     -0.26      1.79       y rt-ok
+    (forced-literal parse-true wire: 64600; base tokens 5118, ari-parse tokens 4929)
+tests/corpus/pe-ninja.exe        603648     501338     499812     501845      249     -0.30      0.10       y rt-ok
+    (forced-literal parse-true wire: 502443; base tokens 98869, ari-parse tokens 98551)
+tests/corpus/pe-git.exe         4383048    3685167    3679944    3688319     1051     -0.14      0.09       y rt-ok
+    (forced-literal parse-true wire: 3689158; base tokens 765186, ari-parse tokens 764112)
+
+-- fuzz --
+MUTATION CORRUPTION: kind=1 rep=1 wireByte=77 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=2 wireByte=462 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=3 wireByte=90 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=4 rep=4 wireByte=2 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=0 rep=7 wireByte=699 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=9 wireByte=1117 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=10 wireByte=935 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=12 wireByte=20 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=13 wireByte=477 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=15 wireByte=799 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=16 wireByte=2500 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=17 wireByte=47 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=19 wireByte=14 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=20 wireByte=647 decoded to WRONG bytes
+mutation: equivalent re-encode (kind=0 rep=21 wireByte=78) ΓÇö non-injective LZ class, output still exact
+MUTATION CORRUPTION: kind=1 rep=22 wireByte=29 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=23 wireByte=442 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=24 wireByte=1539 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=26 wireByte=1133 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=27 wireByte=608 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=29 wireByte=679 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=30 wireByte=1394 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=31 wireByte=319 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=33 wireByte=106 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=34 wireByte=1020 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=37 wireByte=461 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=38 wireByte=2526 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=41 wireByte=146 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=43 wireByte=913 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=44 wireByte=212 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=45 wireByte=1641 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=48 wireByte=870 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=50 wireByte=889 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=51 wireByte=953 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=52 wireByte=106 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=57 wireByte=421 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=58 wireByte=459 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=59 wireByte=63 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=61 wireByte=28 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=62 wireByte=13 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=64 wireByte=235 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=65 wireByte=1537 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=66 wireByte=461 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=4 rep=67 wireByte=2 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=68 wireByte=135 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=72 wireByte=158 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=73 wireByte=355 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=76 wireByte=607 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=78 wireByte=104 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=79 wireByte=281 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=80 wireByte=410 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=83 wireByte=537 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=86 wireByte=2495 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=87 wireByte=94 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=4 rep=88 wireByte=2 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=89 wireByte=797 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=93 wireByte=670 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=94 wireByte=2632 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=99 wireByte=261 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=100 wireByte=506 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=101 wireByte=733 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=104 wireByte=327 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=107 wireByte=612 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=108 wireByte=1502 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=111 wireByte=760 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=113 wireByte=931 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=114 wireByte=406 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=115 wireByte=22 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=118 wireByte=216 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=120 wireByte=932 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=121 wireByte=67 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=122 wireByte=2070 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=125 wireByte=741 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=0 rep=126 wireByte=78 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=127 wireByte=11 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=128 wireByte=407 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=129 wireByte=584 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=131 wireByte=889 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=134 wireByte=90 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=135 wireByte=350 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=136 wireByte=465 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=138 wireByte=179 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=139 wireByte=777 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=0 rep=140 wireByte=560 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=141 wireByte=217 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=142 wireByte=482 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=143 wireByte=212 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=145 wireByte=623 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=146 wireByte=362 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=149 wireByte=920 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=150 wireByte=617 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=156 wireByte=115 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=157 wireByte=532 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=159 wireByte=103 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=0 rep=161 wireByte=17 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=162 wireByte=201 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=163 wireByte=1999 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=164 wireByte=494 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=166 wireByte=652 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=167 wireByte=914 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=169 wireByte=1416 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=170 wireByte=131 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=171 wireByte=1746 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=174 wireByte=450 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=176 wireByte=146 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=177 wireByte=1020 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=178 wireByte=295 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=180 wireByte=41 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=183 wireByte=1080 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=184 wireByte=2462 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=185 wireByte=1375 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=187 wireByte=991 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=6 rep=188 wireByte=837 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=190 wireByte=311 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=191 wireByte=3552 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=192 wireByte=837 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=5 rep=194 wireByte=1210 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=1 rep=197 wireByte=821 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=2 rep=198 wireByte=1066 decoded to WRONG bytes
+MUTATION CORRUPTION: kind=3 rep=199 wireByte=646 decoded to WRONG bytes
+fuzz: 280 roundtrip cases, 0 failures; 199 mutations: 79 rejected, 1 equivalent-accepts, 119 corrupt-accepts
+
+exit 1 (nonzero = correctness failure; density verdicts are data, printed above)

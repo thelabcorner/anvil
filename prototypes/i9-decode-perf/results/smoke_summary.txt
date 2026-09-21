@@ -1,0 +1,17 @@
+ANVIL BWT postcoder stage profile (decode-perf, I9 leg 3)
+  LABEL: smoke
+  reps=2 interleaved, median; CV=stdev/mean; threads=1
+
+=== containers\smoke_xml_id1.anv ===
+src=5345280 comp=452860 ratio=0.0847 post=1 xlen=5345280 (arith O0)
+BASELINE full decode: 35.23 MB/s (med 151.74 ms CV 6.7% min 132.81 ms)
+POSTCODER (arith) med=65.48 ms = 43.1% of e2e (CV 0.0%)
+  setup (ad init + eager models): 0.45 ms = 0.3% of e2e (0.7% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 58.40 ms = 38.5% of e2e (89.2% of post)
+  output materialization (writes): 7.07 ms = 4.7% of e2e (10.8% of post)
+  counters: tokens=807606 runs=225652 run_bytes=4763326 out_bytes=5345280 O1_model_builds=0
+  PROTOTYPE fast_renorm: 61.40 ms vs full 65.48 ms -> 1.066x (candidate C=1.028x if this share is removed)
+  model_build_x257: 61.421 ms per full set (0.2390 ms/model) -> lazy-build est share = 0 * per_model / post_full = 0.0%
+  rank hist (1..15+): 185039 80426 52770 39476 31331 26061 22453 19401 16779 11730 10183 8609 7318 6365 64013 0
+

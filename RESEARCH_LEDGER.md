@@ -2811,3 +2811,2482 @@ tANS-state-machine coder for other reasons; the real, separable future lever her
 integer frequency normalization (FSE-style variants), a different and separately
 pre-registrable item, not this paper.
 
+---
+
+# PART X — Iteration-6 Orbit-LZ primitive lane
+
+## Experiment Z — ARI-REF implicit-parameter arithmetic reference (Orbit-LZ / generalized-REF primitive, degree-1 polynomial family) — PRE-REGISTRATION
+
+**Lane:** `orbit-lz` (this session). Isolation: standalone harness in
+`prototypes/orbit_ariref/` — **no `src/anvil.cpp` edit** (only `arch` owns it;
+the hotop-rlz Experiment-Y work has uncommitted edits in the shared worktree now).
+
+**Context / lineage (why this is the right minimal first step, not the full
+vision):** the I4-4 Orbit-LZ lane was BLOCKED at Experiment U (diagnosed the
+event-generation density-mismatch blocker), then re-opened by V (harness port;
+`raw+pnra` beats `raw` on the pinned PEs — the first real positive signal) and W
+(finite-difference detector PARTIALLY VINDICATED: genuine arithmetic structure
+in `synth-arith.bin` gives a 2.57% hit rate vs the 0.14–1.1% hash-noise floor of
+the real corpus). Experiment W recorded the precise unbuilt remainder — verbatim:
+**"no ANVIL token/parse mechanism currently exists that could convert a detected
+arithmetic relation into a compression gain even where the detector fires
+correctly — building one is a separate, larger, not-yet-attempted task."**
+This experiment builds that missing primitive, in its minimal isolated form. It
+is the Orbit direction's ranked #3 family ("sequence continuation / advancing
+IDs / counters / polynomial continuation") and Orbit-LZ direction #1's
+equivalence-class matching for the **additive (degree-1 polynomial /
+finite-difference) transformation family** — the value-axis dual of TCOPY's
+translation/relocation transform, and the family NO existing ANVIL token type
+encodes (`anvil.exe` compresses `synth-arith.bin` to ~100%; exact LZ cannot
+express "delta from an arithmetic relation").
+
+**The primitive (generalized REF):** `ARI-REF(d, L, Δ)` — copy `L` bytes
+(`L = 4W`, `W` aligned u32 words) from distance `d` (non-overlapping, `d ≥ L`,
+per the TCOPY overlap-excluded-first precedent), then add a **constant per-word
+delta Δ** to each of the `W` words; sparse single-byte residuals `R` cover noise
+(a flat per-byte correction mask, mode-11 style). Ordinary LZ = `Δ=0, R=∅`
+special case; TCOPY's sparse-field translation is the sibling family whose
+transform applies to a *subset* of aligned windows rather than every word.
+
+**The zero-bit-parameter claim (Orbit #3 discipline — the arithmetic analog of
+TCOPY's implicit `Δ=−d`):** when the source phrase and the target phrase are
+segments of **the same arithmetic progression** (a counter/column continuing
+through the gap), the per-word step `σ` is observed from the copied source
+phrase itself (decoder-visible), so `Δ = σ·(d/4)` needs **zero transmitted
+bits** — the decoder copies the source, reads its local per-word step, and adds
+the product `step × (distance in words)`. This is the degree-1-polynomial family
+counterpart to TCOPY's relocation algebra: θ derived from decoder-visible
+reference state, not transmitted.
+
+**Falsifiable targets (pre-registered):**
+- **(a) Representation/density:** on purpose-built arithmetic-progression files
+  (`tests/corpus/synth-arith.bin`; the per-field-delta columnar layout of
+  `synth-timeseries.bin`), an ARI-REF-enabled greedy parse + counted/varint wire
+  must produce a **materially smaller token stream than the exact-LZ baseline**
+  (same parser, ARI-REF disabled) on the same data. Bar: **≥ 10% fewer raw wire
+  bytes** on an arithmetic-structured file — the gain attributable to the
+  arithmetic invariant (the `Δ=0` copy is already what exact-LZ does).
+- **(b) Implicit-θ ablation (the Orbit #3 decisiveness test):** implicit
+  `Δ=σ·(d/4)` must be **not meaningfully larger** than a transmitted-Δ control on
+  the same tokens — proving the zero-bit derivation costs nothing in density. If
+  implicit is materially worse, the zero-bit claim narrows and the honest
+  fallback is a transmitted-Δ reference (which itself is only useful when Δ
+  amortizes across ≥ several words, per the TCOPY transmitted-Δ lesson).
+- **(c) No-regression / attribution control:** on the existing REAL corpus
+  (json/jsonl/log/sqlite/text/bin — measured by Experiment U to have arithmetic
+  signal at the hash-noise floor), ARI-REF must contribute **~nothing** (≈zero
+  added tokens; token stream ≈ exact-LZ baseline) — proof the gain is specific
+  to the arithmetic family, not a general-purpose trick that helps everything.
+- **(d) Correctness:** encode→decode must reproduce input exactly on every file
+  (self-checked round-trip), and a small fuzz pass over arithmetic-structured and
+  random inputs must not accept corrupted output (decoder either reproduces input
+  or fails).
+
+**Honest framing (pre-committed):** this is a **token-economics harness**
+(counted/varint wire, no rANS entropy, no ANVIL container) — same limitation
+Experiment V recorded: absolute byte counts are NOT comparable to `anvil.exe`'s
+real compressed output or to brotli; only the **relative raw-vs-ariref delta
+within the harness** is meaningful, plus `anvil.exe`'s real compressed size on
+the synthetic files as an orientation reference (currently ~100% — the known
+gap this primitive targets). **No Pareto / EXTENDS_FRONT claim.** If (a) passes
+and (b),(c) hold → the Orbit-LZ arithmetic-family claim is validated at the
+representation level, and the recommendation is to carry it into a real ANVIL
+token type via the arch/format lanes (with search + entropy as the follow-on).
+If (a) fails → that is the falsification: the arithmetic relation cannot be
+converted into density even in a maximally favorable isolated harness. Both are
+complete, honest outcomes per the project norm.
+
+**Why minimal by design:** ONE invariant family (degree-1 finite difference),
+ONE transform (constant per-word additive delta), NO overlap (`d ≥ L`), ONE
+greedy parse, cited counted wire. It deliberately does NOT attempt the
+event-density-mismatch search problem (Experiment U's blocker): search here is
+naive/representative-wave and the harness measures **representation value first**,
+exactly the representation-vs-discovery split TCOPY/PNRA used. Complexity of
+search and entropy-coding are recorded as separate, follow-on work regardless of
+the density verdict.
+
+
+
+## Experiment Z - ARI-REF RESULTS (harness built, measured; token-economics only, NO Pareto claim)
+
+**Build:** standalone `clang-cl` per the Experiment V precedent, binaries kept in-lane:
+```
+clang-cl /std:c++20 /MD /O2 /EHsc /DNDEBUG prototypes/orbit_ariref/ariref.cpp /Fe:prototypes/orbit_ariref/ariref.exe /Fo:prototypes/orbit_ariref/
+```
+(`clang-cl` at `C:\Program Files\LLVM\bin\clang-cl.exe`; not on PATH.) The checked-in
+`ariref.cpp` draft was unfinished/broken (undeclared `lit_run_pos`, stub decoder, no
+`main()`); it was completed into a full harness: greedy parse (exact 4-byte-hash buckets +
+ARI step-hash candidates keyed on w[7]-w[0]), counted/varint wire with FOUR token forms
+(literal / exact copy / ARI-transmitted-Δ tag 0x02 / ARI-implicit-Δ tag 0x03), a real
+self-contained wire decoder (implicit Δ derived from the decoder's own reconstructed
+history), wire-cost-gated match acceptance, and built-in fuzz. Deterministic; seed 0xC0FFEE.
+
+**Bring-up honesty note:** the FIRST build (run1) failed round-trip on most files due to two
+real bugs, both found and fixed before any number below was recorded: (i) `longest_exact`
+accepted hash-bucket hits without verifying the initial 4 bytes (collisions → false matches);
+(ii) the mode-0 demotion condition demoted K_EXACT tokens too, inflating every raw(exact)
+baseline (run1's "raw" column was literals-only and wrong). run2+ are clean. priorart
+independently rebuilt from source SHA256 CFE97A363B164E070CBF9042620878B8731065BF5211C196936BC674A1CFF73F
+and reproduced the run2 table exactly (all headlines identical) - recorded as corroboration.
+
+**Measured results (final run, `results_run3.txt`; exit 0). Wire = harness's own counted/
+varint stream; NOT comparable to anvil.exe or brotli (Experiment V caveat stands).**
+raw(exact-LZ) = same parser, ARI disabled; tx/impl = same ARI-enabled parse wired with
+transmitted vs implicit Δ (same token stream in both).
+
+| file | orig | raw(exact) | ari-tx | d_tx% | ari-impl | d_impl% | ARI toks | rt |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| diag:prog-pure-u32 | 256,000 | 256,006 | 52,023 | -79.68 | 44,021 | -82.80 | 4,001 | ok |
+| diag:prog-jitter-u32 | 256,000 | 256,109 | 87,965 | -65.65 | 123,633 | -51.73 | 2,121 | ok |
+| **synth-arith.bin** | 256,000 | 257,124 | **89,363** | **-65.25** | 123,638 | -51.92 | 2,160 | ok |
+| synth-timeseries.bin | 280,000 | 275,937 | 276,012 | +0.03 | 276,247 | +0.11 | 33 | ok |
+| synth-jitter.bin | 974,920 | 190,137 | 190,135 | -0.00 | 190,130 | -0.00 | 1 | ok |
+| synth-columnar-align.bin | 276,000 | 312,402 | 312,402 | 0.00 | 312,402 | 0.00 | 0 | ok |
+| synth-drift-stride.bin | 615,376 | 360,194 | 360,328 | +0.04 | 360,952 | +0.21 | 66 | ok |
+| synth-counters.log | 1,107,326 | 418,803 | 420,373 | +0.37 | 424,873 | +1.45 | 186 | ok |
+| doc.md / src.cpp / repeat.jsonl / random.bin | - | - | - | 0.00 | - | 0.00 | 0 | ok |
+| generated.json | 827,664 | 249,076 | 249,094 | +0.01 | 249,262 | +0.07 | 5 | ok |
+| generated.jsonl | 2,815,267 | 473,886 | 475,058 | +0.25 | 488,562 | +3.10 | 72 | ok |
+| generated.log | 1,942,280 | 359,539 | 359,575 | +0.01 | 359,898 | +0.10 | 1 | ok |
+| generated.sqlite | 1,740,800 | 487,677 | 487,222 | -0.09 | 488,049 | +0.08 | 43 | ok |
+| anvil.exe | 268,800 | 185,123 | 184,984 | -0.08 | 185,717 | +0.32 | 52 | ok |
+| anvil_bench.exe | 1,929,216 | 1,404,366 | 1,384,417 | **-1.42** | 1,408,356 | +0.28 | 960 | ok |
+| pe-{winver,where,notepad,python,ninja,git}.exe (u3 held-out) | 28K-4.4M | - | - | -0.02..-0.30 | - | +0.02..+1.79 | 2..1,051 | ok |
+
+**Target verdicts (pre-registered bars):**
+
+- **(a) Representation/density: PASS on synth-arith.bin, FAIL on synth-timeseries.bin.**
+  synth-arith: 257,124 → 89,363 tx = **-65.25%** (bar ≥10%: passed by 6.5x); impl -51.92%.
+  Baseline sanity: raw ≈ orig (exact-LZ finds ~nothing on progressions - matches PART X's
+  "~100%" orientation note). synth-timeseries: +0.03%/+0.11%, 33 tokens - no gain. Mechanism
+  of the miss: 14-byte record stride means ts-field distances are not ×4-aligned, and a u64
+  timestamp advancing ~1000/record needs a per-FIELD delta, not one constant per-word Δ over
+  an aligned span - outside this primitive's expressible family as pre-registered (degree-1,
+  word-aligned, constant Δ).
+- **(b) Implicit-Δ ablation: FAIL as pre-registered on the corpus; sharp boundary recorded.**
+  On synth-arith's same 2,160 tokens, implicit costs +38.35% vs transmitted (89,363 →
+  123,638). Diagnostic rows isolate the mechanism: on an EXACT progression implicit BEATS
+  transmitted (-15.38%; derivation is exact and saves the svar bytes), but with ±1 per-word
+  step jitter it degrades to +40.55% (diag) / +38.35% (corpus). σ estimated from ONE source
+  word-pair, multiplied by d/4 ≥ 4, amplifies jitter into ±(d/4) Δ error paid as residuals.
+  The zero-bit claim narrows exactly along the pre-registered fallback line: Δ=σ·(d/4) is
+  free-and-exact ONLY for exact progressions; under realistic noise the honest reference is
+  TRANSMITTED Δ - which is what carries the (a) gain.
+- **(c) No-regression/attribution: PASS.** Real-corpus ARI contribution ≈zero in tx mode:
+  0 tokens on doc/src/repeat/random; 1-72 tokens on json/jsonl/log/sqlite with wire deltas
+  0.00-0.25% (sqlite -0.09%); binaries 52-1,051 tokens (0.02-0.35% of tokens), deltas
+  -0.02..-0.30%, one small positive outlier anvil_bench.exe -1.42% (noted, NOT claimed -
+  plausibly counter-like relocation fields; unexamined). impl-mode penalties up to +3.10%
+  (jsonl) are the (b) noise effect showing up on accidental step-hash matches. The -65%
+  gain is specific to the arithmetic family: attribution confirmed.
+- **(d) Correctness: PASS.** Byte-exact round-trip through the real wire decoder on all 22
+  corpus files + 2 diagnostics × all 4 modes. Fuzz: 280/280 roundtrip cases pass over 7
+  input families (pure/jittered/interleaved progressions, random, constant, u32-wraparound
+  counters, mixed segments; edge cases empty/1B/3B included), seed 0xC0FFEE, deterministic.
+  Mutations: 199 single-bit wire flips → 79 rejected by decoder structural/bounds checks,
+  1 equivalent re-encode (non-injective LZ class, output still exact), 119 wrong-but-
+  DETECTED by the self-check comparison, 0 crashes, 0 silent wrong-accepts. Interpretation
+  note (coordinator ruling, recorded): this layer has NO integrity field by design; target
+  (d) is satisfied by round-trip strictness + detection; mutation-hardening defers to real
+  integration (ANVIL per-block CRC).
+
+**Honest reading:** the Experiment W remainder is now answered at the representation level:
+a detected arithmetic relation CAN be converted into density by a token mechanism
+(-65.25% vs exact-LZ on the purpose-built arithmetic file, in a maximally favorable isolated
+harness), the gain is family-specific ((c) holds), and the zero-bit parameter derivation
+survives only in its exact-progression limit ((b) narrows; transmitted Δ is the working
+form). Per the pre-registration: representation validated for the additive family via
+transmitted Δ; carrying it into a real ANVIL token type (arch/format lanes, with search +
+entropy as follow-on) is the recommended next step; a stronger decoder-visible estimator
+(cumulative-drift / multi-pair σ) is recorded as unbuilt follow-on, not measured here.
+NO Pareto / EXTENDS_FRONT claim. Absolute bytes not comparable to anvil.exe or brotli.
+
+
+---
+
+# PART XII — Iteration-7 cost-fidelity + Orbit lane
+
+*Consolidated by `ledger` (anvil-i7-cost) from `docs/ledger-i7-cost.md`;
+appended after an immediate tail re-read (the concurrent swarm writes
+`# PART XI`; this part lands cleanly AFTER whatever existed at write time;
+existing content is never rewritten or reordered).*
+
+**Quality seal:** every entry in this part is covered by the independent
+verification matrix (`deliverable/u6` v4, `docs/verify-notes/i7-verification.md`):
+all six lanes' numbers reproduce exactly or within pre-registered bands from
+verify's own rebuilds, plus ariref's complementary independent pass (u6 v3
+addendum + v4 resolution addendum); zero ledger contradictions; "no claim
+exceeds its evidence anywhere." Four review findings were raised across the
+double pass and ALL resolved before consolidation (anvil_bench.exe manifest
+re-pin; ariref source-hash re-pin; oracle range-gloss rewording; S6-2
+flip-count counting-basis reconciliation + one staging-file hash-suffix typo,
+fixed).
+
+The Experiment Z results entry was landed by its author (ariref) directly
+below its PART X pre-registration and is cross-referenced here rather than
+duplicated.
+
+**Closing cross-reference — I7 strategy synthesis / I8 ranking (strategy,
+analysis-only; NOT a claim):** `docs/swarm-i7-strategy.md` consumes all six
+deliverables above plus the decode-swarm's S6-1 frozen gate and interim
+measurements. Headline re-rank (all numbers from landed measurements): the
+streak-breaker relocates to mode-16 ARI-REF on synth-arith.bin (EXP. Z harness
+wire 89,363 B vs brotli-q11 87,013 B = +2.7%, already below zstd-19/q9 — a
+falsifiable first-EXTENDS_FRONT prediction if the end-to-end container lands
+≤87,013 B); the record-file frontier is measured RATIO-blocked first;
+generated.json's precise open problem is −11.6% vs exactly one dominating ref
+row; five dead ends are closed with measured reasons (post-parse rollback,
+stream-budget-only bar A, implicit Δ default, RLZ/RePair default,
+word-aligned constant-Δ off-layout); I8 DAG sequenced A–G. Standing
+disclaimer: pre-registrable falsifiable tests, not claims.
+
+## Experiment Z — ARI-REF results — ALREADY LANDED IN LEDGER (cross-reference; do not duplicate)
+
+**Disposition:** ariref appended the complete Experiment Z RESULTS entry
+directly to RESEARCH_LEDGER.md immediately after the PART X pre-registration
+it completes (current file lines ~2910–3003), matching the T/U/W/X one-section
+pattern (pre-reg + results together). Per the no-rewrite/no-reorder rule this
+entry STAYS where it landed; PART XII carries this pointer instead of a
+duplicate. (Process deviation noted: entries were supposed to stage here
+first; the result is nonetheless correct, complete, and verified.)
+
+**Verdict summary (full numbers in the ledger entry):**
+- **(a) Representation/density: PASS on synth-arith.bin** — raw(exact-LZ)
+  257,124 → ari-tx 89,363 = −65.25% (bar ≥10%, passed 6.5×); **FAIL on
+  synth-timeseries.bin** (+0.03%; 14 B stride not ×4-alignable; per-field
+  deltas outside the pre-registered word-aligned constant-Δ family).
+- **(b) Implicit-Δ ablation: FAIL as pre-registered on corpus; sharp boundary**
+  — implicit Δ=σ·(d/4) costs +38.35% vs transmitted on the same 2,160 tokens;
+  exact progression → implicit BEATS transmitted (−15.38%); ±1 jitter →
+  +40.55%. Zero-bit claim narrows to exact progressions; transmitted Δ is the
+  working form and carries the (a) gain.
+- **(c) No-regression/attribution: PASS** — real-corpus tx-mode ≈zero (0–72
+  tokens text/structured, deltas ≤0.25%; binaries 0.02–0.35% of tokens;
+  anvil_bench.exe −1.42% outlier noted NOT claimed).
+- **(d) Correctness: PASS** — byte-exact round-trip 22 files × 4 modes; fuzz
+  280/280 seed 0xC0FFEE; 199 single-bit mutations → 79 rejected / 1 equivalent
+  / 119 detected-by-self-check / 0 crashes / 0 silent wrong-accepts.
+  Coordinator interpretation note recorded (no integrity field at this layer
+  by design; hardening defers to ANVIL per-block CRC).
+
+**Process honesty:** run1 failures were two real bugs (unverified hash-bucket
+hits; mode-0 demotion inflating raw baselines), fixed before any recorded
+number. priorart independently rebuilt source SHA256 CFE97A36…1CFF73F and
+reproduced every number exactly (corroboration record preserved verbatim in
+blackboard deliverable/u1 v2/v3). Provenance re-pin (deliverable v3): FINAL
+source = `ariref.cpp` SHA256 `86BA68D0…4F63A7`, `results_run3.txt` SHA256
+`36548062…97E9E` — the file changed AFTER priorart's corroboration snapshot
+(final mutation-accounting wording / exit-code semantics + debug-scaffolding
+cleanup) with NO numeric behavioral delta, established by priorart's
+CFE97A36-rebuild matching every number AND verify's fresh 86BA68D0-rebuild
+producing output line-identical to results_run3.txt (71/71 lines); both hashes
+valid for their stated snapshots. Recommendation per pre-reg: additive-family
+representation validated via TRANSMITTED Δ; carry into a real ANVIL token type
+via arch/format lanes; stronger decoder-visible σ estimator = unbuilt
+follow-on. Discharges the experimental side of ledger C12 condition (1).
+NO Pareto claim (token-economics harness).
+
+## S6-3 — measured-cost rejection-oracle PROTOTYPE — built, calibrated, measured; integration recommendation recorded (oracle)
+
+**Lineage:** EXP. F proved measured-cost parsing is the strongest ratio
+mechanism but its iterative DP re-parse is DP-class encode (0.8–1.9 MB/s);
+EXP. L proved measured per-stream cost can be 100% faithful (J-selection,
+λ=0.01); EXP. X washed out because a local fixed-shape heuristic committed
+candidates whose real entropy-coded cost exceeded their estimate. S6-3 asks
+the cheapest unifying question: can ONE measured-rANS-cost rejection pass
+after a greedy parse capture the fidelity at greedy-class encode cost?
+Strategy-doc falsifiable targets: (a) calibration — match true entropy-coded
+token cost within X% on a candidate sample; (b) end-to-end record-file
+aggregate ratio Δ ≤ 0 (exact), encode ≤ 2× greedy-class, decode penalty ≤ 10%.
+
+**Scope:** PROTOTYPE standalone harness (`prototypes/cost_oracle/`:
+`cost_oracle.cpp`+exe, README with full tables, `results_m11.csv`,
+`results_m14_pe.csv`, `cal_jsonl.csv`, `cal_bench.csv`). Verbatim copies from
+`src/anvil.cpp` only — **no src edits** (integration deferred to arch).
+Build per the Experiment V precedent (clang-cl /std:c++20 /MD /O2 /EHsc
+/DNDEBUG). Correctness anchor: harness baselines reproduce the ledger's EXP. X
+wire sizes BYTE-EXACTLY (anvil.exe 108,514 `pnra=on` / 108,518 off;
+anvil_bench.exe 846,050 / 845,675). Round-trips verified decode==input on
+every rep of every run. All numbers harness-relative (single parse family, no
+container router), labeled as such.
+
+**Results — (a) calibration (parse-time heuristic vs measured attributed
+bytes, consistent units):** 473,985 sampled committed candidates across 22
+file-runs, **ZERO sign flips**; median |err| ≤16% on every file; P90
++0.5%..+83% on text/binaries; one large tail (synth-timeseries P90 +2219%)
+where the flat `len/8` mask term OVER-prices long clean matches — pessimistic
+direction, never over-commits. **PASS.**
+
+**Results — (b) end-to-end record-file aggregate delta:** **+0.0000% exact,
+CV=0 — delta exactly 0 on all 22 file-runs. PASS (target ≤0).** The guarantee
+is by construction: the decision is measured-payload arbitration over {keep-
+all, drop-R1 (keep>drop), drop-R1∪R2 (type==3 && len≤8)} with variant 0 =
+baseline payload — the smallest ACTUAL encoding wins, so the oracle cannot
+make output larger.
+
+**Results — (c) encode vs greedy-class:** 1.10×–1.40× on all >100 ms files
+(jsonl 1.32×, log 1.38×, sqlite 1.15×, bench 1.03×, pe-git 1.10×) — **PASS
+≤2×.** Outlier repeat.jsonl 2.36× is the degenerate control (940 KB → 1,182 B:
+parse is ~free, so the fixed O(n) attribution pass dominates; absolute cost
+30.8 ms). Honesty note: the harness baseline jsonl encode is 13.4 MB/s, so the
+pre-registration's "~20 MB/s" illustration does not hold for this harness
+either — the binding form of the target is the RATIO, which passes.
+
+**Results — (d) decode penalty:** on ≥3 ms files −4.6%..+7.6% (jsonl +1.3%,
+log +7.6%, bench −4.6%, pe-git +0.25%) — **PASS ≤10%.** Sub-ms files swing
+±15–136% = timer noise; reported, not claimed.
+
+**Finding F1 (measured): EXP. X's +0.0443% regression is TRAJECTORY-borne,
+NOT token-borne.** On anvil_bench `pnra=on`: every committed type-3 token is
+individually sound (kept tokens cost far less than their order-0-literal
+alternative — type-3 median 4.45 B kept vs 43.0 B alternative, R2-class median
+3.66 vs 35.75 B, per verify's exact-subset recheck of the deliverable's
+rounded "2.4–4.8 vs 32–39" gloss); dropping the R2 class (1,470 tokens)
+enlarges EVERY block; forcing ALL 2,377 type-3 tokens in or out still leaves
+every block larger than the `pnra=off` parse (845,675). PNRA commits displace
+better exact/sparse matches downstream via hash-chain insertion —
+un-recoverable by ANY post-parse rollback. Independently corroborated by
+pnra-cost's u5: a parse-TIME threshold (which changes the trajectory) lands
+845,657 < 845,675 on the same bytes.
+
+**Finding F2 (measured): the local heuristic is well-calibrated ON WHAT IT
+COMMITS** (median ±16%, zero sign flips in 473,985 samples). EXP. X's
+"underpricing" root cause is thereby REFINED: per-candidate numbers are
+adequate; the failure mode is accepting candidates whose GLOBAL opportunity
+cost (displacement of downstream matches) exceeds their local gain — invisible
+to any per-token model, measurable only end-to-end. This sharpens the
+iteration theme: cost-model fidelity has a per-token layer (calibrated, works)
+and a trajectory layer (where EXP. X actually failed).
+
+**Integration recommendation for arch (recorded, not executed):**
+1. Do **NOT** integrate post-parse rollback for EXP. X recovery — measured
+   impossible (F1). S6-2's parse-time threshold (pnra-cost's frozen formula)
+   is the correct lever.
+2. **DO** integrate the attribution machinery (~200 lines, encoder-side only,
+   no decoder change) as calibration/diagnosis infrastructure — it powers
+   S6-1's stream budget and S6-2's FramingRaw with measured numbers.
+3. Measured-payload arbitration (try K stated-formula variants, keep the
+   smallest actual encoding) is the safe integration shape for any future
+   refinement pass: Δ≤0 by construction, K−1 extra O(n) encodes, no re-search,
+   cannot mis-price interactions.
+4. A displacement-targeting rejection pass would be DP-class (EXP. F
+   territory) — out of S6-3's greedy-class scope by pre-registration.
+
+**Verdict vs pre-registered targets: (a)(b)(c)(d) all PASS** — the oracle is
+faithful where per-token models can be faithful, provably harmless end-to-end,
+and cheap enough to keep; the measured negative (post-parse rollback cannot
+recover EXP. X) redirects integration to the parse-time lever before arch
+spends effort on the wrong shape.
+
+## S6-2 — stated-formula acceptance threshold for PNRA/TCOPY type-3 candidates — DESIGN RECORD, calibrated, NOT YET MEASURED end-to-end (pnra-cost)
+
+**Status (read this first):** the threshold formula is FROZEN and calibrated
+on the pinned PEs ONLY. **The end-to-end verdict is NOT YET MEASURED** — it
+belongs to arch's integrated build running the frozen protocol below on
+corpus-expand's held-out PE set. Nothing here is a victory claim; the
+designer's own pre-measurement prediction is that the held-out verdict will
+FAIL the pre-registered bar (see Flip predictions).
+
+**Lineage:** EXP. X's recorded remainder verbatim — "a length- or
+distance-aware minimum-gain threshold specific to single-window transform
+candidates, rather than reusing the general-purpose sparse-candidate cost
+formula verbatim" — plus the explicit warning against overfitting hand-tuned
+constants to two pinned PEs. Full contract: `docs/s62-threshold-formula.md`
+(integration contract for arch + pre-registration text).
+
+**Provenance (measured, exact):** calibration used ONLY `anvil.exe`
+(`09b9b0cc…`) + `anvil_bench.exe` (`fcd30da5…`). The prototype
+(`prototypes/pnra_cost/anvil_pnra_proto.cpp`) is a patched COPY of
+`src/anvil.cpp` — `src/anvil.cpp` itself never modified; with no env vars set
+the copy reproduces EXP. X bit-for-bit, and the working tree's +230-line
+RLZ-RePair delta was verified by diff to not touch the PNRA acceptance path.
+EXP. X's counter chain reproduces EXACTLY on current on-disk bytes (anvil.exe
+idxhit 713 / verify 615 / commit 429, out=108,514 — gate 1329 vs ledger 1333,
+4 gate fires producing no index hit; bench gate 6919 / idxhit 2145 / verify
+1958 / commit 1599, out=846,050 — all exact). **This settles the
+`anvil_bench.exe` manifest-drift question empirically: EXP. X was measured on
+the current bytes; the drift predates EXP. X**, so calibration here and ledger
+numbers there are on identical data.
+
+**What is being fixed — EXP. X's root cause, refined by new measurement into
+TWO components:**
+
+1. **Framing underpriced** (the ledger's finding): the per-token fixed wire
+   cost (type symbol + ml varint + ds varint + residual-mask words +
+   transform-mask words) is only partially represented in
+   `1.5 + varint_cost(L−4) + varint_cost(D−1) + L/8 + 0.18·log2(D+1)` — e.g.
+   the tmask stream is not priced at all.
+2. **Alternative overpriced (NEW, this calibration):** the formula's `alt_c`
+   prices the whole candidate span as literals when no exact match exists at
+   the anchor — but a verified PNRA candidate's non-field bytes byte-match at
+   distance D *by construction*, and the re-search recovers them with an exact
+   match anchored just past the field (same distance). Counterfactual
+   measurement: Σ(real marginal cost vs naive literal-splice) over commits =
+   +1,486 B (anvil.exe) / +2,195 B (bench), while the true end-to-end effect
+   is −4 B / +375 B — the parser re-discovers most of the span, so the
+   formula's implied saving `S = alt_c − pnra_c` is systematically inflated.
+
+Consequence: a minimum-gain threshold on S is the right lever (it cannot
+repair S's scale, but it can require S to dominate the fixed framing, which is
+where the modal mispriced shape lives), and the threshold MUST scale with
+shape — flat margins measurably fail.
+
+**The frozen formula (integration contract for arch):** for a verified PNRA
+type-3 candidate c with span L, distance D, F transform fields, R residual
+corrections:
+
+```
+S(c) = alt_c − pnra_c                                        [bits; both already
+                                                              computed by the
+                                                              existing code path]
+FramingRaw(L,D,F,R) = 8·1 + 8·vb(L−4) + 8·vb(D−1)
+                    + 32·⌈L/32⌉ + 32·⌈⌈L/4⌉/32⌉ + 8·R        [raw fixed wire bits:
+                                                              type byte + ml varint
+                                                              + ds varint + mask
+                                                              words + residuals]
+
+Accept iff  S(c) ≥ γ · FramingRaw(L,D,F,R),  γ = 0.5 (FROZEN).
+```
+
+- γ is the ONLY constant — not per-file, per-shape, or per-block tuned.
+- The rule is monotone: any candidate accepted under γ=0.5 would also have
+  been accepted under the legacy S>0 rule, so flips are one-way
+  (commit → reject) and the E8/E9-gated no-op guarantee on non-PE files is
+  structurally preserved (verified byte-identical).
+- Interpretation: the implied saving must cover ~the ENTROPY-CODED framing
+  cost. Measured compressed/raw stream ratios (bench diagnostics): masks
+  0.435, tmask 0.153, types 0.169, ml 0.59, ds 0.93 — blended ≈0.3–0.6 of raw;
+  γ=0.5 is the midpoint of that measured band, i.e. the literal-amortization
+  condition named in the pre-registration, with the margin being the
+  raw-vs-coded pricing slack.
+
+**Derivation (why this form and these constants):**
+
+- *The margin must scale with shape (data, not taste).* End-to-end sweep on
+  the pinned PEs (`off` = 108,518 / 845,675): legacy S>0 → 108,514 / 846,050
+  (bench regresses); flat G0=20 → 108,514 / 845,688 (bench still ≥ off); flat
+  G0=40 → both < off only at near-total rejection (33–90 commits kept);
+  dist-aware G0+G1·8·vb(D−1) → distance term adds ≤2 B over flat at same
+  commit count (87% of commits at D<4K) → dropped; **γ·FramingRaw γ=0.5 →
+  108,506 / 845,657, both < off at 29/80 commits kept.** A flat bar cannot
+  separate the modal mispriced shape (L=4–8, tiny S) from legitimately long
+  candidates; the framing-proportional bar does, because FramingRaw grows with
+  L while the mispriced class does not.
+- *Why γ=0.5:* the measured coded/raw framing-ratio band midpoint, making the
+  rule self-describing rather than a swept optimum. The sweep bracket
+  [0.4, 0.6] both beat `off` on both PEs (γ=0.4: 108,503/845,674; γ=0.6:
+  108,509/845,666); 0.5 was frozen BEFORE any held-out data exists, and no
+  re-tuning is permitted after.
+- *Rejected alternatives, with reasons:* flat margin (fails bench at any
+  principled constant); distance-aware term (no measured leverage); correcting
+  `alt_c` itself to price the shifted-anchor exact alternative (mechanistically
+  cleaner but changes the shared comparison — larger integration surface; the
+  counterfactual data show the threshold achieves the same rejection profile
+  with a one-line rule; recorded as the S6-3 oracle's natural follow-up).
+
+**Calibration results at the frozen setting (pinned PEs ONLY):**
+
+| metric | anvil.exe | anvil_bench.exe |
+|---|---:|---:|
+| `--pnra=off` | 108,518 | 845,675 |
+| legacy rule (EXP. X) | 108,514 (−0.0037%) | 846,050 (+0.0443%) |
+| **frozen γ=0.5** | **108,506 (−0.0110% vs off)** | **845,657 (−0.0021% vs off)** |
+| commits legacy → frozen | 429 → 29 | 1,599 → 80 |
+| round-trip (decode SHA-256) | PASS | PASS |
+| non-PE no-op (generated.json, legacy vs frozen) | byte-identical | — |
+
+First configuration in this lane's history to beat `--pnra=off` on BOTH pinned
+PEs simultaneously — by a hair, which is itself the honest headline.
+
+**Flip predictions vs the legacy formula (measured on calibration PEs;
+counting bases explicit — reconciled after ariref/ledger review):** two
+counting bases exist and must not be read as complements of each other:
+
+- *Counter basis* (`pnra_commit=`): committed TOKENS in the full end-to-end
+  parse under each rule — 429 → 29 (anvil.exe), 1,599 → 80 (bench).
+- *Record basis* (candidate dumps): per-verified-candidate rows. Because
+  rejecting a commit changes the downstream parse trajectory, the frozen-rule
+  run verifies a slightly DIFFERENT set of candidate sites than the legacy
+  run; flip analysis joins only the INTERSECTION of sites (605 of 615/614 on
+  anvil.exe; 1,932 of 1,958/1,956 on bench).
+
+The one-way monotonicity claim ("any γ=0.5 accept would have been a legacy
+accept") holds at identical local state, i.e. PER SITE — not across diverged
+trajectories. Full accounting (asserted programmatically,
+`tools/pnra_cost_analysis/reconcile.py`):
+
+| file | legacy commits | = flips + kept + traj-lost | frozen commits | = common kept + traj-new | counter Δ = flips + lost − new |
+|---|---:|---:|---:|---:|---:|
+| anvil.exe | 429 | 391 + 28 + 10 | 29 | 28 + 1 | 400 = 391+10−1 ✓ |
+| anvil_bench.exe | 1,599 | 1,502 + 78 + 19 | 80 | 78 + 2 | 1,519 = 1,502+19−2 ✓ |
+
+The commit-counter deltas additionally absorb second-order trajectory shift —
+rejected candidates change downstream gate/idxhit/verify outcomes (anvil.exe
+gate 1329→1334, idxhit 713→711, verify 615→614; bench 6919→6917, 2145→2140,
+1958→1956) — netting −9 / −17 beyond direct flips (trajectory-lost minus
+trajectory-new sites: 10−1 / 19−2). One-way monotonicity holds per-site at
+identical local state, not across diverged trajectories — consistent with
+deliverable/u2 Finding F1 (the regression is trajectory-borne).
+
+Flip shape profile (record basis, common sites): anvil.exe — L=4: 186, L=5:
+96, L=6: 45, L=7: 27, L=8: 22, L=9–19: 15 → **95.6% of flips have L≤8**;
+kept sites median L=18, 22/28 at D<4K. bench — L=4: 909, L=5: 267, L=6: 192,
+L=7: 46, L=8: 41, L=9–19: 47 → **96.9% have L≤8**; kept median L=16, 62/78 at
+D<4K. This is exactly EXP. X's "dominated by minimal, one-window matches"
+root-cause class: the rule removes the short-single-field far-distance
+over-commit mass and retains long, amortized candidates.
+
+**Honest pre-measurement prediction (recorded BEFORE any held-out datum):**
+calibration magnitude is −0.002%…−0.03% per PE — **two orders of magnitude
+below the pre-registered ≥0.5% held-out bar**. Unless held-out PEs carry
+materially denser relocation structure than the pinned pair, the honest
+prediction is **VERDICT: FAIL (clean negative)** — the threshold fixes the
+measured mispricing, but the mechanism's ceiling on real PE data appears far
+smaller than the bar.
+
+**FROZEN VERDICT PROTOCOL (verbatim from `docs/s62-threshold-formula.md` §8;
+frozen 2026-08-21 before any held-out measurement):**
+
+> **Mechanism under test.** Mode-14 (`--parse=tcopy`) PNRA candidate source
+> (`--pnra=on`) with the stated-formula acceptance threshold replacing the
+> reused general-purpose comparison for PNRA candidates ONLY:
+> `accept iff (alt_c − pnra_c) ≥ 0.5 · FramingRaw(L,D,F,R)` with FramingRaw
+> and γ=0.5 exactly as specified in `docs/s62-threshold-formula.md` §3.
+> The formula and γ are FROZEN; no parameter may be changed after any
+> held-out datum is observed.
+>
+> **Calibration/holdout split (binding).** Calibration used ONLY
+> `tests/corpus/anvil.exe` (sha `09b9b0cc…`) and `tests/corpus/anvil_bench.exe`
+> (sha `fcd30da5…`). The verdict set is EXCLUSIVELY the held-out PE set added
+> by corpus-expand (`pe-winver.exe`, `pe-where.exe`, `pe-notepad.exe`,
+> `pe-python.exe`, `pe-ninja.exe`, `pe-git.exe` — 6 binaries, 5 distinct
+> producers/toolchains, all distinct from the calibration pair).
+>
+> **Gates before measurement (standing protocol).** Round-trip verify on all
+> corpus files at `--parse=tcopy` with `--pnra=on` (integrated build);
+> `tests/fuzz.py` including the `tcopy/rans --pnra=on` combo, ≥120 cases;
+> only then measure.
+>
+> **Measurement.** Integrated build (arch). Per held-out PE and aggregate:
+> compressed bytes at `--pnra=on` vs `--pnra=off`, median of 3 reps (ratio
+> CV = 0.000% — byte counts are exact); decode MB/s via `anvil_bench`
+> median-3 on held-out PEs ≥ 100 KB (decode co-arbiter, FLAG-A). Record
+> `pnra_{gate,idxhit,verify,commit}` counters per file as diagnostics.
+>
+> **PASS requires ALL of:**
+> 1. held-out PE aggregate: `on` ≤ 0.995 × `off` (≥ 0.5% smaller);
+> 2. decode on no held-out PE < 0.9 × `off` (≤ 10% regression);
+> 3. every non-PE corpus file byte-identical between `on` and `off`
+>    (zero regression, EXP. X gating guarantee);
+> 4. round-trip + fuzz gates green.
+>
+> **Failure handling.** Any unmet condition ⇒ verdict FAIL, recorded as a
+> clean negative (root-cause hypothesis wrong on held-out data, or ceiling
+> too small — calibration already predicts the latter, §6). NO re-tuning of
+> γ or the formula against held-out results; any future attempt requires a
+> NEW pre-registration with a different mechanism or a re-derived bar.
+> Per-file results are reported regardless of aggregate outcome.
+
+**Cross-corroboration addendum (contract doc §7a, after oracle's u2 landed):**
+the S6-3 oracle independently characterized the same regression and the three
+datasets are mutually consistent — every committed PNRA token is individually
+sound; post-hoc dropping any subset from the fixed on-parse trajectory
+enlarges every block; yet the `--pnra=off` parse (a DIFFERENT trajectory) is
+375 B smaller on bench. This re-explains u5's counterfactual sign pattern
+(the splice-CF measured fallback cost WITHIN the on-trajectory — exactly the
+quantity the oracle shows is always unfavorable). **Consequence for the frozen
+formula's INTERPRETATION (not its validity):** γ·FramingRaw works because it
+is a PARSE-TIME decision — rejecting at the candidate site lets the ordinary
+search consume the span, changing the trajectory (845,657 < 845,675). The bar
+should be read as "local implied saving must be large enough (scaled by fixed
+framing) to plausibly dominate the candidate's displacement footprint", not as
+repairing per-token mispricing. Post-parse rollback CANNOT recover EXP. X
+(oracle, measured); S6-2's parse-time rule is the only lever, as
+pre-registered.
+
+**What the calibration does NOT establish:** no held-out file was touched;
+counterfactual per-candidate costs are vs a naive literal splice, not vs the
+true re-parse (used for structure only — all constants trace to end-to-end
+sweeps, which capture re-search exactly); second-order parse interactions
+differ between threshold settings and only aggregate sizes are claimed.
+
+**Artifacts:** `prototypes/pnra_cost/anvil_pnra_proto.{cpp,exe}` (env knobs
+`PNRA_MODE/FORM/G0/G1/GAMMA/DUMP/CF`; defaults = exact EXP. X clone;
+`PNRA_MODE=1 PNRA_FORM=1 PNRA_GAMMA=0.5` reproduces every number above);
+`tools/pnra_cost_analysis/{analyze.py,flips.py,sweep.ps1}`; `scratch/pnra-cost/`
+(candidate CSVs, sweeps, frozen outputs + logs).
+
+## Corpus expansion — held-out PE set + structure-carrying files (corpus-expand, I7)
+
+**Purpose (pre-stated by the strategy doc and EXPs T/U/W):** (a) a held-out PE
+set so S6-2's acceptance-threshold verdict is measured on binaries DISTINCT
+from the calibration pair — the anti-overfit guard Experiment X explicitly
+demanded ("without a larger PE corpus to validate against"); (b)
+structure-carrying files so future structural/invariant mechanisms can be
+valued honestly — T/U/W twice measured the existing corpus's
+periodic/arithmetic signal at or below the hash-noise floor (0.14–1.1%
+finite-difference hits).
+
+**Added — held-out PE set (6 real x64 PEs, 5,540,960 B total; all MZ/PE
+machine=x64 verified; all distinct from the pinned `anvil.exe` /
+`anvil_bench.exe` pair):**
+
+| file | size | provenance | SHA-256 (prefix) |
+|---|---:|---|---|
+| pe-winver.exe | 28,672 | `%SystemRoot%\System32\winver.exe` "Version Reporter Applet", Windows 22H2 system binary (MSVC), v10.0.22621.1 | `d1d050ef…` |
+| pe-where.exe | 61,440 | `System32\where.exe`, Windows 22H2 system binary (MSVC), v10.0.22621.1 | `ade557dd…` |
+| pe-notepad.exe | 360,448 | `System32\notepad.exe`, Windows 22H2 system binary (MSVC), v10.0.22621.1 | `49f096cb…` |
+| pe-python.exe | 103,704 | `C:\Program Files\Python312\python.exe`, official python.org CPython build MSC v.1940 x64, v3.12.4 | `fd5c46d7…` |
+| pe-ninja.exe | 603,648 | winget Ninja-build.Ninja release binary (MSVC), `ninja --version` = 1.13.2 | `e52a7ad9…` |
+| pe-git.exe | 4,383,048 | `C:\Program Files\Git\mingw64\bin\git.exe`, Git for Windows v2.55.0.windows.3 (MinGW-w64/GCC — the only non-MSVC PE in the corpus) | `1a004355…` |
+
+Full hashes in `tests/corpus/CHECKSUMS.txt`; provenance/version detail in
+`tests/corpus/README.md`. Diversity: 4 producers (Microsoft OS, python.org,
+ninja-build, Git-for-Windows), 2 toolchain families (MSVC, GCC), sizes 28 KB –
+4.3 MB. Binaries are pinned by exact bytes (host-installed binaries are not
+bit-reproducible; integrity = SHA-256, not rebuild). The ≥4–6 held-out
+contract is satisfied at 6.
+
+**Added — structure-carrying files (`tests/make_synth_corpus.py` extended;
+fixed seeds 90004–6; integer-only math ⇒ byte-stable across Python
+versions/platforms; determinism verified by double-run hash compare):**
+
+| file | size (seed) | structure | SHA-256 (prefix) |
+|---|---|---|---|
+| synth-columnar-align.bin | 276,000 (90004) | columnar arithmetic table stored ROW-interleaved, every field misaligned (prime 23 B row stride). Fields: u16 row_id Δ=1, u32 seq Δ=7, u64 ts_ns Δ=1e6, u32 temp_x100 Δ=3±1, u16 volt Δ=2, u8 status mod-8, u8 flags rare-flip, u8 parity = XOR of preceding field bytes (cross-field linear structure). Deliberately harder than `synth-arith.bin`'s block-wise columns: a mechanism must find TRUE field offsets. | `a42ea6b4…` |
+| synth-drift-stride.bin | 615,376 (90005) | 40 B structured records (u64 ts Δ=500, u32 counter, u16 channel mod-64, 24 B slow-tick skeleton, u16 CRC16) at SYSTEMATICALLY drifting stride: `pad=(i//96)%9` sawtooth, period ramps 40→48 B, snaps back every 864 records. Deterministic-drift counterpart to `synth-jitter.bin`'s random jitter. | `ea580de5…` |
+| synth-counters.log | 1,107,326 (90006) | counter/timestamp-heavy TEXT log, several simultaneous monotonic sequences per line: ISO ts +37 ms, seq +1, tick +1000, hex addr page-step +0x40 across 8 modules, bounded int random-walk latency, cyclic qd, deterministic crc. Strong arithmetic/periodic signal in TEXT form — none existed before. | `df0a9d9b…` |
+
+**Integrity (measured, including one honest adverse finding):**
+
+- All 12 pre-existing data files verified BYTE-IDENTICAL to their original
+  2026-08-13 manifest hashes (checked explicitly pre- and post-work). The 3
+  original synth files regenerate byte-identical from the extended script.
+- New manifest verifies 21/21 data files OK (README verifier snippet, fixed to
+  exclude meta files).
+- **Pre-existing drift found and documented:** on-disk `anvil_bench.exe`
+  (1,929,216 B, sha `fcd30da5…`) already mismatched its 2026-08-13 manifest
+  entry (1,866,752 B, sha `e5a0f8a7…`) BEFORE this work — a re-snapshot had
+  been taken without updating CHECKSUMS.txt; the file is git-ignored so the
+  old bytes are unrecoverable. The file was NOT modified by this task; the
+  manifest line was re-pinned to disk truth and a README "Manifest drift note"
+  warned S6-2 calibration owners to confirm which `anvil_bench.exe` bytes
+  their calibration used. **[Resolved same day:]** pnra-cost's u5 calibration
+  reproduced EXP. X's counter chain EXACTLY on the current bytes
+  (`fcd30da5…`), proving EXP. X itself was measured on current bytes — the
+  drift predates EXP. X, and all recent lane numbers are on identical data
+  (see the S6-2 entry below; verify independently corroborated that every
+  checked claim reproduces against current bytes).
+
+**Orientation ratios (NOT benchmark rows):** round-trip c→d→byte-compare PASS
+on all new files via the current `build\anvil.exe` default settings (codec sha
+`d7b02b2f…`, built 2026-08-21 04:44 — newer than the pinned snapshot, an arch
+rebuild): pe-winver 0.1949 | pe-where 0.3640 | pe-python 0.5228 | pe-ninja
+0.4859 | pe-notepad 0.5644 | pe-git 0.4863 | synth-columnar-align 0.4279 |
+synth-drift-stride 0.2339 | synth-counters.log 0.1147. The PE ratio spread
+(0.19–0.56 across toolchains/producers) makes the held-out set a genuine
+verdict substrate rather than two near-identical pinned anchors.
+
+**Handoff state:** total corpus now 22 data files ≈19.8 MB (19,811,989 B
+measured on disk; +7.54 MB added, under the 30 MB budget) — count corrected
+from u3's handoff text ("19 data files"), which omitted the 3 new synth files;
+verified independently by `verify`. Files touched: 9 new files under
+`tests/corpus/`, `CHECKSUMS.txt`, `README.md`, `make_synth_corpus.py` — no
+peer-lane files. S6-2's frozen verdict protocol can now run unmodified:
+measure `--pnra=on` vs `--pnra=off` aggregate on exactly these 6 `pe-*` files
+at median-3, calibration stays on the pinned pair ONLY.
+
+## Intel patent-gate Pass 5 — US 7,111,148 / US 7,010,665 full-text claims review — GATE CLOSED, TCOPY CLAIM STANDS (priorart)
+
+**The binding item.** Pass 4 (13 Aug 2026) left exactly one unresolved
+full-text gap: Intel US 7,111,148 B1 "Method and apparatus for compressing
+relative addresses" / US 7,010,665 B1 "...decompressing relative addresses"
+(prio 27-Jun-2002) — "titles close enough that the family CANNOT be waved
+away; full text/claims not retrievable that session. REQUIRED: manual
+full-text review before the executable-specific novelty boundary is treated as
+closed." This pass retrieves the claims in full and discharges that condition.
+
+**Retrieval record:** all 39 claims of '148 and all 34 claims of '665
+retrieved VERBATIM from two independent sources (Google Patents +
+FreePatentsOnline; texts match); continuation US 7,617,382 B1 (32 claims)
+retrieved via FPO. Legal status (Google Patents): both '148 and '665 EXPIRED —
+fee-related, adjusted expiration 2022-07-07 / 2023-03-25. Classifications:
+G06F9/26, G06F12/02; USPC 711/220 — processor artifacts, NOT compression
+classes.
+
+**What the family actually is (verbatim claim language):** CPU
+microarchitecture — bit-width compaction of RIP-relative address operands of
+decoded MICRO-OPERATIONS inside on-die micro-operation storage (trace cache /
+pipeline FIFO / scheduling queue / reorder buffer), reconstructed at execution
+time from a per-storage-line STORED head instruction pointer plus a
+TRANSMITTED correction field. '148 claim 1: "decoding a first instruction with
+a K-bit displacement data to identify a first micro-operation; adding an
+address of a second instruction to the K-bit displacement to generate an N-bit
+relative address; compressing the N-bit relative address to generate an M-bit
+immediate data; and storing the M-bit immediate data at one or more storage
+locations associated with the first micro-operation." '148 cl. 9–10: the
+M-bit immediate "comprises a J-bit correction field", J = 2. '665 claim 1:
+"reconstruct the N-bit address by combining at least a first portion of an
+instruction pointer address for the first location and the M-bit
+representation of the N-bit address." '665 cl. 13: storage "to associate with
+a second instruction pointer address different from the first instruction
+pointer address."
+
+**Four-question analysis (the binding questions):**
+
+1. **Single-file self-referential compression?** NO — no file/stream, no LZ
+   parse, no dictionary, no backreference, no copy primitive, no literals.
+   The "compression" is runtime bit-width compaction of already-computed
+   address operands inside processor storage.
+2. **Distance-derived implicit Δ=−d (zero transmitted bits)?** NO — no match
+   distance exists anywhere in the 105 claims because there are no matches.
+   The reconstruction input is (a) an explicitly STORED per-line head
+   instruction pointer and (b) a TRANSMITTED 2-bit correction field — never
+   the copy distance. Honest nuance recorded: recovering high-order bits from
+   locally-available context is a conceptual echo of "derive part of the
+   value from decoder-visible state," but the derivation input is
+   stored/transmitted metadata, never d.
+3. **Executable-specific vs general-purpose?** NEITHER — CPU-runtime-specific
+   (post-decode μop storage width), upstream of any file-format concern.
+4. **Pre-LZ global filter vs match-level transformed copy?** NEITHER — no LZ
+   layer exists in any claim; the BCJ boundary discussion is not engaged.
+
+**Verdict: TCOPY CLAIM STANDS.** The Intel family does not anticipate, and
+does not render obvious, the narrowed TCOPY mechanism — a single-file,
+self-referential LZ-style transformed copy whose additive transform parameter
+is derived implicitly from the match distance (Δ=−d, zero transmitted
+parameter bits) in executable code. The four-pass fear (same words, unknown
+art) is resolved: same title words, different art. Ledger C12 condition (2)
+DISCHARGED; condition (1) (explicit-Δ control ablation) remains with the
+experimental lanes. Formal FTO attorney review remains recommended before any
+commercial claim (classification gate record, not legal advice).
+
+**Secondary Pass-4 gaps also closed (with two record corrections):**
+
+- **US 6,466,999 B1 (Microsoft) — full claims retrieved (32), gap CLOSED,
+  Pass-1 description CORRECTED.** Actual title: "Preprocessing a reference
+  data stream for patch generation and compression" (prio 31-Mar-1999;
+  expired-lifetime) — not Pass 1's "iterator + symbol information" gloss
+  (symbol tables appear only as one of several cross-referencing sources,
+  cl. 16). Claim 1 requires a reference stream "known to exist on the
+  destination computer" and claim 2 transmits "preprocessor-driving
+  information" alongside the compressed stream: definitively TWO-FILE with
+  TRANSMITTED directives. Not single-file, not implicit, not match-level.
+- **Qualcomm dedicated query — RUN, decisive, attribution CORRECTED.** Exactly
+  one hit: US 7,676,506 B2 "Differential file compression of software image
+  versions" (claims 1–19 retrieved). The FPO record shows Assignee = Innopath
+  Software, Inc.; QUALCOMM appears only as attorney/agent firm — the swarm
+  record's Qualcomm attribution rested on that field. Claims: two-file
+  version-pair delta with transformation G(x)=x+f(x) (piece-wise constant f)
+  applied as TRANSMITTED CFD hint data. Close-but-different confirmed at
+  claims level.
+- **IBM dedicated query — RUN, no qualifying art.** 16 hits, none teaching the
+  mechanism; closest is the Ajtai-lineage "efficient data searching, storage
+  and reduction" family (US 8,275,755 / 8,275,756 / 8,275,782 / 9,378,211 /
+  9,400,796 / 9,430,486 / 10,282,257 / 10,649,854): repository
+  similarity-search then delta encoding — repository/two-party, not
+  self-referential per-match transform.
+- **Apple dyld chained-fixups patent number — NOT CONFIRMED (honest
+  negative).** FPO full-text: "fixup chains" / "chained fixups" / "fixup
+  chain" → 0 hits across US/EP/JP/PCT; Google Patents search rate-limited
+  (503) mid-session. Classification unchanged (loader metadata,
+  close-but-different). Caveat recorded: phrase absence in FPO full text is
+  NOT proof that no Apple patent exists — claims could use different wording.
+  Status: UNRESOLVED-NUMBER.
+
+**Residual gaps (honest):** Apple patent number unconfirmed; '382 expiration
+not independently verified; Espacenet/lens.org not directly queried (two
+verbatim-matched full-text sources used instead); non-patent art unchanged
+from passes 1–4 (VCDIFF, zdelta/vdelta, GenCompress, RLZAP, ZPAQ/PCOMP, BCJ,
+Courgette/Zucchini).
+
+**Five-pass convergence (final):** passes 1–4 (independent) + pass 5
+(full-text claims, binding item) agree — the closest art is (a) global
+once-per-file relocation/branch normalization (BCJ/Philips lineage), (b)
+two-file copy-with-edits delta (Microsoft '999/'506-lineage, VCDIFF,
+Zucchini), (c) hardware runtime address compaction (Intel '148/'665/'382, now
+read in full), or (d) loader metadata encoding (Apple chained fixups). **No
+accessible prior art teaches the single-file self-referential LZ copy with an
+implicit distance-derived additive transform (Δ=−d) at match level.** The
+TCOPY novelty claim's patent-classification condition is CLOSED; remaining
+gate conditions are the experimental ones recorded in ledger C12. Full record:
+`docs/priorart-tcopy-external.md` §"External Research Pass 5".
+
+## Independent verification matrix (verify) — FINAL: LEDGER INTEGRITY CONFIRMED
+
+**Method:** separate `build-verify/` tree (clang-cl 22.1.8 Release, Ninja);
+verify's OWN rebuilds of every peer harness from source; re-runs from recorded
+commands. Full detail: `docs/verify-notes/i7-verification.md`.
+
+**1. Tree health:** build OK (1 benign getenv warning); `tests/fuzz.py
+--cases 50` PASS, seed=41246, 420 roundtrip variants, 2520 mutation checks —
+exact precedent match; 12/12 round-trips; cross-build (`build\` vs
+`build-verify\`) outputs BYTE-IDENTICAL.
+
+**2. Published numbers — 10/10 BYTE-EXACT:** EXP. S jsonl ctx-on 183,506 /
+ctx-off 218,553 (Δ −16.03% recomputed), json ctx-on 89,158; EXP. L jsonl
+suite-off 219,042; EXP. X tcopy anvil.exe 108,518→108,514, bench
+845,675→846,050 (+0.0443%).
+
+**3. Peer reproductions (all six lanes):**
+
+- **u1 ariref (ARI-REF):** verify's rebuild reproduces `results_run3.txt`
+  LINE-IDENTICAL (71/71): synth-arith −65.25% PASS / timeseries +0.03% FAIL;
+  impl-vs-tx +38.35% (boundary −15.38%/+40.55%); real-corpus ≈0 tokens; fuzz
+  280/280 seed-deterministic (identical mutation signatures), mutations
+  79/1/119/0. Provenance nit FOUND+RESOLVED: source hash drifted
+  post-corroboration (CFE97A36→86BA68D0, behavior-preserving); ariref re-pinned
+  deliverable v3; both hashes verified on disk by verify.
+- **u2 oracle (S6-3):** calibration rows EXACT on 4 files (~149k zero-flip
+  samples); aggregate 517,885 B reconstructed exactly; F1 trajectory evidence
+  exact (845,675 off / +375 B / R2pop 1470 / drop-variants never win); ZERO
+  flips in the full 73,586-row dump. One wording nit (the "keep 2.4–4.8 B vs
+  32–39 B" central-range gloss was a len-4-subset rounding, not a full-subset
+  statistic) — flagged, then RESOLVED in deliverable v2 with exact medians
+  (type-3 4.45/43.0; R2 3.66/35.75); soundness claim unaffected and
+  independently confirmed.
+- **u5 pnra-cost (S6-2):** calibration matrix EXACT from verify's own proto
+  rebuild (baseline clone 108,514/846,050 + counters 713/615/429 and
+  6919/2145/1958/1599; γ=0.5 → 108,506/845,657, commits 29/80; deltas
+  −0.0110%/−0.0021% arithmetic verified); round-trips PASS; non-PE
+  byte-identical no-op. First-config-to-beat-off-on-both confirmed. Held-out
+  FAIL prediction properly pre-recorded.
+- **u3 corpus-expand:** orientation ratios EXACT (pe-winver 0.1949, pe-git
+  0.4863, counters.log 0.1147); sizes + SHA prefixes cross-checked;
+  `anvil_bench.exe` manifest drift INDEPENDENTLY DETECTED pre-handoff,
+  dispositioned by re-pin; 22 data files / 19,811,989 B measured (the staged
+  "19 files" count nit → fixed by ledger).
+- **u4 priorart:** US 7,111,148 claim-1 + cl.9-10 quotes VERBATIM-VERIFIED via
+  independent FPO fetch; metadata matches; no-LZ characterization confirmed
+  against all 39 claims; expiration status single-sourced (Google Patents only
+  — noted as a caveat, not a defect).
+
+**4. Rigor review of the staged PART XII + the landed Experiment Z entry:**
+verdicts match pre-registered bars; FAILs recorded with mechanisms; outliers
+explicitly not claimed (anvil_bench −1.42%); controls visibly ran in every
+harness; harness-relative labeling present. **No claim exceeds its evidence
+anywhere.**
+
+**Verdict: no contradictions with the ledger anywhere; all six lanes' numbers
+reproduce exactly or within pre-registered bands. Ledger integrity CONFIRMED.**
+Four review findings across the double pass (verify + ariref's complementary
+addendum, deliverable/u6 v4), ALL RESOLVED before consolidation:
+
+1. `anvil_bench.exe` manifest drift — independently detected pre-handoff,
+   dispositioned by corpus-expand's re-pin + pnra-cost's empirical provenance
+   proof (EXP. X counters reproduce on current bytes).
+2. ariref source-hash drift post-corroboration — behavior-preserving;
+   deliverable re-pinned to v3, both hashes verified on disk.
+3. oracle central-range gloss — len-4-subset rounding, not a full-subset
+   statistic; reworded with exact medians in deliverable v2 (type-3
+   4.45/43.0; R2 3.66/35.75); soundness unaffected.
+4. S6-2 flip-count / commit-count mismatch — counting-basis mismatch (record
+   vs counter); reconciled in u5 v3 §6 with a programmatically-asserted exact
+   partition (`reconcile.py`); plus one staging-file hash-suffix typo,
+   real at flag time, fixed in this staging file same day (per the u6 v4
+   resolution addendum's timeline evidence).
+
+---
+
+# PART XI — Iteration-7 decode-leg (S6-1)
+
+## Experiment Y — RLZ-RePair alternative encoding for the hot-op book (hotop-rlz, I4-1 follow-up) — TRIAGE COMPLETE: LANDED flag-gated default-off; NOT ADOPTED AS DEFAULT (T1 ratio PASS, T2 decode FAIL, T3 correctness PASS, encode-prohibitive)
+
+**Pre-registration recap (PART VIII, Experiment Y):** two new per-stream
+codecs for the mode-15 hot-op book (RePair mode 7, RLZ mode 8) behind
+`--hotop-rlzp=on`; falsifiable targets (T1) book bytes Δ ≤ 0 vs mode-15
+baseline on record files, (T2) whole-file decode MB/s flag-on > flag-off
+(≥5% material, <~3% equivocal/no-claim), (T3) round-trip + fuzz — any
+correctness failure is instant FAIL. Pre-registered honesty clause: if
+neither beats the incumbent on BOTH size and decode throughput on the
+record files, the honest verdict is REJECTED rather than forcing
+adoption.
+
+**Triage outcome (arch): TRIAGE COMPLETE — LANDED flag-gated default-off
+@ commit da01c54.** State found at session start: +221 uncommitted lines
+in src/anvil.cpp — stream codecs fully implemented (encode/decode/
+StreamPull) but DEAD CODE, never called, `--hotop-rlzp` never parsed.
+Arch completed: flag parse + `Options::hotop_rlzp`; hotop encoder
+integration (per-stream smallest-of {suite, repair, rlz}); plus fixes
+required before round-trip could pass: [D1] the RLZ wire mismatch was
+TWO off-by bugs, not one (the pre-landing audit had flagged one) —
+encoder wrote absolute dist d AND absolute len while decoder reads
+dist=read+1, len=read+kRlzMinMatch(+4); fixed encoder-side to write
+(d−1)/(len−kRlzMinMatch); [D2] StreamPull::at_end() codec-7/8 branch
+added; [D3] mode-8 varint-wrap OOB reject dv/lv ≥ 0xFFFFFFFF before +1;
+[D4] RePair expansion amplification bound per-rule ≤ raw_n AND
+cumulative ≤ 2·raw_n+64 KiB; [D5] stream-recursion depth cap — nested
+codec ≥ 7 rejected, legit depth exactly 1; [D6] RePair no-progress
+ban-set (low-value guard had rescanned identical state up to 767×;
+ban-set changes output where it fires — intent-faithful, recorded).
+
+**Results — T1 book bytes (same-build A/B, --parse=hotop, sizes exact):
+PASS.**
+
+| file | rlzp=off | rlzp=on | Δ |
+|---|---:|---:|---:|
+| generated.log | 175,550 B | 157,446 B | **−10.31%** |
+| generated.jsonl | 222,381 B | 198,457 B | **−10.76%** |
+| generated.json | 121,316 B | 116,271 B | **−4.15%** |
+| generated.sqlite | 366,019 B | 363,679 B | −0.64% |
+| synth-drift-stride / synth-counters.log / synth-columnar-align / synth-jitter | — | — | −28.6% / −19.1% / −14.2% / −5.2% |
+| PEs | — | — | −0.5..−2.9% |
+
+Controls FLAT: repeat.jsonl 1255=1255; random.bin identical;
+doc.md/src.cpp/synth-arith.bin identical (codec never selected there).
+
+**Results — T2 decode throughput (Windows clang-cl Release, tool-internal
+timer median-3): FAIL on the primary record files.** log 214.8→197.4
+MB/s (−8.1%); jsonl 252.4→212.2 (−15.9%); json 161.3→143.5 (−11.0%);
+sqlite +4.6% (123.0→128.7); small/mixed elsewhere. Root cause (measured,
+arch): eager whole-buffer materialization + plain byte walk LOSES to the
+fused per-byte pulls on the big streams — the opposite of the mechanism's
+premise on this host/build.
+
+**Results — T3 correctness: PASS, findings fixed-with-test.** Round-trip
+46/46 (23 corpus files × off/on) post-fixes; INDEPENDENT gate by
+fuzz-verify on the final binary (build CE44DE45, HEAD fc23d9a): round-
+trip matrix 308/308 = 22 files × 14 combos byte-exact with truncation
+strictness; flag-off byte-identity vs freeze-HEAD binary 242/242 (the
+Exp-Y delta is byte-invisible with flags off; independently confirmed by
+format's HEAD-build A/B at hash level); canonical fuzz seed 0xA11E PASS
+910 variants/5460 mutations; extended hotop/rlzp/budget fuzz PASS
+910/5460; zero accepted corruption anywhere. All five decoder-audit
+findings CLOSED, triple-verified (format remediation + probes /
+fuzz-verify empirical probes + staged regression test / linux-ref
+in-tree reads): crafted probes P_F2_WRAP ("bad rlz match varint"),
+P_F3_AMP ("reap rule expansion too large" — 7 ms on a probe that
+previously forced exponential allocs), P_F4_NEST ("nested rlz-reap
+stream", 30K-deep nesting) all rejected cleanly. Flag-on wire validation
+(format, inspect_substreams.py): modes 7/8 fire on real files — 12 RLZ +
+6 REPAIR substreams observed, inner codecs all legal 0–6, framing
+matches spec byte-for-byte.
+
+**Encode cost (NOT pre-registered, material): prohibitive at scale** —
+pe-git.exe 141.5 s vs 2.2 s (~64×); sqlite 13.1 s vs 0.23 s (~57×); log
+5.3 s vs 0.11 s (~48×); RePair O(rules × N) digram rescans dominate.
+
+**Gate verdict (honest, per the pre-registered BOTH-planes clause):
+NOT ADOPTED AS DEFAULT.** The grammar/reference factorization of the
+book streams is a RATIO-only mechanism on Windows: it wins size
+materially (−10.3%/−10.8% on the two worst record files — the largest
+record-file ratio win since Experiment S) but FAILS the decode leg
+(T2 negative on every primary record file) and is encode-prohibitive at
+scale. Wiring stays landed default-off as the measured record; every
+S6-1 verdict row runs rlzp=off per gate rule Y-1. This is the
+Experiment-I/N/T pattern again: a real, reproducible token-level effect
+that does not survive contact with the binding plane (here, decode
+throughput). Dropped-idea classification: implementation-era (the ratio
+mechanism is real and measured; the decode/encode economics fail on
+this host/build), not math.
+
+---
+
+## Experiment AA — Whole-codec J-selection + raw-stream budget on mode 15 (S6-1, I7 decode leg) — INCOMPLETE: implementation landed, all controls green, formal bench arbiter NEVER RAN (session ended post-sign-off, pre-freeze-run); no bar verdict issued, no EXTENDS_FRONT determination
+
+**Gate pre-registration (FROZEN — research-gate, version history all
+pre-implementation, no outcome data ever consulted):** v1 frozen
+2026-08-21 04:41 -05:00, applies to git HEAD 392e937 + baseline snapshot
+`tests/benchmark-suite.pre-s61.csv` (median-3; identical to live
+benchmark-suite.csv at freeze time — both still on disk unchanged); the
+flag-OFF byte-identity control binds any verdict build to that baseline.
+v1 → v1.1 amended (trigger: linux-ref formulation-integrity audit
+accepted in full — outcome tiers, anchor-integrity correction of record,
+C_decode calibration clarity, build hygiene, comparison axis) → v1.2
+arithmetic erratum (tier-2 bound mis-evaluated integer fixed
+183,223→183,233 B; factor +4.378%→+4.377%; rounding rule floor; formula
+unchanged; caught by linux-ref pre-dependency, D8). Title (v1.2):
+"Whole-codec J-selection + raw-stream budget on mode 15 (hot-op hybrid)
+— reproduce the Linux hot-op MECHANISM's trade on Windows references."
+
+- **Lineage (validated priors, reused not re-derived):** EXP. L (additive
+  J = L_stream + λ·C_decode, 100% J-faithful at λ=0.01, shipped
+  default); EXP. R (mode-15 hot-op book, PARTIAL PASS 1.17–1.34x decode,
+  recorded lever = "I4-3's economics applied to the hot-opcode stream
+  itself"); Linux hot-op/stream-budget evidence (directional): ≈452 KB @
+  0.87–0.99 GB/s hot-book MICROBENCH vs q9 513 KB @ 0.84; paired Linux
+  test measured ENCODE only (33 vs 19.6 MB/s, 61/61 trials).
+- **What is new (admin honesty):** NOT a new mechanism — whole-codec
+  application: per-stream codec choice (incl. `raw` for the
+  shape-distance-delta stream) decided once at block level under the
+  decode-cost-weighted objective, instead of per-stream smallest-wins.
+  Wire change limited to stream-selection bits; no new block mode; old
+  files keep decoding.
+- **Constants:** λ = 0.01 bytes/μs additive (EXP. L binding, untouched).
+  Amendment 3: "no new hand-tuned weights" forbids OUTCOME-FIT constants,
+  not MEASURED calibration — C_decode SHOULD be size-proportional
+  (measured per-codec ns/B × raw_n), fixed BEFORE any verdict
+  measurement, calibration table recorded in this ledger (below).
+  Threshold-fit after seeing results VOIDS the gate.
+- **THE BAR (generated.log 1,942,280 B, median-3, bench arbiter) —
+  EXTENDS_FRONT requires ALL THREE legs:** (A) decode ≥ 547.1 MB/s
+  (2 × frozen 273.534), end-to-end whole-file (NOT microbench —
+  Amendment 5 axis); (B) bytes ≤ 175,550 B (ratio ≤ 0.090); (C) beat
+  brotli-q9 on BOTH planes — bytes < 124,669 B AND decode > 619.508 MB/s
+  — confirmed by tools/pareto_front.py as EXTENDS_FRONT. Would have been
+  the FIRST EXTENDS_FRONT row in project history (~396 verdict rows,
+  zero so far). Frozen baselines: anvil-hotop-rans 175,550 B (0.090),
+  decode 273.534 MB/s, encode 19.681 MB/s; brotli-q9 124,669 B (0.064),
+  decode 619.508 MB/s, encode 29.533 MB/s. Secondary (reported, not
+  required): generated.json (m15 121,316 B @ 207.133 MB/s),
+  generated.jsonl (222,381 B @ 288.985).
+- **ADDED outcome tier (Amendment 1, fixed from prior Linux evidence
+  only): "FORMULATION-REPRODUCED" (partial credit, NO frontier claim)** —
+  leg A PASS ∧ bytes ≤ 183,233 B (= floor(175,550 × 472,356/452,548);
+  +4.377%, the Linux-measured raw-mdvar trade factor; rounding rule
+  floor) ∧ all controls PASS ∧ leg C reported honestly. Pre-committed
+  phrasing: "Linux stream-budget formulation reproduced on Windows: ≥2x
+  decode at ≤+4.377% bytes; frontier not crossed." A-pass above the
+  bound = trade overpaid (recorded, no credit).
+- **Anchor integrity (Amendment 2, correction of record):** the Linux
+  452,548/512,901 B paired crossing is NOT generated.log (Linux q9 on
+  generated.log ≈125 KB @ 1,460 MB/s); the anchor is an unnamed larger
+  Linux log where ANVIL started ~12% AHEAD of q9; Windows generated.log
+  starts 41% BEHIND q9 (175,550 vs 124,669 B). S6-1 reproduces the
+  MECHANISM's trade against same-run Windows references — NOT the Linux
+  crossing outcome; a clean negative does NOT contradict the Linux
+  evidence.
+- **Controls (all mandatory before any number counts):** flag-off
+  byte-identity as a verified CHAIN (freeze-HEAD binary == pre-S6-1
+  dirty binary == S6-1 build budget-OFF, each link 242/242); no-
+  regression (random.bin ~262,166 B, synth-arith.bin ~256,022 B ~1.0;
+  repeat.jsonl ≤ same-build exact-LZ row); round-trip all corpus files +
+  fuzz BEFORE any number counts; median ≥3 reps via anvil_bench, ratio
+  exact, throughput claims only ≥ ~100 KB, verdict ONLY from
+  tools/pareto_front.py; old files decode (format §5.5 sign-off). ANY
+  control FAIL ⇒ run VOID.
+- **Build hygiene (Amendment 4, operative form):** rlzp wiring may exist
+  in the tree; what binds S6-1 is default/off-path byte-identity + every
+  verdict row running --hotop-rlzp=off. Exp-Y lane findings belong to
+  Experiment Y's own gate (entry above).
+- **Honest-failure framing (pre-committed):** allocator/setup confound
+  named (EXP. R warning); Linux timing directional/CPU-state-sensitive;
+  clean fail recorded math-vs-implementation-era; no post-hoc bar
+  adjustment.
+
+**Mechanism as implemented (arch, build fc23d9a, Windows clang-cl
+Release):** flag `--hotop-budget=on|off` (default OFF;
+`Options::hotop_budget` in src/anvil.cpp); selector
+`encode_stream_budget()` used ONLY by encode_tokens_hotop's 9 book
+streams when on; candidate set = existing suite {rANS-4096/512/256,
+huffman, defexc, ctx-rANS} + raw always; J = L + λ·C_decode additive,
+λ = 0.01 untouched; C_decode SIZE-PROPORTIONAL = raw_n ×
+ns_per_byte(codec)/1000 μs. Wire-invisible (selection behind existing
+per-substream mode bytes; decoder untouched — verified at code level by
+format on fc23d9a). rlzp orthogonal (rule Y-1). Also in this tree (build
+hygiene, wire unchanged — verified): Experiment Y landed @ da01c54
+(entry above) and two ASan-found latent OOB fixes @ aea3023
+(MatchFinder::find EOF overread + topology modal[65] in-memory bound
+both sides, serialization untouched, no pre-fix file could contain
+k==64 legally).
+
+**C_decode calibration table (Amendment 3: measured size-proportional
+calibration, fixed BEFORE any verdict measurement, recorded here —
+source: decode-perf t3 §6, ns/B median-7, REAL mode-15 stream content;
+bulk = pull_bytes-style, byte = next_byte-style, mat = decode_stream
+materialize incl. model build):**
+
+| codec | 4K bulk/byte/mat | 16K bulk/byte/mat | 64K bulk/byte/mat |
+|---|---|---|---|
+| raw | 0.10 / 2.66 / 0.02 | 0.04 / 2.61 / 0.02 | 0.10 / 2.59 / 0.09 |
+| rans4096 | 6.15 / 6.49 / 4.35 | 6.04 / 6.62 / 4.36 | 5.93 / 6.42 / 4.73 |
+| rans512 | 5.44 / 5.79 / 3.88 | 5.93 / 6.55 / 4.49 | 6.05 / 6.36 / 4.50 |
+| rans256 | 5.40 / 5.69 / 3.83 | 5.99 / 6.55 / 4.41 | 5.89 / 6.33 / 4.38 |
+| huffman | 4.08 / 4.83 / 3.96 | 8.37* / 8.37 / 4.88 | 8.56* / 8.60 / 5.09 |
+| defexc | 3.22 / 3.20 / 0.56 | 3.25 / 3.23 / 0.49 | 3.15 / 3.14 / 0.48 |
+
+ctx-rANS (in-block only): pull ~7–8 ns/B, mat ~4.6–5.3 ns/B. *huffman
+byte-cost is DATA-DEPENDENT (4.1–9.0 ns/B range); rANS is
+data-independent (flat 5.9–6.6). decode-perf's recommended fits: raw
+0.1 (bulk) / 2.6 (byte), defexc 3.2, huffman 4.3 (6 for skewed-content
+safety), rANS256/512/4096 6.0, ctx-rans 7.5. Assessment of the incumbent
+constants (10/20/22/30/35/40/45): right ORDER, wrong GAPS. **Arch fixed
+exactly these recommended fits pre-measurement** (kBudgetNsPerByte[7] =
+{0.1, 6.0, 6.0, 6.0, 4.3, 3.2, 7.5}, indices aligned to codec ids —
+verified in-source by linux-ref's landed-diff re-sweep). Known
+limitation (recorded, never patched post-hoc): the flat 6.0 rANS fit
+misses a size-dependent symtab effect (rANS-4096 ≈5–12% slower/B than
+512/256 on small streams).
+
+**Decode-floor before-state (decode-perf t3, final):** provenance —
+payloads encoded by CLI built from git HEAD 392e937; gen_log.anv =
+175,550 B == frozen-gate baseline size EXACTLY; harness
+prototypes/profile_tmp/prof.cpp, HIGH priority, pinned to last logical
+processor, QPC + invariant-TSC, median-of-7 INTERLEAVED, warmup 2;
+round-trip all 4 containers byte-exact; instrumented decoder verified
+byte-identical to decode_tokens_hotop_fused on every block. Noise
+characterization: within-run CV 0.6–10%; run-to-run drift ±2–4%;
+zero-byte-change control variants measured +2.3–8.1% (the noise band;
+single-stream effects inside it NOT resolvable). Floor (end-to-end,
+median-7): log 235.8 MB/s (CV 10%) [frozen ref 273.5]; json 195.7 (CV
+6%); jsonl 293.5 (CV 1.6%); sqlite 168.6 (CV 2.8%); mean ≈223. Absolute
+level ~5–15% below bench-suite protocol (host load + pinning); RELATIVE
+deltas interleaved and valid. Where the time goes (log): crc32 44%
+(1.86–1.91 ns/B, strictly per-byte and stable across files — 43.8% log /
+36.4% json / 56.1% jsonl / 31.4% sqlite; wire-invisible slice-by-8 or
+PCLMUL fix exists but OUTSIDE S6-1 scope → became the S6-1b
+pre-registration); eager materialization of the 7 macro streams 26%
+(setup IS masks+resid); token loop beyond setup 11% (opcode entropy
+pulls 0.3%); concat/alloc/headers ~15%. THE HOT PATH IS CLEAN; the
+floor is everything AROUND it. Per-stream: only real raw-storage gains
+are macro-masks +21–27% decode for +166,823 B and macro-resid +18–21%
+for +84,956 B; macro-dvar (the Linux SHAPE-DISTANCE-DELTA analog) is
+ALREADY RAW (~1.2 cyc/B, 0.01% share) — the Linux "+19.8 KB ⇒ +0.12
+GB/s" trade does NOT transfer: the equivalent bytes sit in masks/resid
+where raw is ratio-infeasible under bar B.
+
+**Controls — ALL GREEN (fuzz-verify t6 sign-off, final binary
+build/anvil.exe SHA256 CE44DE4511EF1E020701A3B18699914AF251AC7C609E1DD1
+B4F38B6CA26FB53E, 370,688 B, HEAD fc23d9a + bench row):** round-trip
+matrix 308/308 = 22 files × 14 combos (11 legacy + hotop/rans ×
+{rlzp=on, budget=on, both}), byte-exact, truncation cuts {0,1,25%,50%,
+len-1} all rejected; FLAG-OFF BYTE-IDENTITY vs freeze-HEAD binary
+242/242 compressed+decompressed (the chain: freeze-HEAD == pre-S6-1
+dirty binary == S6-1 flag-OFF, transitivity holds; fc23d9a flag-off path
+byte-invisible vs freeze point; aea3023 "wire unchanged" confirmed on
+valid files); canonical fuzz `python tests/fuzz.py --exe build/anvil.exe
+--cases 120` PASS seed=41246 (0xA11E) 910 variants/5460 mutations;
+extended fuzz (fuzz_hotop.py 120 0xA11E) PASS 910/5460 across
+auto/auto, hotop/{rans,arith}, hotop/rans+rlzp, hotop/rans+budget,
+hotop/rans+both, tcopy/rans+rlzp; probes P_F2_WRAP/P_F3_AMP/P_F4_NEST
+rejected cleanly, regress_f2.py FIXED-WITH-TEST incl. over-rejection
+guard; no-regression flat (random.bin 1.0001; repeat.jsonl unchanged);
+S6-1 flag controls: budget-OFF == legacy BYTE-identical 22/22 (THE
+control); rlzp-OFF == legacy 22/22; budget-ON == legacy SIZE-equal
+22/22. Old-file compatibility (format §5.5): SIGN-OFF GREEN — 65/65
+golden artifacts decode byte-identical to manifest SHA-256s on the final
+binary; freeze-faithfulness proven at hash level (HEAD-build A/B:
+4081D221/75A8F313 identical across builds). [Record corrections
+preserved: fuzz-verify's earlier "stale golden" claim retracted — own
+harness --literal=o0 flag drift, not stale artifacts; gate rows are
+o0-literal, goldens default-flags — match flags before comparing sizes
+across harnesses.]
+
+**Measured peer results (clearly labeled by scale — NONE of these are
+the bench-scale numbers the bar was defined on):**
+
+- **Selection outcome (arch selector manifest, diagnostic build =
+  fc23d9a + SEL logging only, 792 selections = 88 blocks × 9 streams,
+  all 23 corpus files): ZERO raw-flips** — no stream enters or leaves
+  mode 0; the S6-1 target stream (macro-dvar) never leaves raw. 139
+  selection flips across 20 files, ALL exact-L-ties (legacy L == budget
+  L in 139/139), transitions exclusively rANS precision swaps
+  m3(256)→m2(512) ×93, m3→m1(4096) ×35, m2→m1 ×11 (flat-6.0 J-ties
+  broken toward earlier-added candidate; legacy's distinct cu 40/35/30
+  broke ties toward cheaper). Every flip logical_eq=1 + dec_eq=1 (both
+  encodings decode to byte-identical logical content — zero
+  token/residual change). Zero flips: synth-arith.bin, random.bin,
+  generated.repeat.jsonl.
+- **Independent wire reconciliation (fuzz-verify, corrected classifier):
+  120/120 diff clusters accounted** — 110 head-classified as precision
+  transitions (at L-ties zlen is unchanged so the substream mode byte IS
+  the cluster head); 10 gap-merge artifacts attributed in-cluster by
+  deep scan; generated.jsonl 36/36 declared flips located (one excess
+  transition at offset 144329 = coincidental body-byte collision, NOT a
+  flip); ZERO undeclared flips; 20-vs-19 file-count drift = README.md
+  (present in arch's 23-file listing, absent from the CHECKSUMS-derived
+  gate manifest by design). Budget-ON byte-equality holds only 3/22
+  files (precision flips expected); SIZE-equality 22/22 is the
+  no-raw-flips evidence.
+- **Decode impact (decode-perf, median-7 interleaved same-containers
+  protocol): budget-on log 234.4 MB/s vs state-A band 231.6/235.8/240.4
+  → UNCHANGED WITHIN NOISE.** Flipped streams' in-block pull cost
+  roughly doubles (macro-types 26→46 cyc/B, rANS-4096 symtab pressure)
+  but types+dflags+opcodes are 0.2–0.3% of decode → invisible
+  end-to-end (~0.001% stakes). arch CLI-scale median-3 concurs: OFF
+  206.8 vs ON 201.0 MB/s, inside the record's 5–19% noise band.
+- **Sizes: budget-on == legacy on every corpus file** (log 175,550
+  exact; json 121,316; jsonl 222,381; sqlite 366,019) — bar B met at
+  size-equality in the peer measurements; hashes differ (precision
+  flips), bytes-differ mechanism fully attributed (above).
+- **Why zero raw-flips (arithmetic necessity, machine-verified by
+  research-gate):** at λ=0.01 B/μs with the t3 costs, the decode term
+  spans ~0.02–0.66 B on 10–20 KB streams — it can decide only
+  near-exact ties, and no tie exists (mdvar/mdflags/mll already raw per
+  linux-ref's --stream-log check: chosen_L == min_L on every line; lits/
+  mmasks have >100 B entropy-coding gaps). The Linux trade's implied
+  willingness-to-pay was 460.2 B/μs — 4.66 orders of magnitude above
+  λ=0.01 (lits, the nearest candidate, short by ~4,462×; first
+  candidates only at λ ≈ 44.6 B/μs). Zero flips-to-raw was
+  arithmetically certain under the frozen constant. NARRATIVE RULE
+  (binding): this is the small-λ limit behaving exactly as its constants
+  say — S6-1 tested the CONSERVATIVE-BUDGET question ("does marginal
+  J-selection at 0.01 B/μs find any free or near-free decode wins?");
+  the peer-measured answer is NO. It is NEITHER "the stream-budget
+  formulation discredited" NOR "the Linux trade reproduced."
+
+**Linux-consistency audit (linux-ref, three parts, COMPLETE):** Part 1
+(pre-landing): formulation core FAITHFUL (hot-ops-coexist-with-shape-
+state, no-abs-distance, O(127) shape-index fix — all PASS); C1
+cost-model gap (fixed per-codec decode constants ⇒ smallest-wins) fixed
+by Amendment 3; deviations D1–D8 all resolved via pre-reg v1.2
+amendments/erratum or closed under Exp-Y's gate; freeze-chain
+verification X1–X5 all PASS (snapshot integrity, EXP. L lineage
+citation, control baselines, amendment chain, host-era anchors —
+Windows Ryzen 9 5900X/clang-cl 22.1.8 vs Linux EPYC: absolute GB/s
+parity pre-declared NOT-A-TEST). Part 2 (vs Linux anchors): CONSISTENT
+(formulation) — mechanism reproduces faithfully; the Linux dominant
+trade is ALREADY PRESENT in the Windows baseline via min-L selection
+(empirically confirmed); zero additional flips at λ=0.01 arithmetically
+necessary and then a measured fact. Gap attribution: IMPLEMENTATION-ERA,
+measured — t3 floor costs (CRC32 44% + masks/resid ~26% + concat/alloc
+~15%) do not exist in the Linux hot-book MICROBENCH anchors. Part 3
+(landed-diff re-sweep, fc23d9a): PASS — C1 size-proportional C_decode
+wiring verified in-source; C2 raw always a candidate; C3/C4/C5
+invariants intact (diff touches only stream encoding + Options/CLI);
+C6 trap-clean, decoder untouched. Audit method note (ledger-citable):
+every frozen number independently recomputed before acceptance (caught
+the D8 erratum); every tree-state claim verified in-source; one
+self-correction issued pre-contamination (v8 "plausible flips" → v9
+zero-flips-certain).
+
+**Wire surface / compatibility (format, FINAL):** S6-1 WIRE-INVISIBLE
+(held through landing; verified at code level on fc23d9a — selection-
+only diff, decoder untouched, zero new bits/modes/failure classes).
+FORMAT.md: modes 7/8 full spec (stored dist−1, len−4); §"Stream
+selection and the whole-codec budget (S6-1)" documenting the contract +
+implemented mechanics + SELECTION DETERMINISM (legacy ties broken by
+distinct cu toward cheaper; budget ties by candidate order under flat
+6.0 — spec'd, not accidental); STALE J-FORMULA CORRECTED (was
+multiplicative λ=0.04; implemented + gate-canonical is additive
+λ=0.01); integrity invariants for 7/8; combo note (budget+rlzp ⇒
+rlzp-governed for 7/8 streams, verified anvil.cpp:2344-2347).
+docs/decoder-audit.md iteration-6 addendum: F1–F5 ALL [CLOSED]
+fixed-with-test. §5.5 sign-off GREEN (65/65 goldens on final binary).
+
+**Gate verdict: NOT ISSUED — THE FORMAL ARBITER NEVER RAN.** The frozen
+protocol (§5.4) requires bench median-3 via anvil_bench +
+tools/pareto_front.py on the verdict build before any claim; the session
+ended after the t6 correctness sign-off delivered and bench was cleared
+for freeze, but before bench's run executed. No benchmark CSV was
+regenerated (tests/benchmark-suite.csv and pareto-verdict.csv remain the
+8/17 05:04 freeze snapshots — verifiable on disk); no pareto verdict
+exists for build fc23d9a/CE44DE45. Therefore: **no bar verdict issues
+from this entry; no EXTENDS_FRONT determination exists (the tools never
+ran on the verdict build); the "first EXTENDS_FRONT row in project
+history" claim is NOT made and could not be.** The pre-committed §8
+verdict line research-gate had drafted for the A-FAIL branch — "LEG A
+FAIL / LEG B MET AT SIZE-EQUALITY / LEG C FAIL / TIER-2 NOT MET …
+recorded implementation-era, NOT a math failure" — is recorded here as
+the gate-reviewed EXPECTATION given the peer measurements, explicitly
+NOT as a verdict: it lacks only bench's confirmation, which never came.
+Tie-break ruling (research-gate, coordinator, linux-ref concur): keep
+fc23d9a, no selector change — restoring legacy tie-breaks post-hoc is
+evidentiary-aesthetics churn the gate forbids; tie-break order was
+never a frozen constant; the binding control (flag-off vs freeze-HEAD)
+is independent of budget-mode tie-breaks and clean. DO-NOT-RE-BURN
+scope as peer-concluded (provisional, absent the formal run): retires
+"stream budget at λ=0.01 as a decode lever on this host"; does NOT
+retire (a) budget-level selection at materially higher λ (reference
+λ ≈ 44.6 B/μs from the lits computation — a different cost philosophy,
+own pre-registration) nor (b) the decoder-floor legs (S6-1b v2,
+frozen, sanctioned continuation — CRC upgrade + materialization
+economics + assembly/alloc legs, six binding guards, sequencing gate
+respected: the S6-1 verdict build was S6-1b-free). Dropped-idea
+classification if the negative stands: implementation-era (the λ-limit
+arithmetic and the t3 floor profile are measured on this host), not
+math — EXP. L's J-faithfulness record stands.
+
+**Running tally update (truthful):** Iteration 7 closes with: Experiment
+Y NOT ADOPTED AS DEFAULT (ratio-only; decode-negative +
+encode-prohibitive — measured, complete); S6-1 INCOMPLETE (implementation
+landed, controls green, formal arbiter never run — no verdict, no
+claim); S6-1b and I8/mode-16 pre-registered (v2 each), not started.
+**Verdict rows produced this iteration: 0** — bench never ran; the
+pareto-verdict CSV is unchanged since the freeze. Cumulative streak
+UNCHANGED: **0 EXTENDS_FRONT in project history** across the initial
+implementation (48 beats-brotli rows, 0 PARETO-WIN), I2 (96 rows), I3
+(150), I4 (150) — the ~396 pareto-era rows — and I6 (CSV regenerated,
+no dominance change). No new rows may be counted for I7, and none are.
+
+---
+
+# PART XIII - Iteration 8: streak-tally correction, Pareto-verdict semantics, and the math-class decode closure
+
+*Author: `research-gate` (novelty gate arbiter). Date: 2026-09-04. Every figure
+below was recomputed from the source artifact at the moment of writing; the
+verifying commands are reproduced in `docs/gate-ruling-i8-pareto-win.md` R-4
+and are not copied from any other document.*
+
+## 1. The "0 EXTENDS_FRONT in project history" premise was FALSE - correction of record
+
+The Iteration-8 brief (`docs/swarm-i8-brief.md`) opened with "Seven iterations
+and ~396+ verdict rows have produced ZERO." **That is false.** There are 5
+EXTENDS_FRONT rows committed at HEAD.
+
+Found by `strategy` (deliverable `strategy-i8-audit`, findings AUDIT-1/1b),
+verified independently by the coordinator, and re-verified a third time by
+`research-gate` from `tests/benchmark-suite.csv` directly (not from the derived
+`pareto-baseline.csv`).
+
+Provenance - when the count changed (each commit's `tests/pareto-baseline.csv`):
+
+| commit | EXTENDS_FRONT rows | iteration |
+|---|---|---|
+| 21669ad | 0 | I2 |
+| 3bf4c32 | 0 | I2 |
+| d506953 | 0 | I3 |
+| 33499cc | 0 | t4-srr |
+| **7b999c6** | **5** | Experiment X (2026-08-17) - FIRST APPEARANCE |
+| fc23d9a | 5 | HEAD at I8 start |
+
+Both `docs/swarm-i7-strategy.md` S1 and the I8 brief were written AFTER 7b999c6
+and still asserted zero. The coordinator recorded the error as his own in
+`docs/i8-streak-correction.md`.
+
+**Provenance gap (gate finding, recorded):** 7b999c6 is a LEDGER-ONLY commit
+(`git show --stat 7b999c6` - it touches RESEARCH_LEDGER.md and the four
+benchmark CSVs, no source file). The 5 rows were produced by a bench
+re-generation inside Experiment X's run, and Experiment X's own ledger entry
+(line 2552-2555) states "0 EXTENDS_FRONT". **The ledger entry for the very
+commit that created the first 5 non-dominated rows in project history asserts
+zero.** The rows were never claimed, never noticed, and never narrated. The
+one source change in that window (ca8bea8, PNRA wiring into mode 14) is
+irrelevant to generated.json - the 5 rows come from `anvil-mdl-rans` /
+`anvil-shape-rans`, whose byte counts improved 104,437 -> 89,589 B (mdl) and
+101,858 -> 92,300 B (shape) somewhere between 33499cc and 7b999c6. **That
+improvement is itself un-attributed in the ledger** - no experiment entry claims
+it, and it is the single largest generated.json ratio move in the project. It
+is now a standing open item (see S5).
+
+## 2. The 5 rows are FRONT-GAP, not FRONT-CROSSING - gate ruling
+
+`research-gate` RULING (full text: `docs/gate-ruling-i8-pareto-win.md`):
+
+- **A single-plane encode knee against a 2-point front is NOT a "Pareto win."**
+  The phrase is retired for any row non-dominated on only one plane, and for
+  any row non-dominated only because the reference suite leaves an
+  axis-rectangle uncovered.
+- **`EXTENDS_FRONT` from `tools/pareto_front.py` is NECESSARY but NOT
+  SUFFICIENT** for a frontier claim. It is a raw non-dominance boolean. The gate
+  reads it; the tool does not grade it. This was always FLAG-A's rule
+  (research-agenda S4.6) and the gate failed to apply it for four iterations.
+
+Three adopted tokens (mechanical tests in the ruling, R-2):
+
+- **FRONT-GAP** - non-dominated only because it sits inside an axis-rectangle
+  the shipped reference set does not cover. Test: exists a gap bracket of two
+  mutually non-dominating reference rows `q_lo` (smaller AND slower) and `q_hi`
+  (larger AND faster) on the same file and plane with `p` between them on both
+  axes.
+- **FRONT-CROSSING** - non-dominated AND not FRONT-GAP. Only this may be
+  written as a frontier result.
+- **DEGENERATE** (strategy PR-2) - any non-dominated row with ratio >= 0.95.
+  Reported as DEGENERATE, never as a crossing. At ratio ~1.0 the comparison is
+  fast-store vs store, not compression.
+
+**The 5 rows, classified (machine-verified):**
+
+| file | codec | ratio | enc MB/s | dec MB/s | encode plane | decode plane |
+|---|---|---|---|---|---|---|
+| generated.json | anvil-mdl-rans | 0.108 | 1.060 | 112.815 | **FRONT-GAP** (q11<->zstd-19) | DOMINATED (q11) |
+| generated.json | anvil-mdl-rans-l0 | 0.108 | 1.300 | 154.874 | **FRONT-GAP** (q11<->zstd-19) | DOMINATED (q11) |
+| generated.json | anvil-mdl-rans-l001 | 0.108 | 1.329 | 155.235 | **FRONT-GAP** (q11<->zstd-19) | DOMINATED (q11) |
+| generated.json | anvil-shape-rans | 0.112 | 1.004 | 156.166 | **FRONT-GAP** (q11<->zstd-19) | DOMINATED (q11) |
+| generated.json | anvil-shape-rans-l0 | 0.112 | 0.979 | 180.362 | **FRONT-GAP** (q11<->zstd-19) | DOMINATED (q11) |
+
+Gap bracket on every row: `brotli-q11` (r=0.096, 0.674 MB/s) <-> `zstd-19`
+(r=0.113, 1.963 MB/s). Those two do not dominate each other, so the open
+rectangle ratio in (0.096, 0.113) x speed in (0.674, 1.963) contains no
+reference row and everything inside it is non-dominated BY CONSTRUCTION. All 5
+sit inside it. The non-dominance is a property of the test matrix, not of
+ANVIL: a deliberately bad codec landing in that rectangle scores identically.
+
+**5 FRONT-GAP. 0 FRONT-CROSSING. 0 DEGENERATE.**
+
+### THE LEDGER TALLY (the only writable form)
+
+> 5 non-dominated rows exist (`tools/pareto_front.py`, generated.json, encode
+> plane, since 7b999c6). All 5 are FRONT-GAP - single-plane, encode-only,
+> decode-dominated by brotli-q11, and inside a ratio x speed rectangle the
+> reference set does not ship. 0 FRONT-CROSSING. 463 of 468 per-file ANVIL
+> row-plane cells are DOMINATED.
+
+**Mandatory co-listing (binding):** no figure above may appear alone. The tuple
+is *(non-dominated count, FRONT-GAP count, FRONT-CROSSING count,
+dominated-cell fraction)* = **(5, 5, 0, 463/468)**. A bare "0 -> 5" or a bare
+"463/468 dominated" both fail claim hygiene and will be struck.
+
+### CORRECTION to the coordinator's own correction
+
+`docs/i8-streak-correction.md` states "460 of 465 anvil row-plane cells remain
+dominated". **Neither figure is reachable from the artifact.** The per-file grid
+is complete - 13 files x 18 codecs x 2 planes = **468** cells (verified: 234
+distinct (file, codec) pairs = 13 x 18 exactly, zero missing), of which **463**
+are DOMINATED and 5 EXTENDS_FRONT. Including the AGGREGATE pseudo-file: 504
+cells, 499 dominated. 468 - 5 = 463, not 460; no cut of the data yields 465.
+`strategy` repeated the same 460/465 pair in msg_6336f637. Two lanes propagated
+an unreachable figure on the same day - which is precisely the failure mode the
+coordinator's own binding rule was written to prevent, and the rule binds its
+author. Correct figures: **463/468 per-file, 499/504 including aggregate.**
+
+## 3. DNB-M1 - decode-only Pareto crossings are arithmetically CLOSED on 12 of 13 files (MATH-class)
+
+Requested by `theory` (deliverable `theory-i8-iso-crossing`); reproduced by
+`research-gate` from `prototypes/i8-theory/iso_crossing.py`, a pure function of
+`tests/benchmark-suite.csv`. Route B = the decode multiplier ANVIL needs at its
+CURRENT bytes to read as non-dominated on the decode plane (thresholds inflated
+2% because timing CV is 0.9-17%; never cross on an exact tie).
+
+| file | Route B (decode-only) | status |
+|---|---|---|
+| synth-timeseries.bin | **1.8x** | **OPEN - the only genuine Route-B target** |
+| synth-arith.bin | 2.5x | **CLOSED-DEGENERATE** (ANVIL ratio 1.000; refs also near-store) |
+| generated.json | 4.6x | closed |
+| random.bin | 8.6x | closed (DEGENERATE) |
+| anvil_bench.exe | 10.1x | closed |
+| generated.sqlite | 10.5x | closed |
+| generated.log | 10.5x | closed |
+| generated.jsonl | 11.7x | closed |
+| anvil.exe | 11.8x | closed |
+| synth-jitter.bin | 13.5x | closed |
+| doc.md | 23.7x | closed |
+| src.cpp | 40.5x | closed |
+| generated.repeat.jsonl | 106.5x | closed |
+
+**Ceiling for byte-identical decoder work: ~1.79x end-to-end** (crc32 = 44% of
+decode time; wire-invisible CRC fix caps lift at 1/(1-0.44)); the full S6-1b
+three-leg projection is 450-480 MB/s on log vs bar-A's 547.1 MB/s.
+
+**CORRECTION to theory's count (11 of 13):** the honest count is **12 of 13
+closed**, because synth-arith's nominal 2.5x is a DEGENERATE cell - ANVIL is at
+ratio 1.000 (no compression) and the references it must outrun (zstd-1/3/9 at
+r=0.786, 874-886 MB/s) are near-store too. Under the DEGENERATE rule a
+synth-arith decode crossing at ratio 1.0 is not a crossing. That leaves exactly
+one live Route-B target: **synth-timeseries.bin at 1.8x** - the smallest
+multiplier on the board, and the one cell where ARI-REF already measured a FAIL
+(+0.03%, 33 tokens, 14-byte stride not x4-alignable). Narrow, falsifiable, and
+now the only decode-only lane that can be pre-registered honestly.
+
+**Classification: MATH, not implementation-era.** It follows from the reference
+rows' own (ratio, throughput) coordinates and the measured decode profile; it
+survives any decoder optimization that does not also change the byte count.
+
+**Scope limits (so this is not over-claimed):** (a) it is a statement about this
+reference set and this host - adding denser reference tiers can only make Route
+B harder, never easier, so the negative is monotone under a better reference
+set; (b) it applies ONLY to decode-only registrations - the moment a mechanism
+changes bytes (mode-16 ARI-REF, R2 topology, S6-1b leg 3) it is on Route A or
+both, and the closure does not apply; (c) a better ANVIL decode number does not
+change the requirement (a property of the front), only the distance to it.
+
+**Consequence (binding):** any future pre-registration whose ONLY leg is decode
+throughput must first show a Route-B multiplier below the attainable ceiling on
+its target file. On 12 of 13 files no such pre-registration can be written
+honestly.
+
+## 4. DO-NOT-RE-BURN additions (I8)
+
+- **DNB-M1** - decode-only pre-registrations without a byte-reduction leg, on
+  12 of 13 corpus files (see S3). MATH-class.
+- **DNB-M2** - reading `EXTENDS_FRONT` as a win. It is a necessary condition
+  only; the gate classifies it (FRONT-GAP / FRONT-CROSSING / DEGENERATE).
+- **DNB-M3** - degenerate-cell crossings: any non-dominated row at ratio >= 0.95
+  is DEGENERATE, not a result. Live arithmetically right now on synth-arith.bin
+  (bar 885.8 MB/s, zstd-3) and random.bin, both within reach of the projected
+  S6-1b decode band. Flagged to arch and decode-perf so nobody builds toward it.
+- **DNB-M4** - propagating a tally without recomputation. The "0 EXTENDS_FRONT"
+  premise survived two syntheses and a mission brief; the "460/465" figure
+  survived two lanes in one day. Recompute or do not write it.
+
+## 5. Open item created by this entry (standing)
+
+**The un-attributed generated.json ratio move.** Between 33499cc and 7b999c6,
+`anvil-mdl-rans` on generated.json went 104,437 -> 89,589 B (-14.2%) and
+`anvil-shape-rans` 101,858 -> 92,300 B (-9.4%). No experiment entry claims
+this, no pre-registration covers it, and it is the single largest generated.json
+ratio move in the project - and the sole reason the 5 FRONT-GAP rows exist. It
+closed most of the I2-era gap on that file. **Action: `arch` / `strategy` to
+identify which change produced it (candidate: the mode-15/hotop work or a
+parser default), because (a) it is un-credited mechanism value the ledger
+cannot currently cite, and (b) if it is a config/flag default it may be
+transferable to jsonl/log/sqlite, where the gaps are -18.0% / -36.8% / -42.5%.**
+
+## 5b. Claim-hygiene debt corrected in `research-gate`'s OWN prior text
+
+The coordinator's binding rule (S6.4) applies to the gate as well, and the gate
+has now caught itself. Text written in earlier iterations and repeated in
+`docs/swarm-i8-brief.md` S2 states that ARI-REF's 89,363 B harness wire on
+synth-arith.bin is **"+2.7% from the front"** and that this is "the closest
+ANVIL artifact in project history".
+
+**That framing is false and is corrected in place.** pnra's transform ladder
+(reproduced byte-exactly by strategy) measures brotli-q11 on the
+delta+zigzag-varint-transformed bytes of the same file at **16,313 B** against
+its own raw score of 87,013 B - a factor of **5.33**. Therefore:
+
+- the 87,013 B bar is **not a frontier**; it is brotli declining to apply a
+  textbook filter it ships elsewhere,
+- ARI-REF's 89,363 B wire is **5.48x above the transform-enabled ceiling**, not
+  2.7% from any frontier,
+- the honest gap on synth-arith.bin is **-93.6%**, not the -66% carried in the
+  frozen baseline table,
+- and by extension every "gap-to-front" percentage in I7's S3 table is
+  measured against a reference that is self-handicapped on the cells where a
+  transform exists. Those numbers are **not void** (they are still the number
+  ANVIL must beat to beat brotli as shipped) but they are **not frontier
+  distances** and must never be described as such.
+
+Same failure mode as the coordinator's tally error: a number propagated because
+it was already written down. Recorded as the gate's own error.
+
+**Binding for all future synth-cell results:** report against BOTH bars (raw
+reference score AND transform-enabled reference score). A win measured only
+against the raw bar is struck.
+
+## 6. Claim-hygiene standing orders (restated, binding)
+
+1. No "Pareto win" / "crossed the frontier" phrasing without a FRONT-CROSSING
+   classification from the gate.
+2. No ratio claim without round-trip verify + fuzz. No throughput claim without
+   median-of->=3.
+3. `tools/pareto_front.py` is the SOLE issuer of the EXTENDS_FRONT boolean;
+   `research-gate` is the sole classifier of what it means. `bench` co-arbitrates
+   the measurement, not the semantics.
+4. Every tally, streak, or cumulative number in a brief, synthesis, ledger entry,
+   or claim must be recomputed from the source artifact at the moment of writing
+   with the verifying command shown. A number in a document is a claim, not a
+   fact. This binds the coordinator, `strategy`, and `research-gate` alike.
+5. Record, do not celebrate.
+---
+
+## 7. DNB-M2 - ARI-STRIDE / the zero-bit derived-parameter form on STATISTICAL transforms is CLOSED (MATH-class)
+
+`pnra` reported STOP against his own pre-registered condition after running the
+pre-hoc estimator experiment the gate's binding note required (estimators frozen
+in code at `prototypes/i8-pnra/sigma_est.cpp` before any output was examined).
+
+**Measured (synth-arith.bin, residual bits/word vs phrase distance d):**
+
+| d (words) | S1 single-pair | S2 least-squares-all-pairs | S3 mean-of-diffs |
+|---|---|---|---|
+| 4 | 3.245 | **2.746** | 3.245 |
+| 8 | 3.979 | **3.258** | 3.979 |
+| 16 | 4.616 | **3.767** | 4.616 |
+| 32 | 5.128 | **4.296** | 5.128 |
+| 64 | 5.696 | **4.853** | 5.696 |
+| 128 | 6.356 | **5.441** | 6.356 |
+| 256 | 7.028 | **6.110** | 7.028 |
+| 512 | 7.833 | **6.912** | 7.833 |
+| 1024 | 8.777 | **7.913** | 8.777 |
+
+Reproduced by `research-gate`: S1 slope 0.691 bits/doubling, S2 0.646. The
+S1-S2 gap is 0.499 / 0.849 / 0.843 / 0.864 at d = 4 / 16 / 64 / 1024 -
+**constant to within 0.05 bits across two decades**. S2 (the Experiment Z(b)
+multi-pair follow-on, which the gate explicitly permitted) buys an **intercept
+reduction, not a slope change**. S1 = S3 by telescoping (mean-of-diffs reduces
+exactly to single-pair) - a passing consistency check, not a defect.
+
+At d = 1024 the residual is 7.9 bits/word - barely better than coding the raw
+word. **The mechanism has no distance range where it is both cheap and
+effective**: short distances are cheap but save little; long distances are where
+the savings would be, and there the jitter destroys them.
+
+**Classification: MATH.** Structural statement, not a corpus property: for ANY
+statistical transform, a derived-parameter estimate's error scales with the
+reference distance, so residual entropy grows ~log2(d) and no estimator removes
+that term. (The measured 0.65-0.69 bits/doubling sits below the asymptotic 1.0
+because the non-growing floor H(eps) = log2(5) = 2.32 bits - the measured eps
+alphabet is {-2..+2} - dominates at small d.)
+
+### G4 AMENDED - the exactness condition (binding)
+
+pnra proposed the sharpening; the gate accepts and generalises it. G4's
+permission condition changes from *parameter provenance* alone to **parameter
+provenance AND transform exactness**:
+
+> **G4 (amended):** a zero-bit reference-derived transform parameter is
+> defensible ONLY where the transform is EXACT - the derived parameter
+> reproduces the target with ZERO residual, so nothing is estimated (TCOPY's
+> Delta=-d: `v + p` is invariant, residual identically zero). Where the
+> transform is STATISTICAL - the parameter must be estimated from noisy data -
+> the derived-parameter error scales with d, residual entropy grows like
+> log2(d), and no estimator removes that term. Position-derived is NOT
+> defensible there.
+
+**Family-level consequence (the important part):** the prior-art audit
+(`docs/gate-priorart-audit-i8.md` S4) warned that the project has twice built
+the expeditious form and called it progress - ARI-REF's *transmitted*-Delta
+WORKS (-65.25%) and is PRIOR ART; its *implicit*-Delta is DEFENSIBLE and FAILED
+(+38.35%). ARI-STRIDE now closes the other side: its implicit form is measured
+dead across two decades of distance. **Therefore on statistical transforms the
+transform-reference family has NO defensible novelty position.** It survives
+only on EXACT transforms - TCOPY/PNRA territory, where residual is zero by
+construction. **That is the boundary I9 should plan against.**
+
+**A1-A4 retired (narrowing):** the A1-A4 ablation was the separator for
+parameter *provenance*. Exactness is now the prior question and is cheaper to
+test, so A1-A4 is RETIRED for this family on statistical transforms. It remains
+live for any revived EXACT-transform variant.
+
+**Cost note (why this is a good outcome):** the STOP cost one experiment
+instead of an iteration. pnra hit a pre-registered stop condition and reported
+it rather than running four ablations for a mechanism he had just measured
+dead. That is the pre-registration discipline working as intended.
+
+## 8. Record-period P - INFRASTRUCTURE (ruled, not gated)
+
+pnra asked whether a discovered record period P (ONE scalar per FILE, not per
+phrase) is G4-OK (position-derived) or G3-foreclosed (transmitted).
+
+**RULED: NEITHER. It is a third category - a file-level framing constant**,
+closer to a block header field than to a transform parameter. G3/G4 govern
+phrase-local transform parameters; P is not a function of any match distance.
+
+**Not defensible as novelty, for a harder reason than G3:** xz ships
+`--delta[=dist=distance]`, documented range **1..256** (verified this session).
+Both measured periods fall inside it: P = 28 (synth-timeseries) and P = 184
+(synth-columnar-align). A record-period delta at P is therefore FULLY REALIZABLE
+by the published filter with the period supplied as a command-line constant.
+**The only thing ANVIL adds is auto-detecting P = infrastructure** (same class
+as the G6 synth-timeseries detector, the Gorilla-Pv detector stack, and the
+K~8-12 context quantizer). Not gated, not claimed.
+
+Verified structural facts: synth-timeseries P=28 B, 10,000 records,
+fully-constant byte offsets {4-7, 18-21} = **28.6% of all bytes**;
+synth-columnar-align P=184 B, 1,500 records, 56 constant offsets = **30.4%**.
+
+**What remains open, and it belongs to `datastruct`:** columnar de-interleaving
+is a real capability gap, and the open question is whether it can live INSIDE
+THE REFERENCE rather than globally before LZ - the placement constraint the
+decisive lane-transpose negative established. Hand over as *measured capability
+gap + placement constraint*, never as a novelty claim.
+
+**CAUTION ON RECORD:** 28-30% constant-offset bytes is a property **our
+generator chose** (`tests/make_synth_corpus.py`). Real columnar data will not
+be that clean. Do not let a synthetic-clean detection rate become the expected
+value on real files. All such figures carry `{synthetic}` and the dual-bar rule
+(PART XIII S4 / S5b).
+
+---
+
+*End of PART XIII as appended 2026-09-04 by `research-gate`. Streak tuple as of
+this writing: **(5 non-dominated, 5 FRONT-GAP, 0 FRONT-CROSSING, 463/468
+per-file cells dominated)** - recomputed from `tests/benchmark-suite.csv` at
+write time, verifying commands in `docs/gate-ruling-i8-pareto-win.md` R-4.*
+
+---
+
+# PART XIV - Iteration 9: gate rulings PR-2 / PR-3 / PR-5, the committed-artifact verification regime, and supersessions
+
+*Author: `research-gate` (novelty gate arbiter / ledger historian). Date:
+2026-09-12. Swarm `anvil-i9-pareto`, task `gate-i9`. Every figure in this entry
+was recomputed from a named artifact at write time; the commands are in the
+four ruling documents this entry indexes, not copied from other documents.
+Ruling docs: `docs/gate-ruling-i9-frontier-tokens.md` (PR-2/PR-3 + anti-tie),
+`docs/gate-ruling-i9-pr5-position-derived.md` (PR-5 + pnra verification),
+`docs/gate-ruling-i9-datastruct-ts.md` (datastruct verification + novelty +
+dual bar), `docs/gate-verify-regime-i9.md` (the regime + dispositions).
+Harnesses: `docs/gate-verify-i9.py`, `docs/gate-verify-i9-corpus.py`,
+`docs/gate-verify-i9-transform-bar.py`.*
+
+## 1. PR-2 - the DEGENERATE guard is ROW-LEVEL (RULED)
+
+A **non-dominated** row whose **OWN** ratio is `>= 0.95` is **DEGENERATE**;
+never a crossing, never a compression result. The v4 amendment (arch's §2.7a
+correction, strategy §2.7a Correction 2) is now the formal text: the test is the
+row's own ratio, **not the file's current best row**. No reverse rescue either
+(rules bind each row separately), and a **dominated** row stays DOMINATED even at
+ratio >= 0.95 (the token is reserved for non-dominated rows). Inclusive
+threshold, artifact's own numeric field, no rounding. Rationale is MATH-class:
+at ratio ~1.0 the comparison is store-vs-fast-store, so no decoder work converts
+it into a result (DNB-M3 stands). **Armed, not triggered:** at committed HEAD
+the non-dominated DEGENERATE count is **0**; the store-class (ratio 1.000) ANVIL
+rows on `synth-arith.bin` and `random.bin` exist but are dominated/outside the
+classification that uses the token as a verdict.
+
+## 2. PR-3 - FRONT-GAP vs FRONT-CROSSING (RULED)
+
+- **FRONT-GAP** = non-dominated AND a gap bracket exists: reference rows
+  `q_lo`, `q_hi` on the same file and plane with `q_lo.ratio < q_hi.ratio` and
+  `q_lo.mbps < q_hi.mbps`, and `p` between them on **both** axes. A FILL, never
+  an advance; non-dominance inside such a rectangle is a property of the test
+  matrix.
+- **FRONT-CROSSING** = non-dominated AND not FRONT-GAP AND not DEGENERATE. The
+  only token that may be written as a frontier result. A row coordinate-identical
+  to a reference row advances nothing and is not a crossing.
+- Classification order: DOMINATED -> DEGENERATE -> FRONT-GAP -> FRONT-CROSSING.
+- **Dual-bar qualifier (new, binding):** a {synthetic} transform-cell row that
+  is non-dominated on the raw grid but beaten by the raw reference codec given
+  the same reversible transform is FRONT-GAP (dual-bar), not a crossing - the
+  generalisation of §5b to all synth cells (E1/DNB).
+
+**The five existing rows** (committed HEAD fc23d9a, machine-verified): all
+`tests\corpus\generated.json`, encode plane only, all **FRONT-GAP** with bracket
+`brotli-q11` (0.096, 0.714) <-> `zstd-19` (0.113, 2.511); all decode-plane
+DOMINATED by `brotli-q11` (651.755 MB/s). **5 FRONT-GAP | 0 FRONT-CROSSING |
+0 DEGENERATE.** Classification invariant across the committed and worktree grids.
+
+**Mandatory co-listing tuple (I9 form, with grid provenance):**
+`(non-dominated | FRONT-GAP | FRONT-CROSSING | DEGENERATE | dominated fraction)`
+- committed HEAD fc23d9a: **`5 | 5 | 0 | 0 | 411/416`** (`443/448` incl
+  AGGREGATE; AGGREGATE alone `0 | 0 | 0 | 0 | 32/32`);
+- uncommitted worktree grid `C70179EA...`: `5 | 5 | 0 | 0 | 463/468`
+  (`499/504`) - label it if cited.
+
+**Vocabulary separation (binding).** Decode-route arithmetic tokens
+(DECODE-GO / DECODE-TIE / DECODE-SHORT, bench `decisions/anti-tie-convention-v1`
+v2) are **never** frontier verdicts; a DECODE-GO is an arithmetic go-ahead, never
+a crossing. Recorded as the I9 decode standard: `R' = 1.02 x R` from exact rows;
+single-component cap `C = 1/(1-s)`, **no compounding legs**; wall-clock override
+`>= max(2%, window CV)`; `generated.json` 5.33x stays PROJECTION. A frontier
+claim additionally needs a landed measured row + PR-4 window + two
+hash-identical arbiter runs + bench sign-off + this gate's classification.
+
+## 3. Committed-artifact status and the I8 tally provenance correction
+
+**HEAD tuple (citation of record):** `5 | 5 | 0 | 0 | 411/416` (`443/448`).
+Committed blobs: `fc23d9a:tests/benchmark-suite.csv` =
+`4c986eb61c953a24dad298132b5f5f03da6fb410`; `fc23d9a:tests/pareto-baseline.csv` =
+`0cbda4f1b73ffcf8a0c1f48c0e472ab545efaad3`. Verified with
+`docs/gate-verify-i9.py` (per-file 5/5/0/0/411/416; AGGREGATE 0/32; baseline
+cross-check 448 cells, **0 mismatches**). bench's `p0-arbiter` independently
+confirms (fresh artifacts `tests/pareto-baseline.head-fc23d9a.csv` hash
+`66f5e5cd...`, verdict `b9680ac9...`; double-run hash-identical).
+
+**Correction of record.** PART XIII §2's `463/468` (`499/504`) is **not
+recomputable from any committed artifact**. No commit ever held a 234-anvil-pair
+suite (committed suite blobs: 32/48/96/140/150/208/208 anvil pairs; HEAD = 208
+pairs = 416 cells). The 234-pair (18-codec) grid exists **only** in the
+uncommitted worktree CSVs (suite sha256 `C70179EA...`, baseline `F432C344...`) -
+the files the I8 verification read at write time. The five rows and their
+FRONT-GAP classification are **identical** in both grids; only 52 extra
+DOMINATED cells (two codecs added after the last suite commit) differ. Under the
+committed-artifact rule the citation of record is the HEAD tuple until bench's
+refresh is committed. This is a provenance correction, not a classification
+change, and it is the same failure mode DNB-M4 names.
+
+## 4. PR-5 - position-derived transform inside the reference (RULED)
+
+**G4-amended stands as written:** a zero-bit reference-derived transform
+parameter is defensible **only** where the transform is **EXACT** (zero
+residual). The pnra arm (B) (`out[p+i] = out[p+i-1] + s + e`, `e in {-1,0,1}`,
+`s` derived decoder-side, zero transmitted bits) has a **bounded but NONZERO**
+residual: it is **not exact**, so it receives **no novelty permission** through
+the parameter-provenance door. It is **not** closed by DNB-M2 either (that math
+is estimator error growing with `d`; a bounded distance-independent residual has
+no `log2(d)` term) - honest classification: a **third category, a
+bounded-residual predictive basis**, judged by the ordinary novelty tests, whose
+nearest prior art is adaptive DPCM / predictor selection / delta-of-delta / xz
+`--delta`. **Per-reference scoping is placement engineering, not a separator**
+(it lands in copy-with-edits: VCDIFF/bsdiff/Zdelta/Zucchini). **NEW binding
+causality condition (AUDIT-7 guard):** `s` must be computable by the decoder
+from bytes already reconstructed at the point of use; look-ahead-derived
+alphabet/step is transmitted information in disguise and must be charged.
+
+**Measured supplement (VERIFIED).** artifacts `prototypes/i9-pnra/`; wire sizes
+`pack3/derived 12,936 B`, `pack3/transmitted 12,921 B`, `raw2/derived 16,134 B`,
+`pack5/ddelta 19,817 B`, `brotli/derived 13,456 B`, `literal-only 256,049 B`;
+every shipped `dec_*.bin` sha256 = input sha256 (`AF05309F...`) byte-exact;
+AUDIT-7 charge `44+32+40+13+16+12,791 = 12,936` exact; corridor arithmetic
+201,088/12,936 = 15.54x, 106,368/12,936 = 8.22x; dual bar cleared (12,936 <
+16,313 transform-enabled and < 87,013 raw). **Decisive fact: the transmitted-step
+control is 15 B SMALLER than the zero-bit derived form.** Therefore the measured
+byte result does not require the derived parameter; the mechanism reduces, for
+novelty purposes, to a **transmitted per-region delta/stride reference** -
+prior-art-shaped delta/stride coding with a parser-level region table.
+Classification: **engineering / adopt**, no novelty claim. The step
+*representation* does beat the parameter-free second-difference control
+(19,817 B), so the mechanism value is real; it is just not novel. Corrections
+recorded: literal-only control is **DOMINATED**, not DEGENERATE (c1); the
+residual floor is 63,953 x log2(3) = **12,670.4 B**, not 12,667.5 B (c2); timing
+is a parallel-window, single-threaded prototype measurement, ranking-only (c3).
+Surviving defensible positions in this family (unchanged): exact invariant
+indexing; unification of equivalence relations under one MDL parser; correction
+topology coding.
+
+## 5. datastruct-ts - VERIFIED ladder, NOVELTY: NO, and the dual-bar finding
+
+`prototypes/i9-datastruct/verify_artifacts.py` reproduced byte-identically on
+double-run: `ts.raw_o0 207,197 / raw_o1 187,436 / ref_flat 107,564 / ref_col
+97,057 / ref_field 89,877` and `ca.ref_col 69,748 / ref_field_true 24,055 /
+ref_field_naive 44,837 / ref_field_p184 35,808`, all roundtrip OK; ablation
+coder-only 19,761 B vs mechanism 97,559 B. **Structure erratum independently
+VERIFIED from bytes alone** (`docs/gate-verify-i9-corpus.py`): minimal periods
+**P=14** (20,000 records) and **P=23** (12,000 records) via record-local
+invariant scans; byte-exact regeneration from `tests/make_synth_corpus.py`.
+
+**Novelty: NO.** Record-period reference copy + per-column residual contexts
+inside the reference = copy-with-edits (VCDIFF/bsdiff/Zdelta) + columnar/delta
+predictor/context modeling (xz `--delta` dist 1..256, Gorilla/FPC,
+Parquet/ORC, Brotli RFC 7932 §7 context map); P transmitted and its
+auto-detection are infrastructure (§8 below); placement inside the reference is
+a satisfied placement constraint, not a novel interaction; the one live nearby
+novelty family (correction topology coding) is **not** what this mechanism does.
+**Unsolved gap, explicit:** auto-discovery of period + field partition inside
+the reference (ca: true 24,055 vs naive 4-byte words 44,837, +86%) - an
+engineering gap, not a novelty position. Handoff to arch as measured capability
++ placement constraint.
+
+**Dual-bar finding (new).** Transform-enabled reference bars
+(`docs/gate-verify-i9-transform-bar.py`; xz CLI verified):
+synth-timeseries raw best ref 120,669 B (0.431); `xz -9e --delta=dist=14` =
+**89,564 B**; `brotli q11 on delta14` = **80,650 B** - so `ts.ref_field` 89,877
+is **above both** and is FRONT-GAP (dual-bar). synth-columnar-align raw best ref
+105,915 B (0.384); `xz -9e --delta=dist=23` = **21,340 B** - `ca.ref_field_true`
+24,055 is above it. The prototype's gains over its own controls are real; they
+are not frontier advances.
+
+## 6. Supersessions recorded by this PART
+
+1. **Record periods (facts):** `synth-timeseries.bin` = **20,000 x 14 B,
+   P=14** (was "10,000 x 28 B"); `synth-columnar-align.bin` = **12,000 x 23 B,
+   P=23** (was 1,500 x 184). Supersedes PART XIII §8 recorded facts,
+   `docs/gate-verdict-i8-ari-stride.md` §4b/§5, and
+   `docs/swarm-i8-strategy.md` §2.7c. Constant offsets: timeseries `{4-7}` =
+   **4/14 = 28.6%** (fraction survives the alias); columnar `{5,12,13,16,17}` =
+   **5/23 = 21.7%** (the I8 56/184 = 30.4% was an 8x-decimation artifact, e.g.
+   ts_ns +8,000,000 = 0 mod 256 per 8 rows). **The §8 conclusion that P is
+   infrastructure, not novelty, STANDS** (xz `--delta` dist 1..256 covers 14 and
+   23). Methodology rule: distinct-offset counting aliases at any multiple of the
+   true period; minimality must be validated; alias fractions can change.
+2. **Ratio-first decode multiple.** The 7-file Silesia figure **11.243x** vs
+   Brotli (**13.015 MB/s**, `bwt-backend-standard.csv`, dec_s 9.248178) is
+   recomputable and stands; the **enwik8** figure carried as "11.2x" is a
+   conflation and is corrected to **20.960x vs Brotli / 12.308x vs xz**
+   (`enwik8-bwt.csv`, 14.859763 s/100 MB = 6.730 MB/s). Strategy's Silesia
+   replacement 20.33x (16.724858 s) is from `auto-routing.csv`, a different
+   window, and is **rejected** as the Silesia figure absent PR-4 attestation.
+   All four ratio-first CSVs are **untracked**; `de9b4caf...` is a **binary
+   sha256 prefix** (`build\anvil.exe`, 1,481,728 B), not a commit. FRONT-GAP
+   verdict unchanged; the enwik8 gap is deeper than carried.
+3. **Grid provenance:** `468/463` -> `416/411` at committed HEAD (S3).
+4. **pnra derived numbers:** entropy floor 12,667.5 -> **12,670.4 B**;
+   literal-only control token DEGENERATE -> **DOMINATED**.
+
+## 7. Retirements and classifications (I9)
+
+- **MATH (do not re-burn):** transmitted-parameter novelty (G3, audit §4);
+  zero-bit derived parameters on statistical OR bounded-nonzero-residual
+  transforms (G4-amended + DNB-M2 + P-3); decode-only Pareto routes on 12/13
+  files (DNB-M1); encode-knee rows as an objective; raw `EXTENDS_FRONT` as a win
+  (DNB-M2).
+- **INFRASTRUCTURE (not novelty, not gated):** record period P and its
+  auto-detection; field-partition auto-discovery; columnar reference-copy with
+  per-column contexts; per-context conditioning; synthetic-structure detectors.
+- **ENGINEERING / ADOPT candidates (Pareto-gated, no novelty claim):** pnra's
+  transmitted per-region step reference; datastruct's columnar residual contexts
+  for copy tokens. Both wait on a green binary, native integration, PR-4
+  windows, and arbiter runs.
+
+## 8. Claim-verification regime (binding)
+
+Full text `docs/gate-verify-regime-i9.md`. Rule: every number recomputable from
+a named artifact with the exact command shown and labelled
+`measured|derived|projection|prototype wire`; committed artifact quoted by git
+blob id, uncommitted by sha256 **explicitly marked not-citation-of-record**;
+green-binary gate while the dirty-tree `anvil` cannot decode; dual bar on
+{synthetic} transform cells; whole tuple always co-listed with grid provenance;
+vocabulary non-interchange (S2); no verdict without prior-art lineage + an
+ablatable claim. Dispositions issued this iteration (one line each) cover: pnra
+PR-5 + supplement (VERIFY/decisive), datastruct (VERIFY ladder / REJECT novelty),
+coordinator record-period erratum (VERIFY), strategy tuple (PARTIAL REJECT) and
+C-4 (MIXED), format dirty-build blocker (ENFORCED), bench p0-arbiter (VERIFY),
+bench anti-tie + PR-4 (RECORDED), format fuzz change (REGISTERED), coordinator
+citation rule (RECORDED). No unverifiable number was admitted.
+
+---
+
+*End of PART XIV as appended 2026-09-12 by `research-gate`. Frontier tuple,
+committed HEAD fc23d9a, recomputed at write time with
+`docs/gate-verify-i9.py`: **(5 non-dominated, 5 FRONT-GAP, 0 FRONT-CROSSING,
+0 DEGENERATE, 411/416 per-file cells dominated; 443/448 including AGGREGATE)**.
+Any citation of `463/468` must carry the label "uncommitted worktree grid
+C70179EA".*
+
+## PART XIV addendum (same session, 2026-09-12) - definitive decode multiples, P4.1, PR-1
+
+*Appended by `research-gate` after coordinator requests
+`msg_9ea23373b4fd4f428f87b9a05359ac23` (one decode-multiple citation) and
+`msg_bc24a94818cd4fc9b5a3293a0c4d50fa` (verify P4.1 before the GO enters the
+record). Full texts: `docs/gate-ruling-i9-decode-multiples.md` (I9-4) and
+`docs/gate-ruling-i9-p41-deflate.md` (I9-5).*
+
+### A1. DEFINITIVE ratio-first decode multiples (I9-4)
+
+Three live Silesia values existed. Recompute:
+`python docs\gate-verify-i9-decode-multiples.py` (all four CSVs are
+**uncommitted** worktree artifacts; binary sha256 prefix **`de9b4caf`**
+(`build\anvil.exe`, 1,481,728 B); threads **not recorded** in the CSV schema and
+`tools/bench_ratio.py` has no threading code - provisional 1t, PENDING bench/PR-4).
+
+- **Silesia, citation of record = 12-file `--ratio-backend=auto` portfolio:**
+  decode **9.435 MB/s** = **14.597x** slower than brotli-q11-lw30 (137.722 MB/s)
+  and **7.885x** slower than xz-9e (74.397 MB/s), on the 46,446,995-B auto
+  output. (`tests/auto-routing.csv` + `tests/ratio-first-standard.csv`.)
+- **enwik8, citation of record = auto row:** decode **5.890 MB/s** = **23.946x**
+  vs brotli-q11-lw30 (141.050 MB/s) / **14.062x** vs xz-9e (82.831 MB/s), on the
+  23,534,368-B output. Same-bytes BWT-direct row variant: 6.730 MB/s = 20.960x /
+  12.308x; **not** the portfolio row. (`tests/enwik8-bwt.csv` +
+  `tests/ratio-first-standard.csv`.)
+- **Superseded:** (a) the audit's "11.2x / 13.0 MB/s" as the headline - it is
+  object A (7 BWT-routed files, forced BWT direct): 13.015 MB/s, 11.243x /
+  6.047x, retained for that subset only; (b) strategy's 20.33x Silesia
+  replacement - object D, the auto run's window, not canonical; (c) the audit's
+  "enwik8 6.7 MB/s = 11.2x" - conflation, superseded by 23.946x/20.960x.
+- The earlier PART XIV §6.2 sentence "Silesia 11.24x stands" is **narrowed to
+  subset A**; the portfolio figure is 14.597x.
+- **FRONT-GAP unchanged and deeper; no crossing token.** Bytes axis unchanged.
+  All ratio-first artifacts PENDING-COMMIT; bench owns the canonical window.
+
+### A2. P4.1 DEFLATE - reproduced GO DIRECTION, adopt-class, NO novelty (I9-5)
+
+Reproduced by this gate (`census.py` / `replay.py` / shipped artifacts; build
+`build\anvil.exe` sha256 prefix `DA24665C`, the dirty binary that encodes but
+cannot decode):
+
+- mozilla census **2,564 / 2,564** streams verified, C = **3,177,007**,
+  U = **9,991,436**; replay **2,354 attempted / 2,331 valid / 23 diff**, valid
+  fraction of bytes **0.91222084** (91.22%); local ceiling (brotli q11 lw24)
+  **1,459,509**; samba **160** streams, C = 411,393, ceiling **193,463**;
+  sao/ooffice **zero** DEFLATE. Charged recovery artifacts
+  `mozilla-anvil-brotli.anv` 13,806,173 -> `transformed-mozilla-anvil-brotli.anv`
+  12,443,996 = **1,362,177 B** (sizes VERIFIED; decodability NOT).
+- **Corrections:** stream counts reconciled per deflate's convention A2 - the
+  census detects 2,564 = 2,354 DEFLATE + 210 stored (`stored_clen` 138,045);
+  replay attempts 2,354. My earlier "conflation" correction is **WITHDRAWN**
+  (both figures were right for their scope). sao+ooffice untouchable =
+  **212,047 B** (234,047 struck); P4.1 addressable total = **1,652,972 B**.
+- **Status (updated post-decode-fix):** **GO DIRECTION; prototype wire
+  roundtrip VERIFIED** on green binary `8EAE1FB3` (src `62BC6631`; both
+  encodings byte-identical across `DA24665C` / `8EAE1FB3`; both `.anv` decode
+  sha256-exact; prototype inverse chain sha256-identical). **Canonical binary
+  `0D1E130B` re-run: encodes byte-identical** (`.anv` sha256 `175C6861…` /
+  `B3954DFC…`); the sha256-exact decode transfers by decoder determinism.
+  Compression claim still **PENDING src integration + fuzz**; not citable as an
+  ANVIL result until then.
+- **NOVELTY: NO.** DEFLATE reconstruction is prior art (precomp, preflate,
+  preflate-rs, reflate, grittibanzli; container recompression). Recorded as
+  **adopt-class prior-art-deployed infrastructure**; clean-room implementation
+  if integrated (do not import preflate-rs code). The portfolio-composition
+  property (byte win on BWT-catastrophic files at fast decode) is a
+  **routing property, not a compression mechanism** (K-quantizer precedent).
+
+### A3. pnra corrections and decode-perf PR-1
+
+- **pnra** applied c1-c3 (literal control DOMINATED; floor 12,670.4 B; timing
+  ranking-only) and satisfied the binding causality condition (s-derivation
+  stated as a decoder algorithm with no region look-ahead; P-4). C6 three-way
+  under one coder added: brotli-on-symbols transmitted 13,441 / derived 13,456 /
+  ddelta 17,953. Ruling I9-2 stands: **engineering/adopt, no novelty**.
+- **decode-perf PR-1: NO-GO / DECODE-SHORT.** synth-timeseries CRC share
+  26.3-28.7% (median-7) vs the 43.82% anti-tie gate; C = 1.36-1.40x vs 1.78x
+  needed. Recorded under the decode-route arithmetic vocabulary (DECODE-SHORT),
+  **no frontier implication**; remaining lead is MATERIALIZATION (parallel
+  window, ranking-only; generated.json mode-10 mdl mat 51.4% / alloc 21.5%,
+  mat+alloc cap 3.69x PROJECTION). No crossing claim admitted.
+
+*End of PART XIV addendum.*
+
+### A4. bwtinv aux I-array wire charge - SPOT-VERIFIED (for PR-4 §3d)
+
+Policy as specced (`prototypes/i9-bwtinv/INTEGRATION-SPEC.md` §4.2):
+`r` = smallest power of two with `r*1024 >= n`; `icount = 1+(n-1)/r` (int32
+entries, matches the libsais `unbwt_aux` API); charge = `icount x 4 B`.
+Recomputed by this gate from the corpus sizes:
+
+| file | n | r | icount | bytes |
+|---|---:|---:|---:|---:|
+| dickens | 10,192,446 | 16,384 | 623 | 2,492 |
+| mr | 9,970,564 | 16,384 | 609 | 2,436 |
+| nci | 33,553,445 | 32,768 | 1,024 | 4,096 |
+| osdb | 10,085,684 | 16,384 | 616 | 2,464 |
+| reymont | 6,627,202 | 8,192 | 809 | 3,236 |
+| webster | 41,458,703 | 65,536 | 633 | 2,532 |
+| x-ray | 8,474,240 | 16,384 | 518 | 2,072 |
+| **7-file total** | | | | **19,328** |
+| enwik8 | 100,000,000 | 131,072 | 763 | 3,052 |
+
+19,328 B = **0.00912%** of 211,938,580 (bench's "0.0083%" does **not**
+reproduce - use 0.0091%) and **0.962%** of the 2,009,105-B xz margin. The
+~40 KB figure (2048-entry bound) is retired. Ranking/citation status unchanged:
+direction ranking-grade-accepted; absolute MB/s not citable until a core-gated
+rerun (measurement contract v1.2).
+
+### A5. pnra auto-discovery (AUTOSEG) - SPOT-VERIFIED (adopt-class {engineering}, no novelty)
+
+Reproduced by this gate on the lane artifacts (`prototypes/i9-pnra/autoseg.exe`
+sha256 `3518AA83BE0D3E3D…`, byte-only runs; window-exempt). Claims (1)-(4) all
+VERIFY:
+
+1. **synth-arith:** auto v1 = **12,936 B** with sha256 `0EAFB385B7E4F0C5…`,
+   **byte-identical to the documented frozen artifact AND to a live
+   `stride_ref.exe` encode** (hash-compared); auto compact = **12,920 B**;
+   forced-oracle compact = 12,920 B; both decode byte-exact; stats
+   `TRUTH boundaries=7 discovered=7 exact=7 missing=0 spurious=0`; accounting
+   `44+32+24+13+16+12,791 = 12,920` byte-exact. The PR-5 wire was **not
+   oracle-boundary-dependent** for this file.
+2. **Randomized anatomies:** 10/10 files recover the declared boundaries
+   exactly, **166/166 boundaries**, 0 missing / 0 spurious / 0 split; **auto
+   wire is byte-identical (hash-compared) to the forced-truth oracle on all 10
+   files** (var_00 5,422 … var_03 17,339 B, matching the lane CSV).
+3. **Failure bounds reproduced:** synth-drift-stride 615,424 / random 262,192 /
+   var_jitter2 51,656 / generated.log 1,942,328 / synth-counters.log 1,107,374
+   — each = raw + **48 B**, clean literal fallback, no gain. Escape-boundary
+   alternative derived cost `63,953 x 0.4/8 = 3,197.7 ~ 3,198 B` vs 24 B
+   transmitted, so transmitting the discovered table wins by ~133x.
+4. **Labels verified:** `{engineering}` adopt-class, `{synthetic}`,
+   **no novelty claim, no crossing language, no decode/timing number
+   published** (bench queue slot 3 pending). Scope note: this validates the
+   segmenter for the fixed-grid generative class only; non-synthetic
+   record/format data is out of class (cf. datastruct's independent bound A6).
+
+### A6. datastruct auto-discovery - SPOT-VERIFIED (infrastructure, no novelty, adopt-class {engineering})
+
+Reproduced by this gate (`prototypes/i9-datastruct/{verify_discovery.py,
+auto_colref.py}`; byte-only):
+
+- **synth-timeseries auto:** 89,916 B, ratio 0.3211, **P=14** (not 28), partition
+  `0:8:prev,8:4:prev,12:2:posmod` = the supplied-oracle partition; roundtrip OK;
+  sha256 `90a87fe17f4111e6…`. **synth-columnar-align auto:** 24,026 B, ratio
+  0.0871, **P=23** (the 184 alias rejected), partition
+  `0:6:posmod,6:8:posmod,14:4:prev,18:3:posmod,21:2:prev`; roundtrip OK; sha256
+  `28858ad114fe28b1…`.
+- **Charged discovery is in the wire; decode does not search.** Header `AC2`
+  carries P, pmax, K, K x u16 candidate periods, flags/maxw and the field table
+  (with `posmod` parameters); `decode_auto` is `parse_header` + `RangeDecoder` +
+  `FieldCoder` only - no call to the discovery functions. Disclosed honest note:
+  the DP/proxy heuristic constants (LAM/HDRF/prefix length) are not transmitted
+  (deterministic algorithm constants; a stricter protocol charges 2-3 B).
+- **Overhead vs the supplied-info ladder:** +39 B (ts: 89,877 -> 89,916) and
+  +31 B (ca: 23,995 -> 24,026) - arithmetic verified; both ladder baselines are
+  stated in the lane table.
+- **Non-synthetic bound (jsonl) reproduced:** AUTO P=235, **1,199,898 B**
+  (ratio 0.4262), roundtrip OK, 30 `prev` fields. **Phase instability
+  independently reproduced:** 12,000 lines, 9 line lengths
+  `[230..235,249,250,251]`, line-start positions mod 235 occupy **235/235
+  phases**, phase entropy **7.76 bits** vs the 7.88-bit maximum - the
+  fixed-period model cannot lock phase on variable-length records.
+- **Reference rows verified** from committed HEAD fc23d9a
+  (`generated.jsonl`: brotli-q6 206,840 / anvil-mdl-rans 183,506; `generated.sqlite`:
+  brotli-q6 252,591 / zstd-19 215,468 / anvil-mdl-rans 323,014). sqlite P=140
+  proxy 1,359,687 is a **proxy**, not re-run here, and carries no byte claim.
+- **Disposition:** auto-discovery = **infrastructure** (the fixed-period
+  mechanism it serves was already ruled **NO novelty** in `datastruct-ts`; P and
+  its discovery are infrastructure per PART XIII §8). Adopt-class
+  `{engineering}`, `{synthetic}` on synth cells, dual-bar caveat carried over
+  (still above xz-`--delta`/brotli+delta bars => capability, **not a crossing**).
+  Non-synthetic bound recorded as an honest failure of the fixed-period model,
+  not as a result.
+
+### A7. Canonical byte re-verify (bench, w-bench-remeasure) - VERIFIED
+
+`tests/ratio-reverify-i9.csv` (sha256 `53880D50CE8B4DF1…`, untracked): 13 rows,
+all on canonical `build\anvil.exe` `0D1E130B` (src `62BC6631`), **13/13
+roundtrip OK**. Recomputed by this gate: Silesia 12-file compressed total =
+**46,446,995 B** (input 211,938,580) and enwik8 = **23,534,368 B** (input
+100,000,000) - both reproduced **exactly**. This **retires the "as-recorded on
+de9b4caf" caveat for the byte totals**: they are now canonical-binary
+reproduced. Caveat: the CSV's `encode_s`/`decode_s` columns are single-run
+values and are **not citation-grade timing** (contract v1.2) - they support no
+throughput claim. The decode multiples (A1) remain the pre-PR-4 windows; bench's
+byte re-verify does not re-window them.
+
+### A8. I9 leg 3 (postcoder) - DECODE-SHORT on the cheap wire-invisible route (peer-landed)
+
+`decode-perf` handoff (`prototypes/i9-decode-perf/POSTCODER-SPEC.md`,
+deliverable `task_7e688712…`). Reported: the adaptive arithmetic+Fenwick
+token/run decode is **91-93% of the postcoder**; postcoder share of whole decode
+**52.1 / 36.4 / 37.8%** (dickens / webster / enwik8); buffered-renorm prototype
+`C = 1.021 / 1.014 / 1.013` vs `R' = 1.617 / 1.137 / 1.436` (40 MB/s postcoder
+bar) -> required token-decode speedups **1.66x / 1.13x / 1.46x** (~1.38x
+portfolio). ID3 raw is 5-6.6x faster on the postcoder but **+52-101% bytes** ->
+selection-only, not a route.
+
+- **Vocabulary/status:** this is decode-route **arithmetic** under anti-tie
+  convention v2: **DECODE-SHORT** on the cheap wire-invisible route. No frontier
+  implication, no crossing token (I9-1 R-3).
+- **Provenance label:** peer-landed measurement (canonical containers
+  `0D1E130B` / src `62BC6631`; lane profiler `post_prof_wt` `8DD0B8B8`;
+  window 08:40-08:56Z, median-7, 1t, pinned). **Not independently re-measured by
+  this gate** (timing; bench owns PR-4 sign-off if cited as citation-grade).
+- **Consequence recorded:** the binding BWT decode floor cannot be closed by
+  MTF/alloc/renorm edges; the spec to `arch` targets two-level cumulative
+  tables + buffered renorm with model values unchanged (wire-identical); if
+  ~1.4x aggregate is not reached, the only remaining route is a new postcoder
+  ID with transmitted static tables (a format change, `format` lane).
+
+### A9. MATERIALIZATION decode leg - FALSIFIED, RETIRED (implementation-era)
+
+`arch` paired interleaved A/B (reps=7, core 18, threads=1, **identical wire**;
+reported by coordinator):
+
+| cell | baseline | with materialization | delta |
+|---|---:|---:|---:|
+| generated.json, mode-10 mdl | 4.1545 ms | 4.2117 ms | **+1.4%** |
+| synth-timeseries, hotop-rlzp | 1.4495 ms | 1.8499 ms | **+27.6%** (CV 9.5%) |
+
+**Retirement:** on-demand `StreamPull` materialization is **RETIRED as a decode
+win** — classification **IMPLEMENTATION-ERA**, not a math limit: in this
+formulation, per-symbol pull dispatch costs more than bulk decode +
+vector indexing. (Reopen condition: a *batched/vectorized* materialization
+design that avoids per-symbol dispatch, with a pre-registered paired win
+condition — no such design exists today.)
+
+**Corollary (recorded):** the t3 "materialization share" is **not removable
+liveness overhead**; the materialization route cannot close the decode gap.
+Together with A3 (PR-1 CRC route DECODE-SHORT) and A8 (postcoder cheap route
+DECODE-SHORT), the I9 decode-program's cheap wire-invisible legs are now
+exhausted; **ALLOC-only hunks remain pending an attribution window**.
+
+**Provenance label:** peer-landed timing (arch; paired interleaved A/B, reps=7,
+core 18, 1t, identical wire). **Not gate-re-measured**; window id / PR-4
+attestation not stated in the handoff, so bench sign-off is required before
+citation-grade use. No frontier implication; reinforces DNB-M1 and the FRONT-GAP
+decode verdict.
+
+### A10. PR-1 decode program CLOSED on wire-invisible routes (derived caps; complements A9)
+
+Recomputed by this gate from `prototypes/i9-decode-perf/REPORT.md` §12
+(measured shares; cap = `1/(1 - residual - memcpy)`):
+
+| cell | removable set (mat=0) | cap C | required | status |
+|---|---|---:|---:|---|
+| synth-timeseries hotop-rlzp | residual 4.5% + memcpy 0.6% | **1.054x** | 1.29x (282.2/218.4) | decode-CLOSED |
+| synth-timeseries hotop | residual 10.2% + memcpy 0.6% | **1.121x** | ~1.45x | decode-CLOSED |
+| generated.json mode-10 mdl | residual 27.6% + memcpy 0.7% | **1.394x** | 2.44x (517.5/212.5) | decode-CLOSED |
+
+- The three cap values and the requirement divisions were **arithmetic-verified**
+  (1/0.949 = 1.0537; 1/0.892 = 1.1211; 1/0.717 = 1.3947; 282.2/218.4 = 1.2918;
+  517.5/212.5 = 2.4353).
+- With `arch`'s materialization A/B falsification (A9) superseding every
+  `mat`-inclusive projection, **both PR-1 cells now have no live wire-invisible
+  decode route**; the frozen-CSV requirement on generated.json is 4.59x, even
+  further out.
+- **The only remaining live decode program is the BWT postcoder leg-4** (token
+  arithmetic+Fenwick decode 91-93% of the postcoder; ~1.38x aggregate target;
+  cheap edges DECODE-SHORT per A8).
+- **Labels:** caps = derived arithmetic on this report's measured shares
+  (peer-landed artifact, `deliverable/pr1-profile` v3, `POSTCODER-SPEC.md`
+  addendum); arch's A/B = measured (their window, not gate-re-measured).
+  **No crossing claims; FRONT-GAP decode verdict unchanged.**
+
+### A11. pnra AUTOSEG timing (A5 update) - RANKING-GRADE only
+
+bench co-run, window `w-bench-pnra-autoseg-20260912T091754Z` (2026-09-12
+09:17:57-09:18:02Z), 1t pinned core19 HIGH; from the updated
+`prototypes/i9-pnra/AUTOSEG-RESULTS.md` §7: synth-arith **450.5 MB/s**
+(CV 11.05%, reps 801, wire 12,920, PASS); synth-drift-stride **590.5 MB/s**
+(CV 10.46%, reps 501, 615,424, PASS); generated.log **481.1 MB/s** (CV 4.22%,
+reps 201, 1,942,328, PASS). Pre-window pinned-core utilisation **14.16% fails
+the <5% citation gate**, so the label is `measured (parallel window;
+ranking-grade)` and the **absolutes are not citation-grade** (contract v1.2).
+No crossing. A5's byte verdicts are unchanged; the previously-open timing item
+is closed as ranking context.
+
+### A12. ALLOC-only decode leg - measured partial win, DECODE-SHORT (closes the A9/A10 pending item)
+
+`arch` paired interleaved A/B (reps=7, core18, 1t, **identical wire**
+89,589 / 140,898 B): generated.json `anvil-mdl-rans` **4.1604 -> 3.0766 ms
+(1.352x)**; synth-timeseries `anvil-hotop-rlzp-rans` **1.4829 -> 1.3802 ms
+(1.074x)**. ALLOC-only = modes 10/15 decode straight into the output slot (no
+block vector, no concat copy, bounded reserve); MAT is reverted (A9).
+
+- **Decode-route arithmetic (anti-tie v2):** required R = 2.44x (this-lane,
+  generated.json; R' ~= 2.49) and ~1.29x (hotop-rlzp); measured 1.352x and
+  1.074x are **below requirement -> DECODE-SHORT** for the component. The
+  ALLOC leg is a **kept, real, wire-identical improvement** but it **cannot
+  close the decode route alone**; "crossing falsified" is recorded as
+  DECODE-SHORT, not as a frontier statement.
+- **Consistency with A10:** the measured values sit just under the derived
+  alloc-cap bounds (1.394x mdl / 1.054x hotop-rlzp), so the derived caps were
+  close and the closure conclusion stands: with MAT falsified, wire-invisible
+  decode routes are exhausted; the only live program is the BWT postcoder
+  leg-4.
+- **Source/binaries moved:** `src/anvil.cpp` `38409E26` (ALLOC-only);
+  gate results green (442/442 roundtrip, fuzz 50 PASS, encode identity 494/494);
+  canonical `build\anvil.exe` **`E8AA2E48`**, `build\anvil_bench.exe`
+  **`56092B9B`**. No commit yet. Per the coordinator's binary rule, any src move
+  invalidates prior sha-specific results until re-verified: A7's canonical byte
+  totals were reproduced on `0D1E130B` (src `62BC6631`) and stand **for that
+  sha**; the decode-only change plus 494/494 encode identity suggest the bytes
+  are unchanged, but they must be **re-stamped on `E8AA2E48`** before being
+  cited against the new source. `format` re-verifies before commit.
+- **Provenance label:** peer-landed timing (arch's window, not gate-re-measured);
+  bench sign-off required before citation-grade use. No frontier crossing.
+
+### A13. Recon-grid "first crossing" candidate - RULED: mechanical candidate verified, crossing REJECTED (FRONT-GAP dual-bar)
+
+Full text `docs/gate-ruling-i9-recon-crossing.md` (I9-6). Cell
+`synth-columnar-align.bin` {synthetic}, `anvil-hotop-rlzp-rans` 101,483 B =
+**0.368** (enc 0.048 MB/s, dec 117.163) vs min raw reference `brotli-q11`
+0.384 and xz -9e 0.4028. Recomputed/verified: no reference ratio <= 0.368 ->
+non-dominated on both planes, **no bracket** -> mechanical FRONT-CROSSING
+candidate (bench's 3 arbiter flags reproduced; `hotop-budget-rans` decode
+0.429 has a bracket -> FRONT-GAP).
+
+**Binding classification: FRONT-GAP (dual-bar), not a crossing.** The
+transform-enabled control for this cell is `xz -9e --delta=dist=23 =
+21,340 B = 0.0773` - the row is **4.76x above** it. PART XIII §5b is
+unconditional for synth cells ("a win measured only against the raw bar is
+struck"), and I9-1 R-2's dual-bar qualifier is **clarified as cell-based**
+(documented, measured same-transform control), not conditioned on ANVIL's own
+mechanism - pnra's 12,936 cleared both bars; this row does not. Recon-grid
+tally after the ruling: **3 non-dominated | 3 FRONT-GAP | 0 FRONT-CROSSING |
+0 DEGENERATE**; the committed 13-file tuple is **unchanged**
+(5 | 5 | 0 | 0 | 411/416; 443/448) since this cell is not in the committed
+suite. "First crossing" language is struck.
+
+**Additional rulings:** (a) **xz -9e adopted into the reference class** -
+`xz-` prefix + rows where measured (bench lane), versioned output, both-grid
+co-listing during transition, double-run hashes; transform-enabled controls
+stay side-channel bars. (b) **No new token for encode speed**; two binding
+labels instead: `NON-DEFAULT/RESEARCH-CONFIG` (hotop-rlzp is retired-as-default;
+0.048 MB/s encode is ratio-axis-only) and `GRID-THIN` (no zstd 4-22 / brotli
+lw30 tiers; denser tiers can only make crossings harder - DNB-M1). (c) Recon
+throughput columns are single-rep/unpinned -> ranking-only; 0.048/117.163 are
+not citation-grade. (d) A future row clearing **both bars**, on a complete
+grid, at a non-retired configuration, with a PR-4 window is a genuine
+FRONT-CROSSING and should be reported as such. Dispositions RC-1..RC-6 in the
+ruling doc.
+
+### A14. Reference-class v2 (xz -9e) - VERIFIED; citation rule v2
+
+bench landed the I9-6 R-4 adoption: `tools/pareto_front.py` is xz-aware, xz -9e
+rows in `tests/xz-reference-i9.csv`, same-transform controls side-channel in
+`tests/xz-transform-controls-i9.csv`. This gate **independently reproduced every
+co-listed tuple** (`docs/gate-verify-i9.py`, now with `--refs` and
+`--transform-controls`); combined-CSV hashes verified:
+
+| grid | ref class | tuple | combined |
+|---|---|---|---|
+| committed HEAD fc23d9a | v1 brotli+zstd | **5 | 5 | 0 | 0 | 411/416** | 443/448 |
+| committed HEAD fc23d9a | **v2 +xz-9e** | **4 | 4 | 0 | 0 | 412/416** | 444/448 |
+| worktree C70179EA (label) | v1 | 5 | 5 | 0 | 0 | 463/468 | 499/504 |
+| worktree C70179EA (label) | **v2 +xz-9e** | **1 | 1 | 0 | 0 | 467/468** | 503/504 |
+| recon-i9 | v2 + controls | **3 | 3 | 0 | 0 | 321/324** (binding) | 357/360 |
+
+- Combined CSVs: `benchmark-suite.head-fc23d9a.plus-xz.csv` sha256 `82ec45c8…`,
+  `benchmark-suite.c70179ea.plus-xz.csv` `f54b8fce…`,
+  `benchmark-recon-i9.plus-xz.csv` `850af4d6…` (all verified).
+- **ZERO FRONT-CROSSING on every grid and reference class.** The familiar "5"
+  is a property of the brotli/zstd-only class: `xz-9e` on generated.json is
+  76,952 B / ratio **0.092975** at encode **1.325 MB/s** (ranking-grade,
+  process-level single run) and dominates every encode-plane row below that
+  speed — HEAD loses `anvil-shape-rans-l0` (4 survive); the worktree grid
+  retains only `anvil-mdl-rans-l001` (enc 1.329).
+- **Recon mechanical vs binding:** mechanically 3 non-dominated with 2
+  crossing candidates + 1 bracket GAP; **binding (I9-6 dual-bar) = 3 FRONT-GAP,
+  0 crossings** — the verifier marks the 2 dual-bar rows explicitly
+  (control ratio 0.0773 < row ratio 0.368/0.429).
+- **Citation rule (binding):** v1 may be cited ONLY as "brotli+zstd reference
+  class (grid v1)"; the xz-inclusive v2 tuples are the canonical current
+  citation; worktree numbers always labeled; **GRID-THIN** on every v2 citation
+  (no zstd 4-22 / brotli lw30 tiers); transform controls are side-channel and
+  mandatory for any crossing claim. xz throughput is ranking-grade; bytes are
+  deterministic; arbiter-over-CSV needs no window.
+
+**P4.1 canonical addendum (deflate, msg_cec65d31):** both P4.1 `.anv` archives
+decode **sha256-exact on canonical `E8AA2E48`** (dec-orig == mozilla
+`657FC376…`; dec-transformed == `B3E16040…`); byte totals unchanged via the
+494/494 owning-lane encoder-identity gate; citation adds "decode-verified on
+canonical E8AA2E48; byte totals unchanged (encoder identity 494/494)".
+
+### A15. Decode leg 4 (postcoder buffered renorm + two-level cumulative tables) - FALSIFIED as the ~1.4x route; RETAINED; wire-invisible decode route EXHAUSTED
+
+`arch` leg 4 implemented, **wire-identical**; gates on src `FE0CF4F1`
+(sha256 `FE0CF4F12DE47E03…`): roundtrip **442/442**, fuzz `--cases 50` PASS,
+targeted encode-wire identity all SAME (full 494 sweep finishing). Measured
+paired A/B (interleaved, reps=7, core18, 1t; ns per output byte):
+
+| cell | baseline | leg 4 | speedup |
+|---|---:|---:|---:|
+| dickens.bwt.anv | 89.121 | 73.353 | **1.215x** |
+| webster.bwt.anv | 74.980 | 64.135 | **1.169x** |
+| bytes-weighted aggregate | - | - | **1.179x** |
+
+**Target falsified:** 1.179x < the ~1.4x aggregate token-decode requirement
+(A8). **Retained (coordinator):** a real decoder-side win at zero byte cost.
+
+**Decision — format-changing transmitted-static-table postcoder NOT AUTHORIZED
+this iteration.** Recorded reasons: ID3 raw is 5-6.6x faster on the postcoder
+but costs **+52-101% bytes**; even a perfect postcoder leaves `libsais_unbwt` at
+**63-69% of decode**; the **11-24x real-corpus gap is not closable by this
+route**. (Gate note: if ever pursued, transmitted static tables carry no novelty
+claim — zstd FSE tables / LZMA properties / Brotli context maps are prior art;
+it is an implementation+format change with a charged rate cost, requiring
+format registration, a PR-4 window, and the dual bar on synth cells.)
+
+**Wire-invisible decode route EXHAUSTED:** CRC DECODE-SHORT (A3), postcoder
+cheap edges DECODE-SHORT (A8), MAT retired (A9), ALLOC near-cap insufficient
+(A10/A12), leg 4 falsified (A15). FRONT-GAP decode verdict unchanged; the
+decode axis is closed for I9 without a format change.
+
+**Provenance:** peer-landed measured/attested (arch's window; not
+gate-re-measured). Source moved to `FE0CF4F1`; new binary shas pending - the
+prior canonical pair `E8AA2E48` / src `38409E26` remains valid for results
+measured on it. Encoder-wire identity must complete before byte citations carry
+across this move (regime §2).
+
+### A16. Cross-leg requirement CORRECTION (aux unbwt is real): postcoder needs 3.9-6.6x, not ~1.4x - VERIFIED
+
+Supersedes the requirement figures in A8 (1.66x/1.13x/1.46x; ~1.38x portfolio)
+and A10: those assumed a **free/hidden unbwt**. With bwtinv's measured aux
+unbwt (`k_u = 3.40x` dickens / `3.49x` webster) the stage-correct requirement is
+`k_p = s_p / (R_base/40 - s_u/k_u - s_other)` (decode-perf, pinned in
+`POSTCODER-SPEC.md` "Requirement CORRECTION"; cross-confirmed bwtinv
+`INTEGRATION-SPEC.md` §5.1):
+
+| file | s_p | s_u | R_base MB/s | **k_p required** | leg-4 stage k_p | needs |
+|---|---:|---:|---:|---:|---:|---:|
+| dickens | 0.439 | 0.502 | 11.15 | **6.05x** | 1.674x | ~3.6x more |
+| webster | 0.342 | 0.610 | 12.46 | **3.86x** | 1.733x | ~2.2x more |
+| enwik8 (s_u est) | 0.378 | 0.582 | 10.74 | **6.60x** | 1.671x | ~3.9x more |
+
+**Gate verification:** the formula reproduces every k_p exactly using
+`s_other = 1 - s_p - s_u` (dickens 0.439/0.0721 = 6.09; webster 0.342/0.0887 =
+3.86; enwik8 0.378/0.0573 = 6.59) - arithmetic-verified. arch's leg-4 stage
+factor ~1.67-1.73x is **below** the requirement by ~2.2-3.9x; the leg-4
+falsification (A15) is therefore **stronger than recorded there** (A15's
+"~1.4x target" is superseded as understated). End-to-end with aux+leg4:
+**2.134x / 2.379x** (dickens/webster stage-correct; BWT-only 23.80 / 29.65
+MB/s), **portfolio ~25.7 MB/s vs the 40 MB/s target**; the conservative
+whole-decode read (aux x whole-decode A/B) is 1.77-1.83x / 1.95-2.09x. Either
+read: **the 40 MB/s BWT-only bar is not reachable by the wire-invisible route**.
+Static-table postcoder remains **unauthorized / not built**.
+
+**Labels:** shares derived from measured splits (`i9_bwt_wt_v2`), arch A/B
+measured (their window), enwik8 `s_u` estimated; a direct stage-level A/B
+(postcoder-only before/after leg-4) was **not measured** - the whole-vs-stage
+conversion carries that uncertainty. No crossing claims.
+
+**Canonical update (coordinator):** frozen src **`BDC90474`** (ALLOC + leg 4
+retained) -> `build\anvil.exe` **`72D65150…`**, `build\anvil_bench.exe`
+**`379341D9…`**; `E8AA2E48` superseded for new runs, its bytes carry by the
+494/494 encode-wire-identity gate (originating sha labelled). Naming:
+`FE0CF4F1` = lane EXE sha, `BDC90474` = src sha. leg-4 gates green on the lane
+build; `format` re-verifying the canonical `72D65150`.
+
+**P4.1 sha chain (deflate `msg_a43d1832`):** both P4.1 archives decode
+sha256-exact on `72D65150` (src `BDC90474`) too; byte totals unchanged across
+`8EAE1FB3 / 0D1E130B / E8AA2E48 / 72D65150` via the 494/494 encoder-wire-identity
+gates.
+
+### A17. Format byte-gate on canonical 72D65150 - PASS; wire-untouched confirmed
+
+`format` gate `b-format-gate-20260912T115333Z` on `72D65150` (frozen src
+`BDC90474`): **PASS, zero skips** (roundtrip_variants 480, mutations 2880,
+deterministic_rev2 9, deterministic_bwt 24, golden_bwt 4, forced_postcoders 20,
+registry_block_modes 14, registry_transforms 5). **Registry identical to both
+prior freezes -> ALLOC + postcoder leg 4 independently confirmed
+WIRE-UNTOUCHED.** FORMAT.md re-pinned to `72D65150`/`BDC90474`. Forward
+condition recorded: the static-table postcoder ID is a **format change** needing
+FORMAT.md registration + a direct forced test before any claim (on top of the
+A15 authorization gate); no novelty, not built.
+
+### A18. FINAL FROZEN GRID (BDC90474 / 72D65150) - VERIFIED; citation rule v3; store-path anomaly open
+
+bench frozen-suite refresh (`tests/suite-frozen-bdc90474.md`; per-rep process
+invocations; byte identity 351/351 + wire gate 494/494). Independently
+reproduced by this gate (`docs/gate-verify-i9.py` on
+`tests/benchmark-suite.frozen-bdc90474.plus-xz.csv`, sha256
+`AF44D9D3D40FB85C…`; suite-only `…/frozen-bdc90474.csv`
+`FC422712387C6060…`):
+
+| grid | ref class | non-dom | FRONT-GAP | FRONT-CROSSING | DEGENERATE | dominated |
+|---|---|---:|---:|---:|---:|---:|
+| frozen BDC90474 | v1 = v2 (xz adds nothing here) | **33** | **5** | **0** | **28** | **435/468** (471/504) |
+
+- **The 28 DEGENERATE** = `random.bin` + `synth-arith.bin`, 14 anvil
+  (file, codec) pairs x 2 planes, all ratio **1.000** store-class cells. They
+  are non-dominated only because the store path's measured encode speed
+  (~1.1-2.2 GB/s) exceeds every reference's encode speed at ratio <= 1.0. Per
+  R-1/R-2 they are DEGENERATE and can never be crossings.
+- **The 5 FRONT-GAP** are the familiar `generated.json` encode-plane rows
+  (frozen bracket `brotli-q11` enc 0.780 <-> `zstd-19` enc 2.839).
+- **v1 = v2 on this grid is real but speed-dependent:** the frozen
+  `generated.json` rows measure 1.396-1.596 MB/s, all above `xz-9e`'s 1.325 -
+  so xz adds no dominance here (on the HEAD/worktree grids it did). Cite with
+  the grid.
+
+**STORE-PATH ANOMALY (open; flag to arch/bench, store throughput NOT citable).**
+Store-class rows are ~3.2-6.1x faster on the frozen run with byte-identical
+output: random.bin dp-arith 328 -> 1259 MB/s enc (320 -> 1393 dec), hotop-rans
+333 -> 1950 (336 -> 1440), greedy-rans 319 -> 1949 (334 -> 1419); synth-arith
+similar (367 -> 1155; 361 -> 1846; 344 -> 2117). Both planes moved, so this is
+a structural path/protocol change, not noise; the method also changed to
+per-rep process invocations. Either a real un-named encoder/decoder store-path
+change (wire-identical) or a measurement-context artifact - to be named by
+arch/bench. Until then: the **28-DEGENERATE count is grid/protocol-specific**;
+classification semantics are unaffected (a DEGENERATE row is inert to frontier
+claims); the 5 FRONT-GAP bracket is unaffected.
+
+**Citation rule v3 (binding):** frozen tuple co-listed with HEAD v1
+`5|5|0|0|411/416`, HEAD v2 `4|4|0|0|412/416`, worktree v1 `463/468`, worktree
+v2 `1|1|0|467/468`; **ZERO FRONT-CROSSING everywhere**; **GRID-THIN always**;
+byte counts citable (ranking-grade window); store-path throughput and the
+DECODE-TIE dispositions below excluded until root-caused/reclassified.
+
+### A19. DECODE-TIE dispositions VOID (pre-A9 caps) - correct status DECODE-SHORT
+
+bench's frozen DECODE-TIE calls (generated.json R' = 2.0699 vs "mat cap"
+2.0580 = `1/(1-0.514)`; synth-timeseries R' = 1.5248 vs 1.4556 =
+`1/(1-0.313)`) use caps from the **materialization leg recorded FALSIFIED and
+non-removable (A9)**. The anti-tie convention's own cap rule (single
+byte-identical component, no compounding, component must be removable) makes
+those caps invalid post-A9. Valid removable-set caps (A10 derived / A12
+measured): generated.json **1.394 derived / 1.352 measured**; synth-timeseries
+hotop-rlzp **1.054 derived / 1.074 measured**. Against the same R' values both
+cells are **DECODE-SHORT by wide margins**, and the conclusion is not
+CV-sensitive (the leg is non-removable, not noisy). **Annotation binding:**
+bench must reclassify the two frozen TIE calls as DECODE-SHORT, or explicitly
+declare the mat cap a hypothetical; the TIE must not enter the ledger as a live
+decode disposition.
+
+### A20. Frozen-grid anomaly + DECODE-TIE - RESOLVED IN PRINCIPLE (control pending)
+
+1. **A19 satisfied.** bench reclassified both frozen cells as **DECODE-SHORT,
+   closed by measurement** before the request landed: the mat-inclusive caps are
+   withdrawn as inadmissible (A9 falsified leg); the verdict rests on the
+   measured ALLOC-only caps **1.352x** (generated.json) / **1.074x**
+   (synth-timeseries) << R' **2.0699 / 1.5248**. The TIE label is withdrawn from
+   `tests/suite-frozen-bdc90474.md` and `deliverable/frozen-grid` v2.
+2. **Owning change NAMED (arch): S6-1b CRC fast path.** Bytewise CRC
+   (1.95 ns/B) was the per-byte store-path bottleneck; slicing-by-8 0.45-0.49 /
+   PCLMUL 0.063-0.079 ns/B; predicted 5-6x matches the observed 3.2-6.1x. The
+   stored CRC value is **bit-exact** (16,529 unit + 5,784 chunk checks, 0 fail),
+   so container bytes are identical (351/351 suite + 494/494 gate); grid
+   `C70179EA` predates S6-1b. The store-path speedup is therefore a **real,
+   wire-identical optimization**, not noise.
+3. **Protocol control pending (bench-signed).** arch 3-way microbench (HEAD
+   bytewise vs slicing-by-8 vs current PCLMUL), interleaved, reps >= 5, pinned,
+   under bench's exact per-rep protocol. If HEAD-bytewise reproduces
+   ~325-380 MB/s -> method exonerated, the **28-DEGENERATE count stands as a
+   codec property**; else the frozen suite is re-run with the old in-process
+   median-of-3 method. **Store throughput stays non-citable until the control
+   lands.** Classification semantics are unaffected either way (DEGENERATE is
+   crossing-inert; 0 FRONT-CROSSING on every grid/class).
+
+### A21. Store-path anomaly CLOSED - real wire-invisible CRC fast-path win (bench-signed)
+
+Protocol control `w-arch-storepath-20260912T1300Z` (arch, bench-signed): 3-way
+isolation, interleaved, reps=5, core18, 1t, same build recipe, only `crc32`
+differs; `wire_fnv` identical across arms. Per-rep ns/B (MB/s):
+
+| arm (sha) | random enc | random dec | synth-arith enc | synth-arith dec |
+|---|---:|---:|---:|---:|
+| bytewise (51C6A939) | 2.4258 (412) | 2.7611 (362) | 2.3898 (418) | 2.7508 (364) |
+| slice8 (B743061C) | 0.8652 (1156) | 1.1261 (888) | 0.9020 (1109) | 1.2301 (813) |
+| PCLMUL (4F00627B) | 0.5341 (1872) | 0.8221 (1216) | 0.4969 (2012) | 0.8723 (1147) |
+
+`wire_fnv` `CCA22D2F497CC5B7` (random) / `DF74CCD877E93DC3` (synth-arith),
+identical all arms. **The bytewise arm reproduces the prior grid's ~410/370 band
+under bench's exact per-rep protocol -> method exonerated; the anomaly is the
+CRC fast path, not a protocol artifact.**
+
+- **Owning change:** S6-1b leg 1 (bytewise -> slicing-by-8) + stage-2 PCLMUL
+  dispatcher. Mechanism: store/raw write is `crc32(block)` + copy, decode
+  verifies `crc32`; the checksum dominated both planes at bytewise cost
+  (~1.95-2.8 ns/B vs ~0.5-0.9 PCLMUL). Byte identity holds because the CRC
+  **value** is unchanged (16,529 + 5,784 checks, 0 fail; 494/494 wire gate).
+- **Kept win:** wire-invisible encode+decode speed win of the CRC leg —
+  **4.5x enc / 3.4x dec (PCLMUL vs bytewise)** on the store path, 2.8x / 2.5x
+  (slicing-by-8). No ratio change, no wire change, no new mechanism.
+- **Consequence for A18:** the frozen grid's **28 DEGENERATE cells stand as real
+  store-path speed** (protocol-independent), still DEGENERATE-class with **no
+  frontier claim**; **store-path throughput is now citable** with this window +
+  the three arm shas. A18's "anomaly open / non-citable" caveat is **closed**.
+- **Separate (not part of this claim):** reference-codec movement between the
+  old and frozen grids (e.g. zstd-9 random dec 1,990 -> 25,206 MB/s) is an
+  older-grid harness/load effect; it is not attributed to the CRC change and
+  must not be cited as such.

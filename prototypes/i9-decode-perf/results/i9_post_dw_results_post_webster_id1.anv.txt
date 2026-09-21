@@ -1,0 +1,12 @@
+=== containers\post_webster_id1.anv ===
+src=41458703 comp=7557402 ratio=0.1823 post=1 xlen=41458703 (arith O0)
+BASELINE full decode: 13.04 MB/s (med 3178.42 ms CV 8.2% min 3075.71 ms)
+POSTCODER (arith) med=1141.11 ms = 35.9% of e2e (CV 0.8%)
+  setup (ad init + eager models): 0.30 ms = 0.0% of e2e (0.0% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 1036.17 ms = 32.6% of e2e (90.8% of post)
+  output materialization (writes): 104.94 ms = 3.3% of e2e (9.2% of post)
+  counters: tokens=15710659 runs=3552880 run_bytes=29300924 out_bytes=41458703 O1_model_builds=0
+  PROTOTYPE fast_renorm: 1107.31 ms vs full 1141.11 ms -> 1.031x (candidate C=1.011x if this share is removed)
+  model_build_x257: 1089.996 ms per full set (4.2412 ms/model) -> lazy-build est share = 0 * per_model / post_full = 0.0%
+  rank hist (1..15+): 4310619 1910111 1212325 872011 666470 531919 436676 363607 306995 260454 221183 187827 157440 131392 588750 0

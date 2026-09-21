@@ -1,0 +1,218 @@
+{
+ "file": "mozilla",
+ "census": {
+  "file": "mozilla",
+  "size": 51220480,
+  "n_streams": 2564,
+  "n_verified": 2564,
+  "n_crc_ok": 2564,
+  "deflate_clen": 3177007,
+  "deflate_ulen": 9991436,
+  "deflate_clen_verified": 3177007,
+  "deflate_ulen_verified": 9991436,
+  "stored_clen": 138045,
+  "by_kind": {
+   "zip": {
+    "n": 2520,
+    "clen": 3270046,
+    "ulen": 9983455,
+    "verified": 2520
+   },
+   "png-zlib": {
+    "n": 44,
+    "clen": 45006,
+    "ulen": 146026,
+    "verified": 44
+   }
+  },
+  "n_raw_zlib_attempts": 10393
+ },
+ "replay": {
+  "file": "mozilla",
+  "region": "ALL",
+  "n_streams": 2354,
+  "C_deflate": 3177007,
+  "tally": {
+   "valid": 2331,
+   "diff": 23,
+   "brute": 0
+  },
+  "bytes_tally": {
+   "valid": 2898132,
+   "diff": 278875,
+   "brute": 0
+  },
+  "valid_fraction_of_streams": 0.9902293967714528,
+  "valid_fraction_of_bytes": 0.9122208418174717,
+  "diff_corr_proxy_xz_bytes": 279800,
+  "zlib_version": "1.3.1"
+ },
+ "param_hist": {
+  "w-15_l6_m8_s0": 2282,
+  "w-15_l6_m9_s0": 7,
+  "w15_l6_m8_s1": 42
+ },
+ "ceiling_all_streams": {
+  "n_streams": 2354,
+  "deflate_bytes_C": 3177007,
+  "plain_bytes_U": 9991436,
+  "deflate_ratio": 0.3179730120875518,
+  "codecs": {
+   "deflate.bin": {
+    "brotli_q11_lgwin24": 3041864,
+    "xz_9e": 3064680,
+    "zstd_22": 3054524
+   },
+   "plain.bin": {
+    "brotli_q11_lgwin24": 1582355,
+    "xz_9e": 1592612,
+    "zstd_22": 1620772
+   }
+  },
+  "gain_local": {
+   "brotli_q11_lgwin24": {
+    "cost_deflate": 3041864,
+    "cost_plain": 1582355,
+    "gain": 1459509,
+    "gain_pct_of_deflate": 47.98074470127527
+   },
+   "xz_9e": {
+    "cost_deflate": 3064680,
+    "cost_plain": 1592612,
+    "gain": 1472068,
+    "gain_pct_of_deflate": 48.033334638526696
+   },
+   "zstd_22": {
+    "cost_deflate": 3054524,
+    "cost_plain": 1620772,
+    "gain": 1433752,
+    "gain_pct_of_deflate": 46.93863921187066
+   }
+  }
+ },
+ "valid_only": {
+  "C": 2898132,
+  "U": 8689786,
+  "brotli_deflate": 2764866,
+  "brotli_plain": 1404407,
+  "gain_local_valid": 1360459
+ },
+ "diff_mode": {
+  "n": 23,
+  "C": 278875,
+  "U": 1301650,
+  "brotli_plain": 206302,
+  "brute_keeps_deflate_bytes": 278875,
+  "gain_if_brute": 0,
+  "gain_if_diff_no_corrections": 72573,
+  "projection_preflate_known_zlib_0.01pct": 72443,
+  "projection_preflate_unknown_upper_2.70pct": 37429
+ },
+ "top_containers_by_local_gain": [
+  {
+   "container": "zip@1047552",
+   "n": 414,
+   "C": 672628,
+   "U": 2253872,
+   "gain_local_brotli": 361139
+  },
+  {
+   "container": "zip@3769344",
+   "n": 199,
+   "C": 399161,
+   "U": 1445436,
+   "gain_local_brotli": 209618
+  },
+  {
+   "container": "zip@156160",
+   "n": 462,
+   "C": 530032,
+   "U": 1605317,
+   "gain_local_brotli": 206187
+  },
+  {
+   "container": "zip@2572288",
+   "n": 373,
+   "C": 412791,
+   "U": 688839,
+   "gain_local_brotli": 107265
+  },
+  {
+   "container": "zip@1977856",
+   "n": 96,
+   "C": 202168,
+   "U": 750695,
+   "gain_local_brotli": 92559
+  },
+  {
+   "container": "zip@3369984",
+   "n": 147,
+   "C": 159856,
+   "U": 500234,
+   "gain_local_brotli": 89849
+  },
+  {
+   "container": "zip@2276352",
+   "n": 339,
+   "C": 206614,
+   "U": 437011,
+   "gain_local_brotli": 88808
+  },
+  {
+   "container": "zip@3676160",
+   "n": 65,
+   "C": 81027,
+   "U": 223807,
+   "gain_local_brotli": 55454
+  },
+  {
+   "container": "zip@3192320",
+   "n": 57,
+   "C": 85409,
+   "U": 293942,
+   "gain_local_brotli": 32969
+  },
+  {
+   "container": "zip@3563520",
+   "n": 46,
+   "C": 49202,
+   "U": 153932,
+   "gain_local_brotli": 18971
+  },
+  {
+   "container": "zip@1955840",
+   "n": 18,
+   "C": 18069,
+   "U": 63555,
+   "gain_local_brotli": 11202
+  },
+  {
+   "container": "zip@2245632",
+   "n": 26,
+   "C": 17592,
+   "U": 70820,
+   "gain_local_brotli": 11131
+  }
+ ],
+ "transform": {
+  "file": "mozilla",
+  "src_bytes": 51220480,
+  "transformed_bytes": 57034135,
+  "n_transformed": 2331,
+  "skipped_png_multi_idat": 0,
+  "side_table_raw": 21985,
+  "side_table_brotli_q11_lw24": 14199,
+  "roundtrip_sha256_identical": true,
+  "src_sha256": "657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b",
+  "transformed_sha256": "657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b",
+  "replay_command": "prototypes/i9-deflate/transform.py <census.json> <replay.csv> --src <file>",
+  "inverse_formula": "replace T[off+delta : off+delta+ulen] with zlib.replay(plain, level,memLevel,strategy,wbits)"
+ },
+ "end_to_end": {
+  "anvil_brotli_orig": 13806173,
+  "anvil_brotli_transformed": 12443996,
+  "recovered_bytes": 1362177,
+  "binding_reference_mozilla_xz9e": 13376248,
+  "transformed_minus_xz": -932252
+ }
+}

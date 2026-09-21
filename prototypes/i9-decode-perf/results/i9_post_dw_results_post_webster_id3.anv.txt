@@ -1,0 +1,4 @@
+=== containers\post_webster_id3.anv ===
+src=41458703 comp=14711551 ratio=0.3548 post=3 xlen=41458703 (raw stream)
+BASELINE full decode: 18.83 MB/s (med 2201.20 ms CV 11.2% min 2157.17 ms)
+POSTCODER (raw stream) med=227.31 ms = 10.3% of e2e (CV 3.2%)  codec=6 wire=14711515 raw=41458703

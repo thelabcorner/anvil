@@ -1,0 +1,71 @@
+ARI-REF Experiment Z harness (token economics; counted/varint wire; NO rANS, NO container)
+file                               orig raw(exact)     ari-tx   ari-impl   ariTok     d_tx%   d_impl%      rt note
+diag:prog-pure-u32               256000     256006      52023      44021     4001    -79.68    -82.80       y rt-ok
+    impl-vs-tx: -15.38%
+diag:prog-jitter-u32             256000     256109      87965     123633     2121    -65.65    -51.73       y rt-ok
+    impl-vs-tx: +40.55%
+tests/corpus/synth-arith.bin     256000     257124      89363     123638     2160    -65.25    -51.92       y rt-ok
+    impl-vs-tx: +38.35% on 2160 ari tokens
+    (forced-literal parse-true wire: 261212; base tokens 3501, ari-parse tokens 2239)
+tests/corpus/synth-timeseries.bin     280000     275937     276012     276247       33      0.03      0.11       y rt-ok
+    impl-vs-tx: +0.09% on 33 ari tokens
+    (forced-literal parse-true wire: 276075; base tokens 40913, ari-parse tokens 40909)
+tests/corpus/synth-jitter.bin     974920     190137     190135     190130        1     -0.00     -0.00       y rt-ok
+    impl-vs-tx: -0.00% on 1 ari tokens
+    (forced-literal parse-true wire: 190141; base tokens 45354, ari-parse tokens 45356)
+tests/corpus/synth-columnar-align.bin     276000     312402     312402     312402        0      0.00      0.00       y rt-ok
+tests/corpus/synth-drift-stride.bin     615376     360194     360328     360952       66      0.04      0.21       y rt-ok
+    impl-vs-tx: +0.17% on 66 ari tokens
+    (forced-literal parse-true wire: 360600; base tokens 88568, ari-parse tokens 88435)
+tests/corpus/synth-counters.log    1107326     418803     420373     424873      186      0.37      1.45       y rt-ok
+    impl-vs-tx: +1.07% on 186 ari tokens
+    (forced-literal parse-true wire: 423354; base tokens 95668, ari-parse tokens 95155)
+tests/corpus/doc.md                2724       2214       2214       2214        0      0.00      0.00       y rt-ok
+tests/corpus/src.cpp              32512      15957      15957      15957        0      0.00      0.00       y rt-ok
+tests/corpus/generated.json      827664     249076     249094     249262        5      0.01      0.07       y rt-ok
+    impl-vs-tx: +0.07% on 5 ari tokens
+    (forced-literal parse-true wire: 249215; base tokens 53645, ari-parse tokens 53630)
+tests/corpus/generated.jsonl    2815267     473886     475058     488562       72      0.25      3.10       y rt-ok
+    impl-vs-tx: +2.84% on 72 ari tokens
+    (forced-literal parse-true wire: 486452; base tokens 102433, ari-parse tokens 101862)
+tests/corpus/generated.log      1942280     359539     359575     359898        1      0.01      0.10       y rt-ok
+    impl-vs-tx: +0.09% on 1 ari tokens
+    (forced-literal parse-true wire: 359848; base tokens 78117, ari-parse tokens 78104)
+tests/corpus/generated.sqlite    1740800     487677     487222     488049       43     -0.09      0.08       y rt-ok
+    impl-vs-tx: +0.17% on 43 ari tokens
+    (forced-literal parse-true wire: 488348; base tokens 104215, ari-parse tokens 104152)
+tests/corpus/generated.repeat.jsonl     940000        253        253        253        0      0.00      0.00       y rt-ok
+tests/corpus/random.bin          262144     262179     262179     262179        0      0.00      0.00       y rt-ok
+tests/corpus/anvil.exe           268800     185123     184984     185717       52     -0.08      0.32       y rt-ok
+    impl-vs-tx: +0.40% on 52 ari tokens
+    (forced-literal parse-true wire: 185484; base tokens 38787, ari-parse tokens 38656)
+tests/corpus/anvil_bench.exe    1929216    1404366    1384417    1408356      960     -1.42      0.28       y rt-ok
+    impl-vs-tx: +1.73% on 960 ari tokens
+    (forced-literal parse-true wire: 1405198; base tokens 280963, ari-parse tokens 276822)
+tests/corpus/pe-winver.exe        28672       8242       8229       8251        3     -0.16      0.11       y rt-ok
+    impl-vs-tx: +0.27% on 3 ari tokens
+    (forced-literal parse-true wire: 8253; base tokens 1373, ari-parse tokens 1370)
+tests/corpus/pe-where.exe         61440      36052      36044      36061        2     -0.02      0.02       y rt-ok
+    impl-vs-tx: +0.05% on 2 ari tokens
+    (forced-literal parse-true wire: 36060; base tokens 6806, ari-parse tokens 6805)
+tests/corpus/pe-notepad.exe      360448     281668     281410     282618       88     -0.09      0.34       y rt-ok
+    impl-vs-tx: +0.43% on 88 ari tokens
+    (forced-literal parse-true wire: 282996; base tokens 38354, ari-parse tokens 38171)
+tests/corpus/pe-python.exe       103704      63313      63151      64444       58     -0.26      1.79       y rt-ok
+    impl-vs-tx: +2.05% on 58 ari tokens
+    (forced-literal parse-true wire: 64600; base tokens 5118, ari-parse tokens 4929)
+tests/corpus/pe-ninja.exe        603648     501338     499812     501845      249     -0.30      0.10       y rt-ok
+    impl-vs-tx: +0.41% on 249 ari tokens
+    (forced-literal parse-true wire: 502443; base tokens 98869, ari-parse tokens 98551)
+tests/corpus/pe-git.exe         4383048    3685167    3679944    3688319     1051     -0.14      0.09       y rt-ok
+    impl-vs-tx: +0.23% on 1051 ari tokens
+    (forced-literal parse-true wire: 3689158; base tokens 765186, ari-parse tokens 764112)
+
+-- fuzz --
+mutation: wrong bytes (kind=1 rep=1 wireByte=77) ΓÇö CAUGHT by self-check comparison (no integrity field by design)
+mutation: wrong bytes (kind=2 rep=2 wireByte=462) ΓÇö CAUGHT by self-check comparison (no integrity field by design)
+mutation: wrong bytes (kind=3 rep=3 wireByte=90) ΓÇö CAUGHT by self-check comparison (no integrity field by design)
+mutation: equivalent re-encode (kind=0 rep=21 wireByte=78) ΓÇö non-injective LZ class, output still exact
+fuzz: 280 roundtrip cases, 0 failures; 199 single-bit wire mutations: 79 rejected by decoder checks, 1 equivalent-accepts, 119 wrong-but-DETECTED by self-check, 0 crashes
+
+exit 0 (nonzero = correctness failure; density verdicts are data, printed above)

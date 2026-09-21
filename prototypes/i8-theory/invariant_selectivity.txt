@@ -1,0 +1,113 @@
+========================================================================================================
+INVARIANT FAMILY SELECTIVITY ù measured on tests/corpus
+========================================================================================================
+
+file                        N fields   uniq v+p  collide%   sigma(A1)  uniq sort  collide%   sigma(C)
+--------------------------------------------------------------------------------------------------------
+anvil.exe                     67,200     65,918    0.0008   8.221e-06     28,853    0.1584  1.584e-03
+anvil_bench.exe              482,304    475,799    0.0000   4.569e-07    176,640    0.4820  4.820e-03
+pe-python.exe                 25,926     25,700    0.0001   7.052e-07     13,611    3.2656  3.266e-02
+pe-where.exe                  15,360     14,998    0.0013   1.259e-05      6,422   13.8789  1.388e-01
+generated.sqlite             435,200    433,945    0.0000   1.333e-08     19,654    0.5304  5.304e-03
+synth-arith.bin               64,000     62,355    0.0001   8.130e-07     59,644    0.0002  2.231e-06
+synth-timeseries.bin          70,000     69,995    0.0000   2.041e-09     48,645    2.0472  2.047e-02
+synth-columnar-align.bin      69,000     68,962    0.0000   1.596e-08     54,084    0.0664  6.641e-04
+synth-drift-stride.bin       153,844    153,566    0.0000   2.358e-08     39,174    1.2945  1.295e-02
+synth-jitter.bin             243,730    243,669    0.0000   2.054e-09     17,924    1.3051  1.305e-02
+generated.log                485,570    484,671    0.0000   7.626e-09      4,224    0.7267  7.267e-03
+src.cpp                        8,128      8,123    0.0000   1.514e-07      3,147    0.6290  6.290e-03
+
+  READ: sigma = probability two RANDOM fields share a bucket.
+  A1 (v+p) should be ~ 1/2^32 = 2.3e-10 for a well-spread digest.
+  C  (sorted bytes) should be FAR worse -- that is the honest negative.
+
+========================================================================================================
+FAMILY C IN DETAIL ù why symmetric byte digests are not indexable
+========================================================================================================
+  anvil.exe: 67,200 fields -> 28,853 distinct sorted-byte digests (0.4294 distinctness)
+     top buckets: [(0, 2159), (4294967295, 526), (3435973836, 489), (67438087, 436), (991108, 394)]
+     H(raw field) = 13.131 b ... H(digest dist) = 13.131 b
+  generated.sqlite: 435,200 fields -> 19,654 distinct sorted-byte digests (0.0452 distinctness)
+     top buckets: [(0, 15819), (791767414, 6093), (572664929, 6019), (794913136, 5993), (573333876, 4429)]
+     H(raw field) = 9.468 b ... H(digest dist) = 9.468 b
+  src.cpp: 8,128 fields -> 3,147 distinct sorted-byte digests (0.3872 distinctness)
+     top buckets: [(538976288, 575), (169877536, 112), (169877563, 79), (1768846453, 76), (842227572, 67)]
+     H(raw field) = 10.272 b ... H(digest dist) = 10.272 b
+
+  Interpretation: a symmetric digest on a 4-byte window of executable or
+  structured data collapses to a small number of buckets (heavily skewed byte
+  distributions: lots of 00, FF, and small integers). sigma is orders of
+  magnitude above the additive invariant's. Combined with near-zero useful
+  transform population (a file is LE or BE; mixed-endian fields are a
+  container pathology), family C does not pay for an index. The algebra is
+  right; the population is not there.
+
+========================================================================================================
+NO-GO THEOREM ù empirical shadow
+========================================================================================================
+
+  Theorem: for T(x,theta) = x + theta with theta FREE over a set |Theta|>1,
+  any I with I(x+theta, p') = I(x,p) for all theta is CONSTANT.
+
+  Empirical shadow: suppose we ignored the theorem and defined the
+  "difference invariant" I(x,y) = x - y for a PAIR of fields. It is invariant
+  under a COMMON additive shift (both fields shift by the same Delta), which
+  is Family A2. Measure its selectivity:
+
+file                        n fields  distinct diffs  top-bucket size  sigma(A2) est
+--------------------------------------------------------------------------------------------------------
+anvil.exe                     67,200          45,954            1,212      5.086e-04
+generated.sqlite             435,200          95,618            9,828      2.699e-03
+synth-arith.bin               64,000              31            2,730      4.165e-02
+
+  A2's invariant is algebraically valid (it cancels a common Delta) but its
+  candidate population is the set of field PAIRS, and the bucket occupancy is
+  dominated by recurring small differences (0, 1, small integers). That is
+  why .eh_frame/.rodata discovery was 'prohibitively expensive': the
+  invariant finds candidates, then verification is swamped. The rejection of
+  transmitted-Delta was correct; note it rejected PARAMETER TRANSMISSION, not
+  the invariant -- but the invariant alone does not rescue the economics.
+
+========================================================================================================
+FAMILY B2 ù second difference as a STRIDE DETECTOR (not a coder)
+========================================================================================================
+
+  Claim: d2_i = v_{i+2} - 2 v_{i+1} + v_i is invariant to any affine
+  reparametrisation (kills both a and b), so it detects a column/stride
+  without knowing the model. But it AMPLIFIES noise, so it must not be used
+  as the residual coder. Measure the amplification:
+
+file                           H(v)    H(d1)    H(d2)   amplif  verdict
+--------------------------------------------------------------------------------------------------------
+synth-arith.bin              14.278    3.108    1.892   -1.216  d2 helps
+synth-columnar-align.bin      2.381    0.019    0.026   +0.007  neutral
+synth-timeseries.bin          0.747    0.009    0.011   +0.002  neutral
+synth-drift-stride.bin        1.745    1.042    1.727   +0.685  B2 amplifies -> do NOT code with d2
+generated.sqlite              0.839    0.437    0.404   -0.032  neutral
+
+  synth-arith is the exception that proves the rule: there d1 has H=1.585
+  (log2 3, the innovation) and d2 has H=2.19 -- d1 is the CODER there because
+  the noise is iid-innovation, and d2 amplifies. The discriminator for
+  choosing d1-vs-residual-to-fit is: does the process INTEGRATE its
+  innovations? Measured test: compare H(v_i - (a+b*i)) against H(d1).
+  Whichever is lower names the correct transform. That is one O(N) pass.
+
+========================================================================================================
+EVENT RATE ù the condition that decides economy (condition 3)
+========================================================================================================
+
+  An invariant index pays only if the STRUCTURAL EVENT RATE is far below the
+  byte rate; otherwise the index is just a slower byte index. Reference point
+  from the Linux PNRA work: ~115,490 relocation-pair events in 3.26 MB .text
+  = 3.5% of positions, vs ~1.4M parser decision positions. That 12x reduction
+  is what made event-driven PNRA win.
+
+  anvil.exe            N=  268,800  E8/E9 event positions =    3,999 =  1.488% of bytes   (reduction   67.2x)
+  pe-python.exe        N=  103,704  E8/E9 event positions =      532 =  0.513% of bytes   (reduction  194.9x)
+  pe-where.exe         N=   61,440  E8/E9 event positions =      807 =  1.313% of bytes   (reduction   76.1x)
+
+  A 28x-58x reduction in decision positions: the event-driven inversion is
+  justified on these files by the event rate alone, before any invariant is
+  computed. That is condition 3 satisfied, and it is why PNRA's formulation
+  is economical where a per-byte transformed search would not be.
+
