@@ -1,0 +1,68 @@
+name: ANVIL GROTLI-ANVIL-0
+on:
+  workflow_dispatch:
+concurrency:
+  group: anvil-grotli-g0
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  g0:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Brotli CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends brotli
+      - name: Self-test frozen carrier
+        run: python3 tools/grotli_g0.py --selftest
+      - name: Fetch and verify frozen corpora
+        run: |
+          mkdir -p corpora
+          python3 - <<'PY'
+          import hashlib, pathlib, urllib.request
+          items = [
+            ("amazon_cellphones.ndjson","https://raw.githubusercontent.com/simdjson/simdjson-data/4197c425e857f0ec38e89822fdd0bd9ea21f4daf/jsonexamples/amazon_cellphones.ndjson",277673,"9cbb6a071eaa2a10c24d9b4d1729dca501f2f72b"),
+            ("adae.ndjson","https://raw.githubusercontent.com/cdisc-org/DataExchange-DatasetJson/a379f49a3f43c2aaed63bdeca761bdb7140df2c3/examples/adam/adae.ndjson",615350,"4bb9ef50f650767967fc3f0a663c73d33c57c608"),
+            ("gharchive-10mb.ndjson","https://raw.githubusercontent.com/rushikeshmore/DataCortex/9bf63551499974e7398b87b45d1a9d4b50936566/corpus/json-bench/gharchive-10mb.ndjson",10485760,"59d1d00825053e9894a7895fcea0665912524ec8"),
+          ]
+          out=pathlib.Path("corpora")
+          for name,url,size,want in items:
+            data=urllib.request.urlopen(url,timeout=120).read()
+            if len(data)!=size: raise SystemExit(f"{name}: bad size {len(data)}")
+            got=hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
+            if got!=want: raise SystemExit(f"{name}: bad blob {got}")
+            (out/name).write_bytes(data)
+            print(name,len(data),got,hashlib.sha256(data).hexdigest())
+          PY
+      - name: Discovery families
+        run: |
+          python3 tools/grotli_g0.py corpora/amazon_cellphones.ndjson corpora/adae.ndjson --out g0-discovery.json
+      - name: Frozen held-out validation
+        run: |
+          python3 tools/grotli_g0.py corpora/gharchive-10mb.ndjson --out g0-validation.json
+      - name: Summarize
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path("g0-discovery.json").read_text())
+          v=json.loads(pathlib.Path("g0-validation.json").read_text())
+          lines=["# GROTLI-ANVIL-0","",
+                 "| Lane | File | Raw Brotli | vXOR+Brotli | Delta | Selected |",
+                 "|---|---|---:|---:|---:|---|"]
+          for lane,obj in (("discovery",d),("validation",v)):
+            for r in obj["files"]:
+              lines.append(f"| {lane} | {r['file']} | {r['raw_brotli_bytes']:,} | {r['vxor_brotli_bytes']:,} | {r['vxor_delta_pct']:+.2f}% | {r['selected_arm']} |")
+          pathlib.Path("g0-summary.md").write_text("\n".join(lines)+"\n")
+          PY
+          cat g0-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anvil-grotli-g0-${{ github.run_id }}
+          path: |
+            g0-discovery.json
+            g0-validation.json
+            g0-summary.md
+          retention-days: 30
