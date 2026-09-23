@@ -18,9 +18,10 @@ The frozen Iteration-9 checkpoint demonstrated that ANVIL's ratio portfolio can 
 
 That distinction is important: **a ratio win is not a codec win.**
 
-The current research reset is documented in:
+The current research reset and execution program are documented in:
 
-- [`docs/FRONTIER-RESET-2026-09-23.md`](docs/FRONTIER-RESET-2026-09-23.md)
+- [`docs/FRONTIER-RESET-2026-09-23.md`](docs/FRONTIER-RESET-2026-09-23.md) — post-I9 synthesis and mechanism frontier
+- [`docs/I10-BREAKTHROUGH-PROGRAM.md`](docs/I10-BREAKTHROUGH-PROGRAM.md) — falsifiable Iteration-10 execution program
 - [`docs/anvil-i9-findings.md`](docs/anvil-i9-findings.md)
 - [`RESEARCH_LEDGER.md`](RESEARCH_LEDGER.md)
 - [`docs/audit-2026-09-07/06-do-not-reburn.md`](docs/audit-2026-09-07/06-do-not-reburn.md)
