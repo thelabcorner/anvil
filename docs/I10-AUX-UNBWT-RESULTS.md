@@ -228,28 +228,120 @@ Ruling:
 
 ---
 
-## 5. Relation to the I9 projection
+## 5. enwik8 paired experiment
 
-The I9 prototype measured the inverse-BWT stage at roughly 3.49× faster on `webster` and projected whole-codec decode around 1.82–1.91×.
+GitHub Actions run: `35919233744`
 
-The first integrated remote measurement is **1.795×**.
+Measured commit:
 
-That is slightly below the old projected band but directionally and mechanistically consistent. The important change in evidence class is that this is now:
+- `e76beb65071d9a56a3f786e47dc273a3345b5d57`
+
+Runner:
+
+- AMD EPYC 9V74 80-Core Processor;
+- timing affinity: CPU 0.
+
+Canonical input:
+
+- source bytes: **100,000,000**
+- SHA-256: `2b49720ec4d78c3c9fabaee6e4179a5e997302b3a70029f30f2d582218c024a8`
+
+### 5.1 Charged wire cost
+
+| Arm | Encoded bytes | Delta |
+|---|---:|---:|
+| control, aux OFF | 23,534,368 | — |
+| candidate, aux ON | 23,537,422 | **+3,054** |
+
+Integrated overhead:
+
+- **+3,054 B**
+- **+0.003054% of source size**
+- approximately **+0.01297% of the control compressed payload**
+
+The I9 prototype predicted a **3,052-B** raw index at the same policy. Complete integrated framing is only 2 B above that count.
+
+### 5.2 Whole-codec decode
+
+| Metric | Control | Aux candidate |
+|---|---:|---:|
+| median decode | 8.273907 s | **3.538773 s** |
+| robust CV | 2.217% | **0.504%** |
+
+Paired candidate/control ratio:
+
+- point: **0.427489**
+- 95% CI: **[0.421034, 0.432620]**
+- point speedup: **2.3392×**
+- ambient robust CV: **0.392%**
+- timing-valid: **yes**
+
+Ruling:
+
+> **PASS_SPEED_GATE.**
+
+This is the largest integrated whole-codec gain of the three measured targets.
+
+### 5.3 Encode
+
+Paired encode:
+
+- control median: **7.239934 s**
+- candidate median: **7.202237 s**
+- candidate/control ratio: **0.996899**
+- 95% CI: **[0.992437, 1.011097]**
+- ambient robust CV: **1.199%**
+
+Ruling:
+
+> **NO_SPEED_GATE** — no reliable material encode difference.
+
+---
+
+## 6. Cross-target synthesis and relation to I9
+
+| Target | Integrated aux wire delta | Whole-decode speedup | Decode ruling | Encode ruling |
+|---|---:|---:|---|---|
+| dickens | +2,494 B | **1.364×** | PASS | neutral |
+| webster | +2,535 B | **1.795×** | PASS | neutral |
+| enwik8 | +3,054 B | **2.339×** | PASS | neutral |
+
+Across these three independent experiments:
+
+- total charged auxiliary wire increase: **8,083 B**;
+- each complete integrated wire landed only **2–3 B above** the prototype's raw auxiliary-index prediction;
+- every target cleared the pre-registered 2% whole-decode speed gate;
+- no target showed a reliable material encode penalty.
+
+The old I9 stage measurements projected approximately:
+
+- `dickens`: 1.56–1.71× whole decode;
+- `webster`: 1.82–1.91×;
+- `enwik8`: ~1.9×.
+
+The integrated results span below and above those projections:
+
+- `dickens` measured **1.364×**;
+- `webster` measured **1.795×**;
+- `enwik8` measured **2.339×**.
+
+That spread is expected because the old whole-codec values were derived from separately measured stage fractions. The important result is mechanism-level consistency: every integrated target moves strongly in the predicted direction once the exact index bytes are charged.
+
+Evidence is now substantially stronger than I9 because it is:
 
 - integrated production code;
 - exact charged wire;
 - actual whole-codec decode;
 - same-job paired A/B;
 - one-thread resource parity;
-- low observed timing noise.
-
-The result therefore validates the central I10-1A hypothesis on `webster`.
+- raw repetitions retained;
+- ambient noise measured rather than filtered away.
 
 ---
 
-## 6. What these results do and do not establish
+## 7. What these results do and do not establish
 
-The two completed canonical targets establish that:
+The three completed canonical targets establish that:
 
 1. auxiliary-index inverse BWT survives integration;
 2. legacy/default-off behavior remains available;
@@ -260,11 +352,36 @@ The two completed canonical targets establish that:
 
 It does **not yet** justify changing ANVIL's default wire representation globally.
 
+### 7.1 Candidate-branch default-off identity closure
+
+The full canonical default-off reruns have now completed successfully:
+
+- Silesia: run `35918898984` — **SUCCESS**;
+- enwik8: run `35918904873` — **SUCCESS**.
+
+Their raw CSV artifacts were downloaded and passed through
+`tools/close_i10_remote_baseline.py` together. Hard ANVIL byte identity passed
+**per file**, not merely in aggregate:
+
+| Corpus | Candidate-branch `anvil-auto-direct` | Frozen I9 | Delta |
+|---|---:|---:|---:|
+| Silesia | 46,446,995 B | 46,446,995 B | **0 B** |
+| enwik8 | 23,534,368 B | 23,534,368 B | **0 B** |
+
+The candidate branch's `anvil-ratio-auto` totals also equal those same
+auto-direct totals on both corpora. Every observed row roundtripped.
+
+Brotli bytes were also identical to the frozen references. The hosted Linux
+Zstd/xz rows differed slightly from the historical Windows-era reference rows,
+as expected for a different toolchain/library series; those differences are
+recorded as series/toolchain observations and are not ANVIL regressions.
+
+This closes the most important compatibility gate: **adding the auxiliary
+decoder/wire support does not perturb the legacy/default-off representation.**
+
 Before promotion:
 
-- reproduce on `enwik8`;
-- close the candidate branch's full Silesia/enwik8 default-off byte-identity runs;
-- inspect corpus-wide routing economics;
+- close the corpus-wide routing/byte audit;
 - decide whether auxiliary framing should be:
   - default for BWT,
   - frontier/routing-selected,
@@ -272,17 +389,29 @@ Before promotion:
 
 ---
 
-## 7. Active follow-ups
+## 8. Active follow-ups
 
 Paired experiments:
 
 - `webster`: run `35918797463` — **PASS_SPEED_GATE**;
 - `dickens`: run `35919229083` — **PASS_SPEED_GATE**;
-- `enwik8`: run `35919233744` — in progress.
+- `enwik8`: run `35919233744` — **PASS_SPEED_GATE**.
 
 Candidate default-off canonical identity runs:
 
-- Silesia: `35918898984`
-- enwik8: `35918904873`
+- Silesia: `35918898984` — **SUCCESS / byte-identical to frozen I9**;
+- enwik8: `35918904873` — **SUCCESS / byte-identical to frozen I9**.
+
+Corpus-wide exact routing/byte audit:
+
+- run `35920128901` — Silesia still running;
+- enwik8 cell complete:
+  - control auto: **23,534,368 B**;
+  - aux auto: **23,537,422 B**;
+  - delta: **+3,054 B** / **+0.003054% of source**;
+  - route remains BWT;
+  - no routing change.
+
+The portfolio run uses the unchanged measured codec source plus benchmark-tooling-only follow-up commits.
 
 No I10-1B DEFLATE-replay source work will be combined with this branch. I10-1A remains causally isolated until its ruling is complete.
