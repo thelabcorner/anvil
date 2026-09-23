@@ -588,9 +588,18 @@ This is the cheapest place to kill bad ideas.
 Separate experiments:
 
 1. `libsais_unbwt_aux` integration.
+   - implementation contract: `docs/I10-AUX-UNBWT-INTEGRATION-PLAN.md`;
+   - forced/default-off first; legacy BWT bytes remain identical;
+   - additive inner-BWT v2 wire with the auxiliary index fully charged.
 2. P4.1 bit-exact DEFLATE reconstruction integration.
+   - first production scope: ZIP method-8 raw DEFLATE only;
+   - the frozen mozilla census puts 3,132,001 of 3,177,007 DEFLATE compressed bytes in ZIP (~98.6%), while PNG contributes only 45,006 B;
+   - valid ZIP replay population is 2,289 streams / 2,856,886 compressed bytes;
+   - use a new ratio transform ID; do not reuse tombstoned transform 3;
+   - reconstruction semantics must be pinned by the format. Do **not** make exact decode depend on whichever host zlib happens to be installed;
+   - a pinned replay engine is the shortest adopt-class path for the first causal experiment; decoder code-size cost must be charged explicitly.
 
-These are engineering/adopt-class improvements, not the I10 novelty program.
+These are engineering/adopt-class improvements, not the I10 novelty program. They remain separate commits/runs so their causal deltas cannot contaminate each other.
 
 ### I10-2 — build information-attribution oracles
 
