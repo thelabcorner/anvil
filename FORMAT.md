@@ -133,7 +133,7 @@ preprocessing win.
 | ID | backend | decoder semantics | current encoder policy |
 |---:|---|---|---|
 | 1 | Brotli | one complete Brotli bitstream; large-window decoding enabled | quality 11, `lgwin=30`, generic mode |
-| 2 | BWT + ANVIL postcoder portfolio | `libsais` inverse BWT followed by an explicit postcoder | build postcoder candidates 1/2/3 (smallest wins); IDs 0 and 4 are defined but **disabled** (known encoder/decoder mismatch) — see postcoder table |
+| 2 | BWT + ANVIL postcoder portfolio | explicit postcoder reconstructs BWT bytes, then validated `libsais` inverse BWT (legacy primary or auxiliary indexes) | build postcoder candidates 1/2/3 (smallest wins); IDs 0 and 4 are defined but **disabled** (known encoder/decoder mismatch) — see postcoder table |
 
 Quality/window/mode are encoder policy, not backend identity: a decoder for
 backend 1 decodes the Brotli bitstream it receives and does not need to know
@@ -154,13 +154,36 @@ before any inverse transform. This is fixed externally and never inferred from
 the postcoder payload, so attacking payload lengths cannot change the output
 size the decoder must produce.
 
-`backend_payload` layout for backend 2:
+Backend 2 has two additive inner-payload forms. The first byte is an
+unambiguous discriminator because postcoder IDs occupy only `0..4`.
+
+Legacy BWT payload (v1):
 
 ```
-byte   postcoder_id        (0..4 defined; 0..3 are valid; 0 and 4 are disabled — see table; any other value is rejected)
-uvarint primary_index       (must be < transformed_size)
-postcoder-specific payload  (depends on postcoder_id; see below)
+byte    postcoder_id        (0..4 defined; 0 and 4 are encoder-disabled — see table)
+uvarint primary_index       (libsais primary index; 1 <= primary_index <= transformed_size)
+postcoder-specific payload
 ```
+
+Auxiliary-index BWT payload (I10-1A / v2):
+
+```
+byte    0xFE                 (auxiliary BWT payload tag)
+byte    postcoder_id         (same registry as v1)
+uvarint sampling_rate_r      (power of two; 2 <= r <= transformed_size)
+uvarint auxiliary_count      (must equal 1 + floor((transformed_size-1)/r))
+u32le   I[auxiliary_count]    (each 1..transformed_size; I[0] is the primary index)
+postcoder-specific payload
+```
+
+The v2 representation is **additive**. A decoder that supports I10-1A continues
+to read every valid legacy-v1 payload; `--bwt-aux=off` remains the byte-identical
+legacy encoder path. The encoder emits v2 only when explicitly selected by its
+current policy/CLI.
+
+`0xFF` is reserved one layer above these inner payloads for BWT subblock
+framing. Therefore a bare backend-2 payload begins with either a postcoder ID
+`0..4` (v1) or `0xFE` (v2), never `0xFF`.
 
 Postcoder ID status (decoder-visible registry):
 
@@ -180,17 +203,72 @@ Every postcoder ID 0..4 has a direct forced encode→decode test in `tests/fuzz.
 (`forced_postcoder_roundtrip`) — selection-based coverage alone would have left
 0 and 4 unexercised.
 
-`primary_index` is the index returned by `libsais_bwt`. It is bounded by
-`0 <= primary_index < transformed_size`. A value equal to or greater than
-`transformed_size` is rejected **before** any BWT/postcoder work. (An empty
-input is rejected at a higher layer; backend 2 always receives a nonempty
-transformed size.)
+For legacy v1, `primary_index` is the **1-based** index returned by
+`libsais_bwt`. The valid range is:
+
+`1 <= primary_index <= transformed_size`
+
+The endpoint `primary_index == transformed_size` is valid. Zero is not. This
+matches the vendored `libsais_unbwt` contract actually used by the decoder.
+
+For auxiliary v2, validation occurs before inverse-BWT allocation/work:
+
+- `transformed_size > 1`;
+- `sampling_rate_r` is a power of two and
+  `2 <= sampling_rate_r <= transformed_size`;
+- `auxiliary_count == 1 + floor((transformed_size - 1) / sampling_rate_r)`;
+- `auxiliary_count <= min(transformed_size, 1<<20)`;
+- exactly `4 * auxiliary_count` index bytes must remain before postcoder data;
+- every auxiliary index is in `[1, transformed_size]`;
+- `I[0]` is the primary index used by postcoder semantics that require it.
+
+The encoder's current sampling policy targets approximately 1024 independent
+LF walks by choosing the smallest power-of-two `r >= ceil(n/1024)`, with a
+minimum of 2. That choice is encoder policy, not a redefinition of the v2 wire
+contract.
 
 Decode memory bound: the decoder allocates at most `transformed_size` output
-bytes plus an `int32` work array of size `transformed_size + 1`, plus the
-postcoder's own intermediate buffers (each individually bounded by
-`transformed_size` or by a smaller declared length). No attacker-chosen input
-expands allocation beyond `transformed_size` of output.
+bytes plus an `int32` work array of size `transformed_size + 1`, the bounded
+auxiliary-index array for v2, plus the postcoder's own intermediate buffers
+(each individually bounded by `transformed_size` or by a smaller declared
+length). No wire length may authorize an output larger than the enclosing
+`transformed_size`.
+
+#### Optional outer BWT subblock framing
+
+Backend 2 may split one transformed stream into independent BWT subblocks before
+entering either inner payload form. This framing sits **outside** the v1/v2 BWT
+payload:
+
+```
+byte    0xFF
+uvarint subblock_count
+repeat subblock_count times:
+    uvarint decoded_len
+    uvarint payload_len
+    byte[payload_len] inner_bwt_payload
+```
+
+Each `inner_bwt_payload` is independently either legacy v1 (first byte `0..4`)
+or auxiliary v2 (first byte `0xFE`).
+
+Decoder bounds are strict:
+
+- `subblock_count > 0`;
+- the count cannot exceed the enclosing `transformed_size` and cannot exceed
+  what the remaining payload could encode even at the two-varint-per-subblock
+  minimum;
+- each `decoded_len > 0` and cannot exceed the still-unreconstructed portion of
+  `transformed_size`;
+- each `payload_len` must fit entirely inside the remaining backend payload;
+- every inner payload must reconstruct exactly its declared `decoded_len`;
+- the concatenated decoded lengths must equal `transformed_size`;
+- the `0xFF` frame must consume the backend payload **exactly**; trailing bytes
+  are malformed.
+
+The encoder emits this frame only when its configured BWT subblock cap requires
+more than one piece. A single piece uses the bare inner payload so legacy
+byte identity is preserved.
 
 #### Postcoder 0 — MTF + zero-run RLE, separated stream-suite streams
 
@@ -202,7 +280,7 @@ uvarint value `0`). Non-zero ranks are emitted as literal token bytes `1..255`.
 Decoding of a `0` token appends `run_len` copies of the current rank-0 symbol
 (`sym[0]`); the MTF list is unchanged by a zero run.
 
-Payload (after `primary_index`):
+Postcoder payload (after the legacy-v1 or auxiliary-v2 BWT header):
 
 ```
 uvarint token_stream_len
@@ -277,28 +355,35 @@ The decoded raw stream length **must equal** `transformed_size`; otherwise
 
 #### BWT inverse and final checks
 
-After a postcoder reconstructs the BWT-transformed bytes, `libsais_unbwt` inverts
-the transform using `primary_index` to produce exactly `transformed_size` output
-bytes. The inverse BWT is bounded by `transformed_size` and never reads or writes
-beyond the declared output length. The reconstructed block then passes through
-the normal mode-17 + block CRC-32 verification over the **original** block bytes,
-so a corrupted postcoder payload that somehow passed the above checks still fails
-the CRC.
+After a postcoder reconstructs the BWT-transformed bytes:
+
+- legacy v1 calls `libsais_unbwt` with the validated 1-based `primary_index`;
+- auxiliary v2 calls `libsais_unbwt_aux` with the validated sampling rate and
+  complete auxiliary-index array.
+
+Both paths must produce exactly `transformed_size` output bytes. The temporary
+array passed to libsais is `transformed_size + 1` `int32` entries as required by
+the vendored inverse-BWT API.
+
+The reconstructed block then passes through the normal mode-17 + block CRC-32
+verification over the **original** block bytes, so corruption that somehow
+survived structural/postcoder validation still fails the outer integrity check.
 
 #### Degenerate but valid cases
 
-- **1-byte input**: `transformed_size == 1`, `primary_index == 0`, BWT output is
-  a single byte; any postcoder that reproduces it round-trips exactly.
-- **all-equal input** (e.g. `AAAA…`): the BWT is well-defined and the postcoder
-  must reproduce it exactly; this is a valid round-trip, not a rejection.
-- **`primary_index == 0`** is legal (it is a valid sort index).
+- **1-byte input**: `transformed_size == 1`, legacy `primary_index == 1`, and
+  the BWT output is the one source byte. The encoder intentionally keeps this as
+  legacy v1 even when `--bwt-aux=on`; auxiliary framing has no useful work to
+  parallelize at length one.
+- **auxiliary v2 with `transformed_size <= 1`** is malformed and rejected.
+- **all-equal input** (e.g. `AAAA…`) is a valid BWT input and must reconstruct
+  byte-exactly.
+- `primary_index == transformed_size` is valid; `primary_index == 0` is not.
 
-These cases are specified as valid round-trips and are **asserted byte-exact** by
-`tests/fuzz.py` (`adversarial_bwt`'s `degenerate-1-byte-roundtrip` /
-`degenerate-all-equal-roundtrip` cases and the `golden_bwt` set). The earlier
-`libsais` inverse-BWT defect on uniform / `primary_index == 0` inputs (`A` BWT =
-`A`, primary 0; `AAAA…`) was fixed by `arch-bwt` (n→1 mapping + n==1
-short-circuit); there is no skip and no open item here.
+These cases are asserted by the direct BWT/golden/auxiliary tests in
+`tests/fuzz.py`. Historical notes that described the libsais primary index as
+zero-based are superseded by this contract and by the current decoder's
+validated `[1,n]` behavior.
 
 #### Measured validation (backend 2 as a valid experimental format)
 
