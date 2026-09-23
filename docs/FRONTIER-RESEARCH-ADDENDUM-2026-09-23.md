@@ -727,6 +727,51 @@ would be offline and byte-focused:
 The deeper point is that even a mature transform has a **representation search
 space** above it.
 
+### 6.6 LZBE suggests copying prior explanation structure, not only prior bytes
+
+Shibata, Nakashima, Yamaguchi, and Inenaga's 2026 **LZ-Begin-End (LZBE)**
+factorization restricts each copy factor so its source is a contiguous sequence
+of preceding factors. Despite that structural restriction, the authors show
+that any context-free grammar can be converted to an LZBE factorization of the
+same size, and they exhibit a string family where greedy LZBE is asymptotically
+smaller than the smallest grammar. They also provide a linear-time greedy parse
+and a linear-compressed-space random-access structure.
+
+References:
+- https://doi.org/10.4230/LIPIcs.CPM.2026.34
+- https://github.com/shibh308/LZBE
+
+The direct production relevance to ANVIL is not yet established. Arbitrary byte
+LZ77 already has a mature, very cheap decoder.
+
+The more interesting ANVIL interpretation is one level higher:
+
+> **Repeated output regions may also repeat the explanation program used to
+> construct them.**
+
+A future oracle should therefore test a factor-aligned **PROGRAM_COPY** concept
+on synthesized/current semantic token streams:
+
+- source must begin/end on prior explanation boundaries;
+- one reference can stand for a contiguous sequence of prior explanation ops;
+- parameters that are invariant can be inherited;
+- only changed parameters/residuals are transmitted;
+- expansion depth and output extent remain statically bounded.
+
+This could amortize more than raw bytes. A recurring structured record might
+reuse:
+
+    COPY + field split + delta + sparse patch pattern
+
+as one prior explanation sequence rather than re-transmitting the same opcode
+shape and metadata classes for every record.
+
+The reason to test this as an oracle first is equally important. If compressing
+the explanation stream saves only a tiny fraction of total archive bytes, it is
+another grammar-shaped distraction. If it materially reduces instruction and
+metadata cost while preserving shallow direct execution, it could bridge
+ANVIL's current hot-op/book work with the more expressive Explanation Machine.
+
 ---
 
 ## 7. Shannonic: rethink entropy symbols, not only entropy coders
