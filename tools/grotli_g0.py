@@ -216,27 +216,27 @@ def decode_carrier(carrier: bytes) -> bytes:
     return bytes(result)
 
 
-def brotli_compress(path: pathlib.Path, out: pathlib.Path) -> tuple[float, int]:
+def brotli_compress(tool: pathlib.Path, path: pathlib.Path, out: pathlib.Path) -> tuple[float, int]:
     start = time.perf_counter()
     subprocess.run(
-        ["brotli", "-q", "11", "-w", "30", "-f", "-o", str(out), str(path)],
+        [str(tool), "c", str(path), str(out)],
         check=True,
         stdout=subprocess.DEVNULL,
     )
     return time.perf_counter() - start, out.stat().st_size
 
 
-def brotli_decompress(path: pathlib.Path, out: pathlib.Path) -> float:
+def brotli_decompress(tool: pathlib.Path, path: pathlib.Path, out: pathlib.Path, expected: int) -> float:
     start = time.perf_counter()
     subprocess.run(
-        ["brotli", "-d", "-f", "-o", str(out), str(path)],
+        [str(tool), "d", str(path), str(out), str(expected)],
         check=True,
         stdout=subprocess.DEVNULL,
     )
     return time.perf_counter() - start
 
 
-def measure_file(path: pathlib.Path, work: pathlib.Path) -> dict:
+def measure_file(path: pathlib.Path, work: pathlib.Path, brotli_tool: pathlib.Path) -> dict:
     src = path.read_bytes()
     carrier, info = encode_carrier(src)
     if decode_carrier(carrier) != src:
@@ -252,10 +252,10 @@ def measure_file(path: pathlib.Path, work: pathlib.Path) -> dict:
     raw_path.write_bytes(src)
     car_path.write_bytes(carrier)
 
-    raw_enc_s, raw_bytes = brotli_compress(raw_path, raw_br)
-    car_enc_s, car_bytes = brotli_compress(car_path, car_br)
-    raw_dec_s = brotli_decompress(raw_br, raw_dec)
-    car_br_dec_s = brotli_decompress(car_br, car_dec)
+    raw_enc_s, raw_bytes = brotli_compress(brotli_tool, raw_path, raw_br)
+    car_enc_s, car_bytes = brotli_compress(brotli_tool, car_path, car_br)
+    raw_dec_s = brotli_decompress(brotli_tool, raw_br, raw_dec, len(src))
+    car_br_dec_s = brotli_decompress(brotli_tool, car_br, car_dec, len(carrier))
 
     raw_roundtrip = raw_dec.read_bytes()
     decoded_carrier = car_dec.read_bytes()
@@ -322,6 +322,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="*", type=pathlib.Path)
     ap.add_argument("--out", type=pathlib.Path)
+    ap.add_argument("--brotli-tool", type=pathlib.Path, default=pathlib.Path("build/brotli_lw"))
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
@@ -335,7 +336,7 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="anvil-g0-") as td:
         work = pathlib.Path(td)
-        rows = [measure_file(p, work) for p in args.files]
+        rows = [measure_file(p, work, args.brotli_tool) for p in args.files]
     result = {
         "schema": 1,
         "files": rows,
