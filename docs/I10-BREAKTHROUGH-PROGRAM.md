@@ -248,15 +248,46 @@ Core hypothesis:
 
 This directly attacks the recorded PNRA/TCOPY failure mode without merely making the old search faster.
 
+#### Prior-art boundary
+
+The audit must explicitly include more than BCJ/E8E9.
+
+Google Courgette is close prior art on the **semantic normalization** side: it uses a primitive disassembler to identify internal `REL32`/`ABS32` references, separates pointer targets from ordinary bytes, replaces pointers with symbolic/indexed references, and reconstructs the exact executable through an assembly-like instruction stream before/after binary differencing.
+
+Therefore ANVIL must **not** claim novelty for:
+
+- discovering relocation-bearing instructions;
+- converting addresses into a normalized/symbolic representation;
+- reconstructing exact machine-code bytes from normalized pointer metadata;
+- using normalized executable structure to improve downstream matching/delta coding.
+
+The narrower open question is whether a single-file compressor can economically perform **reference-local transformed self-copy** in which:
+
+- no external basis/previous executable is required;
+- no whole-file disassembly/symbol table is required;
+- transform sites are deterministically recoverable from the referenced phrase;
+- the arithmetic adjustment is derivable from source/destination geometry;
+- multiple transformed fields amortize one copy descriptor;
+- the output remains stream-compatible with ordinary LZ-style reconstruction.
+
+Those separators define the search target; they do not establish novelty.
+
+Relevant prior art:
+- Chromium Courgette design: https://www.chromium.org/developers/design-documents/software-updates-courgette/
+- xz/7-Zip-style BCJ filters;
+- ZPAQ E8/E9 normalization;
+- Microsoft delta-compression/update patents already tracked by ANVIL, including US 7,509,636.
+
 #### Required controls
 
 - exact LZ;
 - current TCOPY;
 - global BCJ + same backend;
+- disassembly/relocation-normalized control where practical;
 - reference-local derived-mask transform;
 - payload with all descriptors charged.
 
-Do not extend to general x86 decoding until E8/E9 clears the economic gate.
+Do not extend to general x86 decoding until E8/E9 clears the economic gate and the Courgette/BCJ separation is documented mechanism-by-mechanism.
 
 ### H3 — restricted iterated span generation
 

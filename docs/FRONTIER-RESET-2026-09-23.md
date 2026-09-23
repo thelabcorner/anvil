@@ -644,7 +644,11 @@ This is not the same as a global BCJ prefilter:
 - BCJ rewrites the entire stream before LZ.
 - This proposed primitive performs **reference-local semantic normalization during copy reconstruction**, preserving original byte layout outside the selected reference.
 
-However, prior art includes BCJ/E8E9 filters and relocation-aware binary delta systems. Therefore **no novelty claim is allowed without a dedicated patent/paper audit.**
+However, the prior-art boundary is closer than global BCJ alone. Google Courgette uses a primitive disassembler to identify internal relative/absolute references, splits pointer targets from ordinary bytes, replaces pointers with symbolic/indexed references, and reconstructs the exact executable through an assembly-like representation before/after binary differencing. Microsoft delta-update systems and ordinary BCJ/E8E9 normalization further occupy the executable-normalization/delta space.
+
+Therefore **no novelty claim is allowed without a dedicated patent/paper/code audit** covering at minimum Courgette, BCJ/E8E9, bsdiff/VCDIFF-class delta coding, and Microsoft's delta-compression lineage.
+
+The potentially distinct question is narrower: can ANVIL perform a **single-file, reference-local transformed self-copy** whose transform sites are derived from the referenced phrase and whose arithmetic adjustment is derived from source/destination geometry, without a global disassembly/symbol-table representation? That distinction is a research target, not a novelty conclusion.
 
 Why it is worth an oracle prototype:
 
@@ -1028,10 +1032,14 @@ Every benchmark job should capture:
 
 ### Executable normalization controls / prior art
 
+- Chromium Courgette design
+  https://www.chromium.org/developers/design-documents/software-updates-courgette/
 - xz BCJ filters  
   https://tukaani.org/xz/
 - ZPAQ E8/E9 transform documentation  
   https://manpages.debian.org/trixie/zpaq/zpaq.1.en.html
+- Microsoft delta-compression patching, US 7,509,636 / WO 2005/071542
+  https://patents.google.com/patent/US7509636B2/en
 
 ---
 
