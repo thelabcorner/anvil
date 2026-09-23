@@ -244,7 +244,7 @@ ANVIL should borrow the principle, not copy the product:
 > **Search can be expensive and adaptive at encode time; decode should execute a tiny resolved program.**
 
 Sources:
-- https://arxiv.org/abs/2510.03203
+- https://arxiv.org/abs/2605.09928
 - https://github.com/facebook/openzl
 - https://engineering.fb.com/2025/10/06/developer-tools/openzl-open-source-format-aware-compression-framework/
 
@@ -262,6 +262,83 @@ Use neural models to answer:
 - Is the signal local, structural, lexical, arithmetic, or semantic?
 
 A model that predicts well but cannot be distilled is evidence of **available information**, not yet a production mechanism.
+
+### 4.6 Bidirectional macro schemes: measure the price of causality
+
+Ordinary LZ77 requires a phrase's source to already exist to its left. That causality constraint is excellent for streaming decode, but it is also a representational restriction.
+
+LZRR (Nishimoto & Tabei) permits safe right references while preserving an acyclic dependency structure. It guarantees a phrase count no worse than LZ77, and its published experiments report roughly 6% fewer phrases on benchmark strings. Finding the globally smallest bidirectional macro scheme is NP-hard, but 2026 work demonstrates exact BMS/SLP solving on bounded instances using Answer Set Programming modulo acyclicity.
+
+ANVIL implication:
+
+> Use bidirectional schemes primarily as an **offline oracle** before paying the streaming/dependency cost in the production format.
+
+On small real-data windows, compare current causal references against LZ77/LZRR/near-optimal BMS. If the gap is negligible, forward references are not worth a decoder complication. If the gap is material and concentrated in a few shallow dependency patterns, test a **bounded-depth, levelized reference DAG** whose dependency cost is explicit in the Pareto objective.
+
+Sources:
+- https://doi.org/10.1016/j.ic.2021.104859
+- https://doi.org/10.24963/kr.2026/66
+
+### 4.7 Online string attractors sharpen the same warning
+
+Whittington's 2024 online-string-attractor result connects LZ factorization to the best online strategy for the online attractor problem while exhibiting an O(log n) online/offline separation on some morphic families.
+
+That result does not say practical LZ codecs are doomed. It says something narrower and useful:
+
+> More engineering on a causal temporal matcher cannot recover structure that fundamentally belongs to an offline/generative explanation class.
+
+This strengthens the case for **oracle separation**: first determine whether a bad ANVIL region is limited by search quality inside the LZ family or by the explanatory family itself.
+
+Source:
+- https://arxiv.org/abs/2407.15599
+
+### 4.8 CTW/PPM-class models should be statistical controls
+
+Context Tree Weighting efficiently mixes a bounded-memory context-tree model class and has finite-sequence redundancy guarantees with linear computational/storage complexity in the sequence length.
+
+ANVIL should not adopt CTW merely because it is theoretically elegant. It should use CTW/PPM-class models as **diagnostic controls**:
+
+- If CTW sharply beats ANVIL's residual/literal coding, statistical predictability remains.
+- If CTW buys little but a BMS/grammar oracle buys a lot, the missing structure is generative/referential.
+- If both buy little, the region may already be close to its useful innovation floor.
+
+This gives the project a cleaner decomposition than repeatedly inventing ad hoc order-N models.
+
+Source:
+- https://doi.org/10.1109/18.382012
+
+### 4.9 Structure separation remains a live systems pattern
+
+The 2026 STC work is a useful BWT-specific example: it removes digit runs from surrounding text, replaces them with an unambiguous placeholder, and codes the removed data in length/context-conditioned side streams. Its reported same-coder enwik9 ablation attributes about 2.63 MB of improvement to the decomposition.
+
+The important lesson is broader than digits:
+
+> A small heterogeneous innovation channel can poison the representation/model of a much larger regular channel.
+
+That is exactly the kind of condition ANVIL should detect during anatomy. Sparse correction does this locally around a reference; deterministic decomposition does it globally or regionally. The correct mechanism depends on whether the changing fields are best explained by a prior span, by typed field semantics, or merely by isolation from the main channel.
+
+Source:
+- https://arxiv.org/abs/2606.03570
+
+### 4.10 AITDCC 2026 should become an external generalization gate
+
+The 2026 Algorithmic Information Theory Data Compression Challenge is unusually aligned with ANVIL's research discipline:
+
+- 16 heterogeneous files;
+- an original public-training / hidden-testing split;
+- 117 valid compressors in the published study;
+- compression/decompression time and Pareto analysis;
+- an 8 GiB peak-memory limit;
+- a <=1 MiB decompressor constraint;
+- the complete A–P dataset is now public with canonical SHA-256 values.
+
+ANVIL should use AITDCC as an **external validation class**, not another corpus to tune against. Preserve the original A–H versus I–P distinction in reports even though all files are now public.
+
+This also adds two axes the current inner loop underweights: **decoder binary size** and **generalization to formerly hidden data**.
+
+Sources:
+- https://arxiv.org/abs/2606.17712
+- https://aitdcc.github.io/dataset.html
 
 ---
 
@@ -418,6 +495,53 @@ ANVIL's own I9 prototype already measured `libsais_unbwt_aux` at roughly 3.4–3
 Current upstream:
 https://github.com/IlyaGrebnov/libsais
 
+### 5.9 ALP/FastLanes reinforce "design representation around vector execution"
+
+ALP is domain-specific floating-point compression, but its architecture is highly relevant. Its authors explicitly designed the encoding to fit vectorized execution and found that the vector-oriented representation also exposed **better compression opportunities**, not merely faster loops. FastLanes extends that approach with lane-oriented layouts and composable expression encodings.
+
+The newest systems signal is adoption: Apache Parquet added ALP encoding in September 2026, describing SIMD/GPU-friendly decoding with compression ratios in the zstd range on suitable decimal-like floating-point data.
+
+ANVIL lesson:
+
+> Hardware-friendly representation is not necessarily a tax paid after choosing the mathematical model; the hardware layout can reveal a *better model*.
+
+This argues for designing candidate ANVIL metadata/reconstruction operators in vector-sized groups from the beginning, then measuring whether the grouping itself exposes regularity.
+
+Sources:
+- https://doi.org/10.1145/3626717
+- https://github.com/cwida/FastLanes
+- https://parquet.apache.org/blog/2026/09/22/alp-adaptive-lossless-floating-point-encoding-in-apache-parquet/
+
+### 5.10 Build a SIMD Stage-1 structural-event scanner
+
+PNRA's deepest systems idea was event-driven inversion: spend expensive work only where the input exposes a structural event.
+
+A generalized Stage 1 should borrow the *hardware pattern* of parsers such as simdjson without copying their semantics:
+
+1. wide byte classification/comparison;
+2. emit compact masks/event records;
+3. use POPCNT/TZCNT and table lookup to enumerate only meaningful positions;
+4. feed typed indexes/oracles from that sparse event stream.
+
+Candidate event classes:
+
+- line/record separators and quote transitions;
+- digit/sign runs;
+- zero/nonzero masks;
+- aligned 16/32/64-bit change masks;
+- likely fixed-width numeric lanes;
+- x86 E8/E9 relocation events;
+- recurring separator motifs;
+- high-confidence token boundaries.
+
+The research metric is not scanner GB/s alone. It is:
+
+useful candidate explanations found / bytes scanned / verification work
+
+A scanner that is extremely fast but emits an enormous false-positive stream simply moves the bottleneck.
+
+The workstation reference CPU is Zen 3, so the baseline production design should be **AVX2-class**, with scalar fallback and optional AVX-512/NEON/SVE paths. Do not make AVX-512 a format assumption.
+
 ---
 
 ## 6. The proposed breakthrough research program
@@ -569,6 +693,36 @@ If replay metadata is smaller than the opacity tax, the compressor wins.
 This is the purest instance of "make data reconstructable instead of storing it."
 
 Long term this family can include other deterministic encoders only when corpus frequency and decoder-size tax justify them.
+
+### 6.7 Narrow mechanism hypothesis: Invariant Generative Span IR (IGS-IR)
+
+The generic idea "compression is a graph/program of transforms" is already established by OpenZL, grammar compressors, bidirectional macro schemes, generalized deduplication, and reconstruction systems. ANVIL should not claim novelty for a graph or IR.
+
+A narrower mechanism hypothesis survives:
+
+> discover sparse structural events cheaply; derive exact transformation-invariant signatures from those events; use exact signature matches to discover **typed generative relationships among output spans**; encode only the innovation the relation cannot reconstruct; compile selected relations into a bounded-depth, hardware-oriented decode schedule.
+
+Working name: **Invariant Generative Span IR (IGS-IR).**
+
+The potential differentiator is the interaction of four properties:
+
+1. **event-driven discovery** rather than all-byte approximate search;
+2. **transform-invariant indexing** so the relation is known before verification rather than inferred afterward;
+3. **typed exact span relations** such as displacement-derived copy, recurrence, basis+innovation, or bounded generation;
+4. **compiled shallow decode schedule** optimized for homogeneous kernels and explicit dependency depth.
+
+This still requires a dedicated prior-art audit. The above separators define what to search for; they do not prove novelty.
+
+The first oracle test should be deliberately hostile to the hypothesis:
+
+- compare causal LZ;
+- compare LZRR/BMS/SLP controls;
+- compare same-transform controls;
+- charge every relation descriptor;
+- charge dependency schedule bytes;
+- estimate source-read locality and cycles/emitted byte.
+
+If IGS-IR's best offline explanation barely improves complete description length, stop. If it produces a large rate surplus but a terrible dependency graph, treat it as a theory result, not a production mechanism. It earns implementation only if the representation headroom and decode economics appear simultaneously.
 
 ---
 
@@ -813,6 +967,8 @@ Every benchmark job should capture:
   https://people.lids.mit.edu/yp/homepage/data/itbook-export.pdf
 - Grünwald & Roos, *Minimum Description Length Revisited*  
   https://doi.org/10.1142/S2661335219300018
+- Willems, Shtarkov, Tjalkens, *The Context-Tree Weighting Method: Basic Properties*  
+  https://doi.org/10.1109/18.382012
 
 ### Repetitiveness / generative representations
 
@@ -824,16 +980,26 @@ Every benchmark job should capture:
   https://arxiv.org/abs/2105.11052
 - Badkobeh, Bannai, Köppl, *Bijective BWT based compression schemes*  
   https://arxiv.org/abs/2406.16475
+- Nishimoto & Tabei, *LZRR: LZ77 parsing with right reference*  
+  https://doi.org/10.1016/j.ic.2021.104859
+- Whittington, *Online String Attractors*  
+  https://arxiv.org/abs/2407.15599
+- *Optimal Dictionary-Based Compression with Answer Set Programming* (KR 2026)  
+  https://doi.org/10.24963/kr.2026/66
 
 ### Similarity / deduplication
 
 - Vestergaard, Zhang, Lucani, *Generalized Deduplication: Bounds, Convergence, and Asymptotic Properties*  
   https://arxiv.org/abs/1901.02720
+- Aoshima, Kurihara, Tanaka, *Aggregable Generalized Deduplication* (2026)  
+  https://doi.org/10.23919/transcom.2025EBP3064
+- Wang et al., *ZipLLM: Efficient LLM Storage via Model-Aware Synergistic Data Deduplication and Compression* (NSDI 2026)  
+  https://www.usenix.org/conference/nsdi26/presentation/wang-zirui
 
 ### Systems architecture
 
 - Meta OpenZL paper  
-  https://arxiv.org/abs/2510.03203
+  https://arxiv.org/abs/2605.09928
 - OpenZL implementation  
   https://github.com/facebook/openzl
 - Intel ISA-L  
@@ -853,6 +1019,12 @@ Every benchmark job should capture:
   https://github.com/jkbonfield/rans_static
 - TurboPFor  
   https://github.com/powturbo/TurboPFor
+- ALP — Adaptive Lossless Floating-Point Compression  
+  https://doi.org/10.1145/3626717
+- FastLanes  
+  https://github.com/cwida/FastLanes
+- STC — reversible digit-context decomposition for BWT-family text  
+  https://arxiv.org/abs/2606.03570
 
 ### Executable normalization controls / prior art
 

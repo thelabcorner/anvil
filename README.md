@@ -188,7 +188,8 @@ CPU-heavy ANVIL research is designed to run remotely through GitHub Actions rath
 
 See:
 
-- [`docs/GITHUB-ACTIONS-BENCHMARKING.md`](docs/GITHUB-ACTIONS-BENCHMARKING.md)
+- [`docs/github-actions-benchmark-protocol.md`](docs/github-actions-benchmark-protocol.md) — normative statistical/promotion protocol
+- [`docs/GITHUB-ACTIONS-BENCHMARKING.md`](docs/GITHUB-ACTIONS-BENCHMARKING.md) — operational CI/corpus/publication companion
 - [`.github/workflows/anvil-research-bench.yml`](.github/workflows/anvil-research-bench.yml)
 
 The workflow is manual-only and uploads raw artifacts. Shared GitHub runners are treated as a **scout/ranking environment for timing**, while deterministic bytes, hashes, and roundtrip results are independently reproducible quantities.

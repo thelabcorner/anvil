@@ -1,6 +1,6 @@
 # ANVIL GitHub Actions Benchmark Protocol
 
-Status: benchmark-vehicle specification. No benchmark is executed by this document.
+Status: normative statistical protocol for the GitHub Actions benchmark vehicle. The sanitized public repository and manual workflow were activated on 2026-09-23 at `https://github.com/thelabcorner/anvil`. The first remote smoke workflow now builds, fuzzes, and runs entirely on GitHub-hosted compute; this document remains the promotion gate for timing claims.
 
 ## 1. Purpose
 

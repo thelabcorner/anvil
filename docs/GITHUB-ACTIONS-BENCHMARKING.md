@@ -1,7 +1,9 @@
 # ANVIL — GitHub Actions Research Benchmark Protocol
 
-**Status:** active protocol for remote experimentation  
+**Status:** active operational companion for remote experimentation  
 **Reason:** ANVIL benchmark/fuzz/anatomy workloads must not consume the developer workstation or homelab unless that policy is explicitly changed.
+
+The detailed statistical protocol already lives in `docs/github-actions-benchmark-protocol.md` and is normative for promotion-grade timing: same-job paired A/B arms, raw repetitions, robust dispersion, paired log-ratios, seeded bootstrap confidence intervals, an ambient-load gate, and no outlier deletion. This document focuses on the currently implemented CI vehicle, corpus fetching, provenance, and publication boundary.
 
 ## 1. Scope
 

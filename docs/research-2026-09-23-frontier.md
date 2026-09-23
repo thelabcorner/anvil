@@ -1,6 +1,6 @@
 # ANVIL Frontier Research Memo — 2026-09-23
 
-Status: research/architecture memo only. No local benchmark was run for this memo.
+Status: precursor research/architecture memo only. No local benchmark was run for this memo. Its live recommendations and recovered literature were folded into `docs/FRONTIER-RESET-2026-09-23.md`; use that document for the current synthesized agenda, while this memo remains as detailed provenance.
 
 ## 1. Where ANVIL actually is
 
