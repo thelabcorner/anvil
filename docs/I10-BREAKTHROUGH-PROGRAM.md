@@ -587,22 +587,45 @@ Closure record: `docs/I10-REMOTE-BASELINE-CLOSURE.md`.
 
 ### I10-1 — land high-EV existing work after remote baselines
 
-Separate experiments:
+These remain engineering/adopt-class improvements, not the I10 novelty program.
+They must remain causally isolated from one another.
 
-1. `libsais_unbwt_aux` integration.
-   - implementation contract: `docs/I10-AUX-UNBWT-INTEGRATION-PLAN.md`;
-   - forced/default-off first; legacy BWT bytes remain identical;
-   - additive inner-BWT v2 wire with the auxiliary index fully charged.
-2. P4.1 bit-exact DEFLATE reconstruction integration.
-   - implementation contract: `docs/I10-DEFLATE-REPLAY-INTEGRATION-PLAN.md`;
-   - first production scope: ZIP method-8 raw DEFLATE only;
-   - the frozen mozilla census puts 3,132,001 of 3,177,007 DEFLATE compressed bytes in ZIP (~98.6%), while PNG contributes only 45,006 B;
-   - valid ZIP replay population is 2,289 streams / 2,856,886 compressed bytes;
-   - use a new ratio transform ID; do not reuse tombstoned transform 3;
-   - reconstruction semantics must be pinned by the format. Do **not** make exact decode depend on whichever host zlib happens to be installed;
-   - a pinned replay engine is the shortest adopt-class path for the first causal experiment; decoder code-size cost must be charged explicitly.
+#### I10-1A — `libsais_unbwt_aux` integration — **CLOSED / ADOPT**
 
-These are engineering/adopt-class improvements, not the I10 novelty program. They remain separate commits/runs so their causal deltas cannot contaminate each other.
+- implementation contract: `docs/I10-AUX-UNBWT-INTEGRATION-PLAN.md`;
+- final evidence/ruling: `docs/I10-AUX-UNBWT-RESULTS.md`;
+- default-off legacy BWT remains byte-identical to frozen I9 per file;
+- additive inner-BWT v2 wire fully charges the auxiliary indexes;
+- paired whole-decode speedups:
+  - dickens **1.364×**;
+  - webster **1.795×**;
+  - enwik8 **2.339×**;
+- combined Silesia + enwik8 auto-portfolio cost: **+22,398 B**
+  (**+0.00718026% of source**), with **zero routing changes**;
+- final hardened remote fuzz: **480 roundtrip variants / 2,880 mutations /
+  24 direct auxiliary assertions**;
+- final same-toolchain code delta: **+2,976 B `.text`** and **+8,192 B**
+  stripped ELF size.
+
+Ruling: retain both representations. Legacy/default-off is the byte-smaller
+size-first point; auxiliary v2 is the faster-decode point. Do not silently
+change `--parse=ratio` into a scalarized speed/size objective.
+
+This result is **not** a current external `FRONT-CROSSING`; a same-job
+reference-front timing run is required before such a claim.
+
+#### I10-1B — P4.1 bit-exact DEFLATE reconstruction — **NEXT / ISOLATED**
+
+- implementation contract: `docs/I10-DEFLATE-REPLAY-INTEGRATION-PLAN.md`;
+- first production scope: ZIP method-8 raw DEFLATE only;
+- the frozen mozilla census puts 3,132,001 of 3,177,007 DEFLATE compressed bytes in ZIP (~98.6%), while PNG contributes only 45,006 B;
+- valid ZIP replay population is 2,289 streams / 2,856,886 compressed bytes;
+- use a new ratio transform ID; do not reuse tombstoned transform 3;
+- reconstruction semantics must be pinned by the format. Do **not** make exact decode depend on whichever host zlib happens to be installed;
+- a pinned replay engine is the shortest adopt-class path for the first causal experiment; decoder code-size cost must be charged explicitly.
+
+I10-1B starts from a new branch/checkpoint only after the I10-1A hardened result
+is tagged. No DEFLATE-replay source may be mixed into the I10-1A branch.
 
 ### I10-2 — build information-attribution oracles
 

@@ -3790,6 +3790,7 @@ struct Options {
     std::string ratio_backend="brotli"; // rev-2 mode-17 backend registry choice (wire id 1 today)
     // E6 BWT backend experiments (ABLATION ONLY; production default behavior unchanged):
     int bwt_post=-1;         // force one postcoder id (0/1/2/3/4) for the BWT backend; -1 = encoder picks smallest
+    bool bwt_aux=false;      // I10-1A: emit auxiliary BWT indexes for faster inverse BWT; default OFF keeps legacy bytes exact
     bool bwt_lzp=false;      // LZP prepass before BWT (default OFF)
     uint32_t bwt_subblock=128u<<20; // cap BWT sub-block size; default 128 MiB = effectively off for all 12 Silesia files (memory lever only, not a ratio lever)
     uint32_t decode_threads=1; // parallel block-decode worker count; 1 = serial (zero behavioral change)
@@ -3905,6 +3906,12 @@ static constexpr uint8_t kBwtPostArithO0   = 1;
 static constexpr uint8_t kBwtPostArithO1   = 2;
 static constexpr uint8_t kBwtPostRawStream = 3;
 static constexpr uint8_t kBwtPostQlfc      = 4; // QLFC-like local frequency
+// I10-1A additive inner-BWT framing. Legacy payloads begin with postcoder IDs
+// 0..4. 0xFF is already the OUTER BWT-subblock wrapper, so 0xFE is an
+// unambiguous tag at the bwt_backend_decode boundary.
+static constexpr uint8_t kBwtAuxTag = 0xFE;
+static constexpr uint32_t kBwtAuxTargetWalks = 1024;
+static constexpr uint64_t kBwtAuxMaxIndexes = 1u << 20;
 
 struct BwtMtfRle {
     std::vector<uint8_t> tokens; // 0 = run of rank-0; 1..255 = literal MTF rank
@@ -4237,21 +4244,45 @@ static std::vector<uint8_t> bwt_postcoder_payload(uint8_t post,const std::vector
 // Serialize postcoder candidates ONE AT A TIME, retaining only the current best
 // (memory cap). At most 2 candidate payloads + the BWT/MTF intermediates are
 // live at once; intermediates are released right after selection.
+static int32_t bwt_aux_rate_for_size(int32_t n) {
+    // Target ~1024 independent LF walks. libsais requires r to be a power of 2.
+    // For ANVIL's int32-sized BWT blocks this never approaches int32 overflow,
+    // but keep the calculation in uint64_t so the policy itself is explicit.
+    uint64_t target=(static_cast<uint64_t>(n)+kBwtAuxTargetWalks-1)/kBwtAuxTargetWalks;
+    uint64_t r=2;
+    while(r<target) r<<=1;
+    if(r>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("BWT auxiliary sampling rate overflow");
+    return static_cast<int32_t>(r);
+}
+
 std::vector<uint8_t> bwt_backend_encode(const std::vector<uint8_t>& in,const Options& opt) {
     if(in.empty()) throw std::runtime_error("BWT backend requires nonempty input");
     if(in.size()>static_cast<size_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("BWT input too large");
     const int32_t n=static_cast<int32_t>(in.size());
     std::vector<uint8_t> bwt(in.size()); std::vector<int32_t> tmp(in.size());
-    int32_t primary=libsais_bwt(in.data(),bwt.data(),tmp.data(),n,0,nullptr);
+    std::vector<int32_t> aux_indexes;
+    int32_t aux_rate=0;
+    int32_t primary=0;
+    if(opt.bwt_aux && n>1) {
+        aux_rate=bwt_aux_rate_for_size(n);
+        const uint64_t icount=1+(static_cast<uint64_t>(n)-1)/static_cast<uint64_t>(aux_rate);
+        if(icount==0 || icount>kBwtAuxMaxIndexes) throw std::runtime_error("BWT auxiliary index count out of range");
+        aux_indexes.resize(static_cast<size_t>(icount));
+        if(libsais_bwt_aux(in.data(),bwt.data(),tmp.data(),n,0,nullptr,aux_rate,aux_indexes.data())!=0)
+            throw std::runtime_error("libsais auxiliary BWT failed");
+        for(int32_t idx:aux_indexes) if(idx<1 || idx>n) throw std::runtime_error("libsais auxiliary BWT returned invalid index");
+        primary=aux_indexes[0];
+    } else {
+        primary=libsais_bwt(in.data(),bwt.data(),tmp.data(),n,0,nullptr);
+    }
     // libsais primary is 1-based and INCLUSIVE of n: libsais_unbwt_aux requires
     // I[0] in [1,n] (and I[0]==n for n<=1). Do NOT remap n->1 the old code did:
     // measured, for inputs whose BWT primary is n, unbwt(...,1) reconstructs the
     // WRONG string while unbwt(...,n) is exact. Store the returned index as-is.
     if(primary<1 || primary>n) throw std::runtime_error("libsais BWT failed");
     if(n==1) {
-        // BWT of a single byte is that byte. Primary must be 1 (== n); emit the
-        // raw-stream postcoder framing so the decoder's normal raw branch reads a
-        // valid stream and libsais_unbwt performs the n==1 copy.
+        // Keep the degenerate one-byte representation legacy-v1 even when
+        // --bwt-aux=on: auxiliary indexing cannot accelerate a one-byte inverse.
         auto s=encode_stream_smallest(bwt);
         std::vector<uint8_t> z; z.push_back(kBwtPostRawStream); put_uvar(z,1u); z.insert(z.end(),s.begin(),s.end());
         return z;
@@ -4276,7 +4307,20 @@ std::vector<uint8_t> bwt_backend_encode(const std::vector<uint8_t>& in,const Opt
         }
         if(opt.bwt_post>=0 && opt.bwt_post!=static_cast<int>(post)) return; // forced ablation
         std::vector<uint8_t> payload=bwt_postcoder_payload(post,bwt,mr);
-        std::vector<uint8_t> cand; cand.push_back(post); put_uvar(cand,static_cast<uint32_t>(primary));
+        std::vector<uint8_t> cand;
+        if(!aux_indexes.empty()) {
+            // Additive v2 BWT payload. Charge the COMPLETE auxiliary index before
+            // candidate selection; never select a postcoder on header-free bytes.
+            cand.push_back(kBwtAuxTag);
+            cand.push_back(post);
+            put_uvar(cand,static_cast<uint32_t>(aux_rate));
+            put_uvar(cand,aux_indexes.size());
+            for(int32_t idx:aux_indexes) put_u32le(cand,static_cast<uint32_t>(idx));
+        } else {
+            // Legacy v1 path MUST remain byte-identical when --bwt-aux=off.
+            cand.push_back(post);
+            put_uvar(cand,static_cast<uint32_t>(primary));
+        }
         cand.insert(cand.end(),payload.begin()+1,payload.end()); // skip duplicate postcoder byte
         if(best.empty() || cand.size()<best.size()){ best=std::move(cand); }
         payload.clear(); payload.shrink_to_fit();
@@ -4289,9 +4333,45 @@ std::vector<uint8_t> bwt_backend_encode(const std::vector<uint8_t>& in,const Opt
 
 static std::vector<uint8_t> bwt_backend_decode(const uint8_t* p,size_t n,size_t expected) {
     if(expected==0 || expected>static_cast<size_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("bad BWT output size");
-    const uint8_t* e=p+n; if(p>=e) throw std::runtime_error("truncated BWT backend header"); uint8_t post=*p++;
-    // libsais primary is 1-based in [1,n]; n is a VALID index (do not remap).
-    uint64_t pv=get_uvar(p,e); if(pv<1 || pv>expected) throw std::runtime_error("bad BWT primary index"); int32_t primary=static_cast<int32_t>(pv);
+    const uint8_t* e=p+n;
+    if(p>=e) throw std::runtime_error("truncated BWT backend header");
+
+    bool use_aux=false;
+    uint8_t post=0;
+    int32_t primary=0;
+    int32_t aux_rate=0;
+    std::vector<int32_t> aux_indexes;
+
+    if(*p==kBwtAuxTag) {
+        use_aux=true; ++p;
+        if(p>=e) throw std::runtime_error("truncated BWT auxiliary postcoder");
+        post=*p++;
+        if(expected<=1) throw std::runtime_error("BWT auxiliary payload invalid for tiny output");
+        uint64_t rv=get_uvar(p,e);
+        uint64_t icount=get_uvar(p,e);
+        if(rv<2 || rv>static_cast<uint64_t>(expected) ||
+           rv>static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) || (rv&(rv-1))!=0)
+            throw std::runtime_error("bad BWT auxiliary sampling rate");
+        const uint64_t want=1+(static_cast<uint64_t>(expected)-1)/rv;
+        if(icount==0 || icount!=want || icount>kBwtAuxMaxIndexes || icount>expected)
+            throw std::runtime_error("bad BWT auxiliary index count");
+        if(icount>static_cast<uint64_t>(e-p)/4u) throw std::runtime_error("truncated BWT auxiliary index array");
+        aux_indexes.resize(static_cast<size_t>(icount));
+        for(size_t i=0;i<aux_indexes.size();++i) {
+            uint32_t idx=get_u32le(p,e);
+            if(idx<1 || idx>expected) throw std::runtime_error("bad BWT auxiliary index");
+            aux_indexes[i]=static_cast<int32_t>(idx);
+        }
+        aux_rate=static_cast<int32_t>(rv);
+        primary=aux_indexes[0];
+    } else {
+        post=*p++;
+        // libsais primary is 1-based in [1,n]; n is a VALID index (do not remap).
+        uint64_t pv=get_uvar(p,e);
+        if(pv<1 || pv>expected) throw std::runtime_error("bad BWT primary index");
+        primary=static_cast<int32_t>(pv);
+    }
+
     std::vector<uint8_t> bwt;
     if(post==kBwtPostStaticMtf) {
         uint64_t tn=get_uvar(p,e); if(tn>uint64_t(e-p)) throw std::runtime_error("truncated BWT token stream");
@@ -4307,8 +4387,12 @@ static std::vector<uint8_t> bwt_backend_decode(const uint8_t* p,size_t n,size_t 
     } else if(post==kBwtPostQlfc) {
         bwt=bwt_qlfc_decode(p,static_cast<size_t>(e-p),expected,static_cast<uint64_t>(primary)); p=e;
     } else throw std::runtime_error("unknown BWT postcoder id");
+
     std::vector<uint8_t> out(expected); std::vector<int32_t> tmp(expected+1);
-    if(libsais_unbwt(bwt.data(),out.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,primary)!=0) throw std::runtime_error("libsais inverse BWT failed");
+    int32_t rc=use_aux
+        ? libsais_unbwt_aux(bwt.data(),out.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,aux_rate,aux_indexes.data())
+        : libsais_unbwt(bwt.data(),out.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,primary);
+    if(rc!=0) throw std::runtime_error("libsais inverse BWT failed");
     return out;
 }
 #endif
@@ -4356,9 +4440,9 @@ static std::vector<uint8_t> ratio_backend_encode(uint8_t backend,const std::vect
         //   if in <= cap:  bare bwt_backend_encode payload (byte-identical to old).
         //   else:          0xFF (framing tag) uvar(n_subblocks)
         //                  per sub block: uvar(decoded_len) uvar(payload_len) payload
-        // The 0xFF tag cannot collide with a bare payload, whose first byte is a
-        // postcoder id in 0..4 (consumed by the decoder's 0xFF check at
-        // ratio_backend_decode).
+        // The 0xFF tag cannot collide with a bare payload, whose first byte is
+        // either a legacy postcoder id in 0..4 or the auxiliary-v2 tag 0xFE
+        // (consumed by the decoder's 0xFF check at ratio_backend_decode).
         const size_t cap=static_cast<size_t>(opt.bwt_subblock);
         if(in.size()<=cap) return bwt_backend_encode(in,opt);
         std::vector<uint8_t> z; z.push_back(0xFF); size_t off=0; uint32_t nsub=0;
@@ -4383,18 +4467,28 @@ static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* 
 #ifdef ANVIL_HAVE_LIBSAIS
     if(backend==kRatioBackendBwt) {
         const uint8_t* e=p+n;
-        // Subblock framing uses a 0xFF tag as its first byte; a bare single-subblock
-        // payload starts with a postcoder id in 0..4, so the tag cannot collide.
+        // Subblock framing uses a 0xFF tag as its first byte; a bare inner payload
+        // starts with a legacy postcoder id in 0..4 or auxiliary-v2 tag 0xFE,
+        // so the outer tag cannot collide.
         if(p<e && *p==0xFF) {
             ++p; uint64_t nsub=get_uvar(p,e);
+            // Each subblock necessarily consumes at least two one-byte varints
+            // (decoded length + payload length). Bound the loop before any
+            // subblock allocation so hostile metadata cannot create a huge
+            // iteration count relative to the enclosing payload.
+            if(nsub==0 || nsub>expected || nsub>static_cast<uint64_t>(e-p)/2u)
+                throw std::runtime_error("bad BWT subblock count");
             std::vector<uint8_t> out; out.reserve(expected);
             for(uint64_t i=0;i<nsub;++i) {
                 uint64_t dlen=get_uvar(p,e); uint64_t plen=get_uvar(p,e);
+                if(dlen==0 || dlen>expected-out.size())
+                    throw std::runtime_error("bad BWT subblock decoded length");
                 if(plen>uint64_t(e-p)) throw std::runtime_error("truncated BWT subblock");
                 auto sub=bwt_backend_decode(p,static_cast<size_t>(plen),static_cast<size_t>(dlen)); p+=plen;
                 if(sub.size()!=static_cast<size_t>(dlen)) throw std::runtime_error("BWT subblock size mismatch");
                 out.insert(out.end(),sub.begin(),sub.end());
             }
+            if(p!=e) throw std::runtime_error("BWT subblock trailing bytes");
             if(out.size()!=expected) throw std::runtime_error("BWT subblock reconstruction size mismatch");
             return out;
         }
@@ -4847,7 +4941,7 @@ static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=14695981039346
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--bwt-aux=on|off] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
               << "  note: sparse->11, shape->12, topology->13, tcopy->14, hotop->15, ariref->16, ratio->17 (rev-2 transform + explicit backend registry)\n"
@@ -4888,6 +4982,12 @@ int main(int argc,char**argv) {
             else if(a.rfind("--ratio-lines=",0)==0)opt.ratio_lines=(a.substr(14)!="off");
             else if(a.rfind("--ratio-backend=",0)==0)opt.ratio_backend=a.substr(16);
             else if(a.rfind("--bwt-post=",0)==0){ int v=std::stoi(a.substr(11)); if(v<-1||v>255) throw std::runtime_error("--bwt-post must be -1 or 0..255"); opt.bwt_post=v; }
+            else if(a.rfind("--bwt-aux=",0)==0){
+                const std::string v=a.substr(10);
+                if(v=="on") opt.bwt_aux=true;
+                else if(v=="off") opt.bwt_aux=false;
+                else throw std::runtime_error("--bwt-aux must be on or off");
+            }
             else if(a.rfind("--bwt-lzp=",0)==0)opt.bwt_lzp=(a.substr(10)!="off");
             else if(a.rfind("--bwt-subblock=",0)==0){ uint64_t v=std::stoull(a.substr(15)); if(v==0 || v>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("--bwt-subblock must be 1..2GiB"); opt.bwt_subblock=static_cast<uint32_t>(v); }
             else if(a.rfind("--decode-threads=",0)==0){ uint64_t v=std::stoull(a.substr(17)); if(v==0 || v>1024) throw std::runtime_error("--decode-threads must be 1..1024"); opt.decode_threads=static_cast<uint32_t>(v); }

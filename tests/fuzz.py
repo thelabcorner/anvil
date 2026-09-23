@@ -42,7 +42,7 @@ def ratio_layout(blob: bytes):
     blen,p=read_uvar(blob,p)
     if p>=len(blob): raise ValueError('truncated block mode')
     mode=blob[p]; p+=1
-    plen,p=read_uvar(blob,p)
+    plen_off=p; plen,p=read_uvar(blob,p); plen_end=p
     if p+4>len(blob): raise ValueError('truncated crc')
     p+=4
     payload=p
@@ -52,9 +52,45 @@ def ratio_layout(blob: bytes):
     xlen,xlen_end=read_uvar(blob,xlen_off)
     return {
         'block_size': block_size, 'total': total, 'blen': blen, 'plen': plen,
+        'plen_off': plen_off, 'plen_end': plen_end,
         'transform_off': transform_off, 'backend_off': backend_off,
         'xlen_off': xlen_off, 'xlen_end': xlen_end, 'xlen': xlen,
         'backend_payload_off': xlen_end,
+    }
+
+
+def bwt_inner_layout(blob: bytes):
+    """Parse a single, un-subblocked backend-2 payload for test assertions."""
+    lay=ratio_layout(blob)
+    if blob[lay['transform_off']] != 0 or blob[lay['backend_off']] != 2:
+        raise ValueError('expected direct/BWT ratio payload')
+    p=lay['backend_payload_off']
+    e=len(blob)
+    if p>=e: raise ValueError('truncated BWT payload')
+    if blob[p] == 0xff:
+        raise ValueError('subblocked BWT payload not supported by this helper')
+    if blob[p] == 0xfe:
+        tag_off=p; p+=1
+        if p>=e: raise ValueError('truncated auxiliary postcoder')
+        post=blob[p]; p+=1
+        rate_off=p; rate,p=read_uvar(blob,p); rate_end=p
+        count_off=p; count,p=read_uvar(blob,p); count_end=p
+        index_off=p
+        index_bytes=4*count
+        if p+index_bytes>e: raise ValueError('truncated auxiliary indexes')
+        indexes=[struct.unpack_from('<I',blob,p+4*i)[0] for i in range(count)]
+        p+=index_bytes
+        return {
+            **lay, 'aux': True, 'tag_off': tag_off, 'post': post,
+            'rate': rate, 'rate_off': rate_off, 'rate_end': rate_end,
+            'count': count, 'count_off': count_off, 'count_end': count_end,
+            'index_off': index_off, 'indexes': indexes, 'postdata_off': p,
+        }
+    post=blob[p]; p+=1
+    primary_off=p; primary,p=read_uvar(blob,p)
+    return {
+        **lay, 'aux': False, 'post': post, 'primary': primary,
+        'primary_off': primary_off, 'postdata_off': p,
     }
 
 
@@ -62,6 +98,18 @@ def replace_uvar_same_width(blob: bytes, lo: int, hi: int, value: int) -> bytes:
     enc=put_uvar(value)
     if len(enc)!=hi-lo: raise ValueError('replacement changes uvar width')
     return blob[:lo]+enc+blob[hi:]
+
+
+def replace_inner_uvar_adjust_ratio_plen(blob: bytes, lo: int, hi: int, value: int) -> bytes:
+    """Replace a backend-inner uvar, updating enclosing mode-17 payload length."""
+    lay=ratio_layout(blob)
+    enc=put_uvar(value)
+    delta=len(enc)-(hi-lo)
+    out=blob[:lo]+enc+blob[hi:]
+    plen_enc=put_uvar(lay['plen']+delta)
+    if len(plen_enc)!=lay['plen_end']-lay['plen_off']:
+        raise ValueError('enclosing payload length changes uvar width')
+    return out[:lay['plen_off']]+plen_enc+out[lay['plen_end']:]
 
 
 def require_reject(exe: Path, bad: Path, dec: Path, label: str):
@@ -361,6 +409,163 @@ def adversarial_bwt(exe: Path, td: Path) -> tuple[int, list[str]]:
         bad.write_bytes(mut)
         require_reject_bwt(exe, bad, dec, label)
     return len(cases), skipped
+
+
+def aux_bwt_roundtrip(exe: Path, td: Path) -> int:
+    """I10-1A direct coverage for additive auxiliary-index BWT framing."""
+    n=0
+    data=(b'I10 auxiliary inverse BWT must stay causal and byte-exact. ' * 2200)
+    src=td/'aux-source.bin'; src.write_bytes(data)
+    dec=td/'aux.out'
+
+    # CLI contract is strict: typos must never silently enable a new wire format.
+    bad_cli=run([exe,'c',src,td/'aux-bad-cli.anv','--parse=ratio',
+                 '--ratio-backend=bwt','--bwt-aux=banana','--quiet'],ok=False)
+    if bad_cli.returncode==0 or b'--bwt-aux must be on or off' not in bad_cli.stderr:
+        raise RuntimeError('invalid --bwt-aux value was not rejected explicitly')
+    n+=1
+
+    # Default-off and explicit-off must be literally identical.
+    default_p=td/'aux-default.anv'
+    off_p=td/'aux-off.anv'
+    common=['--parse=ratio','--ratio-backend=bwt','--ratio-context=off',
+            '--ratio-lines=off','--bwt-post=2','--quiet']
+    run([exe,'c',src,default_p,*common])
+    run([exe,'c',src,off_p,*common,'--bwt-aux=off'])
+    if default_p.read_bytes()!=off_p.read_bytes():
+        raise RuntimeError('--bwt-aux default changed legacy BWT bytes')
+    n+=1
+
+    # Compare the only changed representation component: the v2 auxiliary
+    # header/indexes. BWT/postcoder data itself must remain identical.
+    on_p=td/'aux-on.anv'
+    run([exe,'c',src,on_p,*common,'--bwt-aux=on'])
+    legacy_blob=off_p.read_bytes(); aux_blob=on_p.read_bytes()
+    legacy=bwt_inner_layout(legacy_blob); aux=bwt_inner_layout(aux_blob)
+    if legacy['aux'] or not aux['aux']:
+        raise RuntimeError('BWT auxiliary framing detection mismatch')
+    if legacy['post']!=2 or aux['post']!=2:
+        raise RuntimeError('forced postcoder 2 changed under auxiliary framing')
+    if not aux['indexes'] or aux['indexes'][0]!=legacy['primary']:
+        raise RuntimeError('auxiliary I[0] does not match legacy primary index')
+    if legacy_blob[legacy['postdata_off']:] != aux_blob[aux['postdata_off']:]:
+        raise RuntimeError('libsais_bwt_aux changed BWT/postcoder payload bytes')
+    run([exe,'d',on_p,dec,'--quiet'])
+    if dec.read_bytes()!=data:
+        raise RuntimeError('auxiliary BWT roundtrip mismatch')
+    n+=1
+
+    # Every currently-supported decoder-visible postcoder must work through v2.
+    for pid in (1,2,3):
+        packed=td/f'aux-post{pid}.anv'
+        run([exe,'c',src,packed,'--parse=ratio','--ratio-backend=bwt',
+             '--ratio-context=off','--ratio-lines=off',f'--bwt-post={pid}',
+             '--bwt-aux=on','--quiet'])
+        lay=bwt_inner_layout(packed.read_bytes())
+        if not lay['aux'] or lay['post']!=pid:
+            raise RuntimeError(f'auxiliary forced postcoder {pid} wire mismatch')
+        run([exe,'d',packed,dec,'--quiet'])
+        if dec.read_bytes()!=data:
+            raise RuntimeError(f'auxiliary forced postcoder {pid} roundtrip mismatch')
+        n+=1
+
+    # Tiny/policy-boundary inputs exercise r selection and degenerate handling.
+    for size in (1,2,3,17,1023,1024,1025,4097):
+        tiny=td/f'aux-n{size}.bin'
+        tiny_data=bytes((i*29+11)&255 for i in range(size))
+        tiny.write_bytes(tiny_data)
+        packed=td/f'aux-n{size}.anv'
+        run([exe,'c',tiny,packed,'--parse=ratio','--ratio-backend=bwt',
+             '--ratio-context=off','--ratio-lines=off','--bwt-aux=on','--quiet'])
+        run([exe,'d',packed,dec,'--quiet'])
+        if dec.read_bytes()!=tiny_data:
+            raise RuntimeError(f'auxiliary BWT size={size} roundtrip mismatch')
+        n+=1
+
+    # Outer 0xFF subblock framing must compose with inner 0xFE auxiliary payloads.
+    sub_data=(b'aux-subblock-composition-0123456789' * 9000)[:262144]
+    sub_src=td/'aux-subblock.bin'; sub_src.write_bytes(sub_data)
+    sub_p=td/'aux-subblock.anv'
+    run([exe,'c',sub_src,sub_p,'--parse=ratio','--ratio-backend=bwt',
+         '--ratio-context=off','--ratio-lines=off','--bwt-post=2',
+         '--bwt-aux=on','--bwt-subblock=32768','--quiet'])
+    sub_blob=sub_p.read_bytes(); sl=ratio_layout(sub_blob)
+    p=sl['backend_payload_off']; e=len(sub_blob)
+    if p>=e or sub_blob[p]!=0xff:
+        raise RuntimeError('auxiliary subblock test did not emit outer 0xFF frame')
+    p+=1; nsub_off=p; nsub,p=read_uvar(sub_blob,p); nsub_end=p
+    if nsub<2:
+        raise RuntimeError('auxiliary subblock test emitted fewer than two subblocks')
+    decoded_sum=0
+    first_dlen_off=first_dlen_end=None
+    for si in range(nsub):
+        dlen_off=p; dlen,p=read_uvar(sub_blob,p); dlen_end=p
+        if si==0:
+            first_dlen_off,first_dlen_end=dlen_off,dlen_end
+        plen,p=read_uvar(sub_blob,p)
+        if plen<=0 or p+plen>e:
+            raise RuntimeError('invalid BWT subblock payload length')
+        if sub_blob[p]!=0xfe:
+            raise RuntimeError('BWT subblock did not contain inner auxiliary frame')
+        decoded_sum+=dlen; p+=plen
+    if p!=e or decoded_sum!=len(sub_data):
+        raise RuntimeError('auxiliary subblock framing accounting mismatch')
+    run([exe,'d',sub_p,dec,'--quiet'])
+    if dec.read_bytes()!=sub_data:
+        raise RuntimeError('auxiliary BWT subblock roundtrip mismatch')
+    n+=1
+
+    # Outer subblock framing is exact-consumption wire, not a permissive
+    # container. These mutations were historically able to defer rejection or
+    # leave trailing bytes unchecked; reject them before expensive subdecode.
+    sub_bad=td/'aux-subblock-bad.anv'
+    sub_bad.write_bytes(replace_uvar_same_width(
+        sub_blob,nsub_off,nsub_end,0))
+    require_reject_bwt(exe,sub_bad,dec,'aux-subblock-zero-count')
+    n+=1
+
+    if first_dlen_off is None or first_dlen_end is None:
+        raise RuntimeError('missing first BWT subblock length offsets')
+    sub_bad.write_bytes(replace_uvar_same_width(
+        sub_blob,first_dlen_off,first_dlen_end,len(sub_data)+1))
+    require_reject_bwt(exe,sub_bad,dec,'aux-subblock-decoded-length-over-total')
+    n+=1
+
+    # Increase the enclosing mode-17 payload length by one and append one byte,
+    # making the extra byte part of the BWT backend payload rather than generic
+    # file trailing garbage. The 0xFF decoder must consume its payload exactly.
+    trailing=replace_uvar_same_width(
+        sub_blob,sl['plen_off'],sl['plen_end'],sl['plen']+1)+b'\x00'
+    sub_bad.write_bytes(trailing)
+    require_reject_bwt(exe,sub_bad,dec,'aux-subblock-trailing-byte')
+    n+=1
+
+    # Malformed v2 headers/indexes must fail before inverse reconstruction.
+    blob=aux_blob; lay=aux
+    cases=[]
+    m=bytearray(blob); m[lay['tag_off']+1]=0xfd
+    cases.append(('aux-unknown-postcoder',bytes(m)))
+    cases.append(('aux-nonpow2-rate',
+                  replace_uvar_same_width(blob,lay['rate_off'],lay['rate_end'],lay['rate']+1)))
+    over_rate=1
+    while over_rate<=len(data):
+        over_rate<<=1
+    cases.append(('aux-rate-over-output',
+                  replace_inner_uvar_adjust_ratio_plen(
+                      blob,lay['rate_off'],lay['rate_end'],over_rate)))
+    cases.append(('aux-wrong-index-count',
+                  replace_uvar_same_width(blob,lay['count_off'],lay['count_end'],lay['count']+1)))
+    m=bytearray(blob); struct.pack_into('<I',m,lay['index_off'],0)
+    cases.append(('aux-zero-index',bytes(m)))
+    m=bytearray(blob); struct.pack_into('<I',m,lay['index_off'],len(data)+1)
+    cases.append(('aux-index-over-output',bytes(m)))
+    bad=td/'aux-bad.anv'
+    for label,mut in cases:
+        bad.write_bytes(mut)
+        require_reject_bwt(exe,bad,dec,label)
+        n+=1
+
+    return n
 
 
 def forced_postcoder_roundtrip(exe: Path, td: Path) -> int:
@@ -758,6 +963,7 @@ def main():
         td=Path(td)
         deterministic=adversarial_rev2(exe,td)
         deterministic_bwt, _ = adversarial_bwt(exe, td)
+        aux_bwt = aux_bwt_roundtrip(exe, td)
         golden = golden_bwt(exe, td)
         # Jackson's registry-coverage rule: every decoder-visible postcoder ID
         # (0..4) gets a DIRECT forced encode->decode test, not just the selector's
@@ -793,7 +999,7 @@ def main():
                 total+=1
     print(f'PASS seed={args.seed} roundtrip_variants={total} mutations={mutated} '
           f'deterministic_rev2={deterministic} deterministic_bwt={deterministic_bwt} '
-          f'golden_bwt={golden} forced_postcoders={forced_post} '
+          f'aux_bwt={aux_bwt} golden_bwt={golden} forced_postcoders={forced_post} '
           f'registry_block_modes={reg["block_modes"]} registry_transforms={reg["transforms"]} '
           f'suite_modes={sorted(suite_observed)} suite_unforceable={sorted(suite_missing)}')
 
