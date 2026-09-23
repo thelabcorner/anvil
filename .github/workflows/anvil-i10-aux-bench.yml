@@ -1,0 +1,258 @@
+name: ANVIL I10-1A aux-unBWT paired experiment
+
+# Manual, isolated I10-1A causal experiment. Control and candidate are built from
+# one checkout and measured on the same hosted VM. No push/PR trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Canonical scout target
+        required: true
+        default: webster
+        type: choice
+        options:
+          - webster
+          - dickens
+          - mozilla
+          - enwik8
+      decode_reps:
+        description: Paired decode repetitions
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '15'
+      encode_reps:
+        description: Paired encode repetitions
+        required: true
+        default: '7'
+        type: choice
+        options:
+          - '7'
+          - '9'
+
+concurrency:
+  group: anvil-i10-aux-${{ inputs.target }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  paired:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      BUILD_DIR: build-i10-aux
+      OUT_DIR: ${{ github.workspace }}/i10-aux-results
+      CORPUS_DIR: ${{ github.workspace }}/.ci-corpora
+
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev python3 python3-pip util-linux
+          python3 -m pip install --break-system-packages --disable-pip-version-check psutil
+
+      - name: Fingerprint runner
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "sha=$GITHUB_SHA"
+            echo "ref=$GITHUB_REF"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "target=${{ inputs.target }}"
+            uname -a
+            lscpu
+            clang-18 --version
+            clang++-18 --version
+            cmake --version
+            ninja --version
+            python3 --version
+            git status --short --branch
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$BUILD_DIR" --parallel 4 --target anvil
+          stat -c 'anvil_binary_bytes=%s' "$BUILD_DIR/anvil" | tee -a "$OUT_DIR/provenance.txt"
+          sha256sum "$BUILD_DIR/anvil" | tee -a "$OUT_DIR/provenance.txt"
+
+      - name: Fetch canonical target
+        run: |
+          if [ "${{ inputs.target }}" = "enwik8" ]; then
+            python3 tools/gha_fetch_corpus.py enwik8 --out "$CORPUS_DIR"
+            SRC="$CORPUS_DIR/enwik8/enwik8"
+          else
+            python3 tools/gha_fetch_corpus.py silesia --out "$CORPUS_DIR"
+            SRC="$CORPUS_DIR/silesia/${{ inputs.target }}"
+          fi
+          test -f "$SRC"
+          echo "SRC=$SRC" >> "$GITHUB_ENV"
+          sha256sum "$SRC" | tee "$OUT_DIR/source-sha256.txt"
+          stat -c 'source_bytes=%s' "$SRC" | tee -a "$OUT_DIR/provenance.txt"
+
+      - name: Encode isolated control and candidate
+        run: |
+          CTRL="$OUT_DIR/control.anv"
+          CAND="$OUT_DIR/candidate.anv"
+
+          taskset -c 0 "$BUILD_DIR/anvil" c "$SRC" "$CTRL" \
+            --parse=ratio --ratio-backend=bwt \
+            --ratio-context=off --ratio-lines=off \
+            --bwt-post=2 --bwt-aux=off --quiet
+
+          taskset -c 0 "$BUILD_DIR/anvil" c "$SRC" "$CAND" \
+            --parse=ratio --ratio-backend=bwt \
+            --ratio-context=off --ratio-lines=off \
+            --bwt-post=2 --bwt-aux=on --quiet
+
+          taskset -c 0 "$BUILD_DIR/anvil" d "$CTRL" /dev/shm/anvil-i10-control.out --quiet
+          taskset -c 0 "$BUILD_DIR/anvil" d "$CAND" /dev/shm/anvil-i10-candidate.out --quiet
+          cmp "$SRC" /dev/shm/anvil-i10-control.out
+          cmp "$SRC" /dev/shm/anvil-i10-candidate.out
+
+          python3 - "$SRC" "$CTRL" "$CAND" "$OUT_DIR/bytes.json" <<'PY'
+          import hashlib, json, pathlib, sys
+          src, ctrl, cand, out = map(pathlib.Path, sys.argv[1:])
+          def digest(p):
+              h=hashlib.sha256()
+              with p.open("rb") as f:
+                  for b in iter(lambda:f.read(1<<20),b""):
+                      h.update(b)
+              return h.hexdigest()
+          d={
+              "source_bytes": src.stat().st_size,
+              "source_sha256": digest(src),
+              "control_bytes": ctrl.stat().st_size,
+              "control_sha256": digest(ctrl),
+              "candidate_bytes": cand.stat().st_size,
+              "candidate_sha256": digest(cand),
+          }
+          d["aux_wire_delta_bytes"]=d["candidate_bytes"]-d["control_bytes"]
+          d["aux_wire_delta_ratio"]=d["aux_wire_delta_bytes"]/d["source_bytes"]
+          pathlib.Path(out).write_text(json.dumps(d,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(d,indent=2,sort_keys=True))
+          PY
+
+      - name: Paired interleaved decode timing
+        run: |
+          CTRL_JSON=$(python3 - "$BUILD_DIR/anvil" "$OUT_DIR/control.anv" <<'PY'
+          import json,sys
+          print(json.dumps([sys.argv[1],"d",sys.argv[2],"/dev/null","--quiet"]))
+          PY
+          )
+          CAND_JSON=$(python3 - "$BUILD_DIR/anvil" "$OUT_DIR/candidate.anv" <<'PY'
+          import json,sys
+          print(json.dumps([sys.argv[1],"d",sys.argv[2],"/dev/null","--quiet"]))
+          PY
+          )
+
+          taskset -c 0 python3 tools/paired_bench.py \
+            --control-json "$CTRL_JSON" \
+            --candidate-json "$CAND_JSON" \
+            --reps "${{ inputs.decode_reps }}" \
+            --warmups 2 \
+            --seed 41246 \
+            --bootstrap 20000 \
+            --epsilon 0.02 \
+            --cpu 0 \
+            --out "$OUT_DIR/decode-raw-reps.csv" \
+            --summary "$OUT_DIR/decode-summary.json"
+
+          cat "$OUT_DIR/decode-summary.json"
+
+      - name: Paired interleaved encode timing
+        run: |
+          CTRL_TIMED=/dev/shm/anvil-i10-control-timed.anv
+          CAND_TIMED=/dev/shm/anvil-i10-candidate-timed.anv
+
+          CTRL_JSON=$(python3 - "$BUILD_DIR/anvil" "$SRC" "$CTRL_TIMED" <<'PY'
+          import json,sys
+          print(json.dumps([
+              sys.argv[1],"c",sys.argv[2],sys.argv[3],
+              "--parse=ratio","--ratio-backend=bwt",
+              "--ratio-context=off","--ratio-lines=off",
+              "--bwt-post=2","--bwt-aux=off","--quiet"
+          ]))
+          PY
+          )
+          CAND_JSON=$(python3 - "$BUILD_DIR/anvil" "$SRC" "$CAND_TIMED" <<'PY'
+          import json,sys
+          print(json.dumps([
+              sys.argv[1],"c",sys.argv[2],sys.argv[3],
+              "--parse=ratio","--ratio-backend=bwt",
+              "--ratio-context=off","--ratio-lines=off",
+              "--bwt-post=2","--bwt-aux=on","--quiet"
+          ]))
+          PY
+          )
+
+          taskset -c 0 python3 tools/paired_bench.py \
+            --control-json "$CTRL_JSON" \
+            --candidate-json "$CAND_JSON" \
+            --control-observe "$CTRL_TIMED" \
+            --candidate-observe "$CAND_TIMED" \
+            --reps "${{ inputs.encode_reps }}" \
+            --warmups 1 \
+            --seed 51966 \
+            --bootstrap 20000 \
+            --epsilon 0.02 \
+            --cpu 0 \
+            --out "$OUT_DIR/encode-raw-reps.csv" \
+            --summary "$OUT_DIR/encode-summary.json"
+
+          cat "$OUT_DIR/encode-summary.json"
+
+      - name: Write summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "# ANVIL I10-1A aux-unBWT"
+            echo
+            echo "- target: \`${{ inputs.target }}\`"
+            echo "- source commit: \`$GITHUB_SHA\`"
+            echo "- control: forced BWT/post2, auxiliary indexes OFF"
+            echo "- candidate: forced BWT/post2, auxiliary indexes ON"
+            echo "- timing: paired/interleaved, same job/VM, CPU 0"
+            echo
+            if [ -f "$OUT_DIR/bytes.json" ]; then
+              echo "## Wire bytes"
+              echo '~~~json'
+              cat "$OUT_DIR/bytes.json"
+              echo '~~~'
+            fi
+            if [ -f "$OUT_DIR/decode-summary.json" ]; then
+              echo "## Decode paired result"
+              echo '~~~json'
+              cat "$OUT_DIR/decode-summary.json"
+              echo '~~~'
+            fi
+            if [ -f "$OUT_DIR/encode-summary.json" ]; then
+              echo "## Encode paired result"
+              echo '~~~json'
+              cat "$OUT_DIR/encode-summary.json"
+              echo '~~~'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i10-aux-${{ inputs.target }}-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
