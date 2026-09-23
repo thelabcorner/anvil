@@ -1,0 +1,189 @@
+name: ANVIL I10 Grotli G0
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-i10-grotli-g0
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      implementation_sha: ${{ steps.freeze.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze implementation identity
+        id: freeze
+        shell: bash
+        run: |
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          git status --porcelain
+          git rev-parse HEAD
+
+      - name: Install compiler and Brotli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 libbrotli-dev python3
+
+      - name: Build frozen standalone G0 prototype
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++20 tools/grotli_g0.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g0
+          sha256sum grotli_g0 | tee grotli-g0-binary.sha256
+
+      - name: Malformed-wire and roundtrip self-test
+        run: ./grotli_g0 selftest
+
+      - name: Fetch and verify frozen discovery corpora
+        shell: bash
+        run: |
+          mkdir -p corpus results
+          python3 - <<'PY'
+          import hashlib, pathlib, urllib.request
+
+          rows = [
+              (
+                  "D1-amazon-cellphones.ndjson",
+                  "https://raw.githubusercontent.com/simdjson/simdjson-data/4197c425e857f0ec38e89822fdd0bd9ea21f4daf/jsonexamples/amazon_cellphones.ndjson",
+                  277673,
+                  "9cbb6a071eaa2a10c24d9b4d1729dca501f2f72b",
+              ),
+              (
+                  "D2-cdisc-adae.ndjson",
+                  "https://raw.githubusercontent.com/cdisc-org/DataExchange-DatasetJson/a379f49a3f43c2aaed63bdeca761bdb7140df2c3/examples/adam/adae.ndjson",
+                  615350,
+                  "4bb9ef50f650767967fc3f0a663c73d33c57c608",
+              ),
+          ]
+          for name, url, expected_n, expected_blob in rows:
+              data = urllib.request.urlopen(url, timeout=60).read()
+              if len(data) != expected_n:
+                  raise SystemExit(f"{name}: size {len(data)} != {expected_n}")
+              git_blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              if git_blob != expected_blob:
+                  raise SystemExit(f"{name}: blob {git_blob} != {expected_blob}")
+              p = pathlib.Path("corpus") / name
+              p.write_bytes(data)
+              print(name, len(data), expected_blob, hashlib.sha256(data).hexdigest())
+          PY
+
+      - name: Measure frozen discovery arms
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > results/discovery.jsonl
+          for f in corpus/*; do
+            /usr/bin/time -v -o "results/$(basename "$f").time.txt" \
+              ./grotli_g0 measure "$f" | tee -a results/discovery.jsonl
+          done
+
+      - name: Discovery size ruling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          rows=[json.loads(x) for x in pathlib.Path("results/discovery.jsonl").read_text().splitlines() if x.strip()]
+          if len(rows) != 2: raise SystemExit("expected exactly two discovery rows")
+          for r in rows:
+              if not r.get("vxor_roundtrip"): raise SystemExit(f"roundtrip failed: {r['file']}")
+              print(r["file"], "delta_pct=", r["vxor_delta_pct"], "selected=", r["selected_arm"])
+          pathlib.Path("results/discovery-ruling.json").write_text(json.dumps({
+              "schema":1,
+              "implementation_sha":"${{ github.sha }}",
+              "both_ge_5pct": all(r["vxor_delta_pct"] <= -5.0 for r in rows),
+              "aggregate_raw_envelope_bytes": sum(r["raw_envelope_bytes"] for r in rows),
+              "aggregate_selected_bytes": sum(r["selected_bytes"] for r in rows),
+              "rows": rows,
+          }, indent=2)+"\n")
+          PY
+          cat results/discovery-ruling.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload discovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: grotli-g0-discovery-${{ github.run_id }}
+          path: |
+            results/
+            grotli-g0-binary.sha256
+          retention-days: 30
+
+  validation:
+    needs: discovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.discovery.outputs.implementation_sha }}
+
+      - name: Verify frozen implementation identity
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ needs.discovery.outputs.implementation_sha }}"
+
+      - name: Install compiler and Brotli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 libbrotli-dev python3
+
+      - name: Build and self-test identical G0 implementation
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++20 tools/grotli_g0.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g0
+          ./grotli_g0 selftest
+          sha256sum grotli_g0 | tee grotli-g0-binary.sha256
+
+      - name: Fetch and verify held-out V1
+        shell: bash
+        run: |
+          mkdir -p corpus results
+          python3 - <<'PY'
+          import hashlib, pathlib, urllib.request
+          name="V1-gharchive-10mb.ndjson"
+          url="https://raw.githubusercontent.com/rushikeshmore/DataCortex/9bf63551499974e7398b87b45d1a9d4b50936566/corpus/json-bench/gharchive-10mb.ndjson"
+          expected_n=10485760
+          expected_blob="59d1d00825053e9894a7895fcea0665912524ec8"
+          data=urllib.request.urlopen(url, timeout=120).read()
+          if len(data)!=expected_n: raise SystemExit(f"size {len(data)} != {expected_n}")
+          git_blob=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+          if git_blob!=expected_blob: raise SystemExit(f"blob {git_blob} != {expected_blob}")
+          pathlib.Path("corpus",name).write_bytes(data)
+          pathlib.Path("results/validation-provenance.json").write_text(__import__("json").dumps({
+              "name":name,"bytes":len(data),"git_blob":git_blob,
+              "sha256":hashlib.sha256(data).hexdigest(),
+              "implementation_sha":"${{ needs.discovery.outputs.implementation_sha }}"
+          },indent=2)+"\n")
+          PY
+
+      - name: Measure held-out frozen arm
+        shell: bash
+        run: |
+          /usr/bin/time -v -o results/V1.time.txt \
+            ./grotli_g0 measure corpus/V1-gharchive-10mb.ndjson | tee results/validation.jsonl
+          python3 - <<'PY'
+          import json, pathlib
+          r=json.loads(pathlib.Path("results/validation.jsonl").read_text())
+          if not r.get("vxor_roundtrip"): raise SystemExit("V1 roundtrip failed")
+          pathlib.Path("results/validation-ruling.json").write_text(json.dumps({
+              "schema":1,
+              "implementation_sha":"${{ needs.discovery.outputs.implementation_sha }}",
+              "heldout_ge_1pct": r["vxor_delta_pct"] <= -1.0,
+              "row":r,
+          },indent=2)+"\n")
+          PY
+          cat results/validation-ruling.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload held-out evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: grotli-g0-validation-${{ github.run_id }}
+          path: |
+            results/
+            grotli-g0-binary.sha256
+          retention-days: 30
