@@ -6,10 +6,12 @@
 
 ## 1. Source line
 
-The canonical benchmark source for the initial Silesia/enwik8 pair is the public commit:
+The canonical benchmark source for the initial Silesia/enwik8 pair is frozen under tag `i10-baseline-codec-20260923`:
 
-- `95ce16a8cc15c4e43e9c77d6b8be029559d27d1d`
-- public repository: `thelabcorner/anvil`
+- local research commit: `770eeb4`;
+- public benchmark commit: `95ce16a8cc15c4e43e9c77d6b8be029559d27d1d`;
+- public repository: `thelabcorner/anvil`;
+- both commits contain the same codec-source line, with the Linux CPUID portability correction.
 
 That commit contains:
 
@@ -175,13 +177,14 @@ When both canonical jobs finish:
 
 1. download/inspect the Actions artifacts;
 2. verify every canonical corpus hash and roundtrip result;
-3. compare deterministic ANVIL bytes against the frozen I9 byte record;
-4. classify any difference as:
+3. run `tools/close_i10_remote_baseline.py` over the remote CSVs; ANVIL `anvil-auto-direct` bytes are a hard per-file regression gate against frozen I9, while external-reference byte differences are classified as series/toolchain observations;
+4. compare deterministic ANVIL bytes against the frozen I9 byte record;
+5. classify any difference as:
    - expected toolchain-independent identity,
    - implementation/source change,
    - or unexplained divergence requiring a stop;
-5. record the Linux runner/toolchain fingerprint as a new benchmark series;
-6. only then begin I10-1 integration experiments:
+6. record the Linux runner/toolchain fingerprint as a new benchmark series;
+7. only then begin I10-1 integration experiments:
    - `libsais_unbwt_aux`;
    - P4.1 DEFLATE reconstruction.
 
