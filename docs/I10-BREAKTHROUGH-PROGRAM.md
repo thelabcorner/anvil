@@ -611,10 +611,42 @@ Ruling: retain both representations. Legacy/default-off is the byte-smaller
 size-first point; auxiliary v2 is the faster-decode point. Do not silently
 change `--parse=ratio` into a scalarized speed/size objective.
 
-This result is **not** a current external `FRONT-CROSSING`; a same-job
-reference-front timing run is required before such a claim.
+The external same-job reference-cost gate is now closed by GitHub Actions run
+`35927623136`: **FRONT-GAP_COST** on both Silesia and enwik8.
 
-#### I10-1B — P4.1 bit-exact DEFLATE reconstruction — **NEXT / ISOLATED**
+- Silesia: candidate/xz decode-time ratio **1.7226** (95% CI
+  **[1.6640, 1.8400]**), but peak RSS is **4.572x xz**; candidate/Brotli decode
+  ratio remains **3.4474**.
+- enwik8: candidate/xz decode-time ratio **3.9065** (95% CI
+  **[3.9003, 4.0088]**), candidate/Brotli **5.6642**, and peak RSS is
+  **598.9 MiB / 9.043x xz**.
+
+The byte advantage survives, but there is no complete external crossing.
+Working-set size is now a measured binding axis.
+
+#### I10-1A.2 — BWT subblock bytes/decode/RSS sweep — **NEXT SYSTEMS / NO NEW MECHANISM**
+
+Before inventing another BWT representation, sweep the already-wired
+`--bwt-subblock` cap with `--bwt-aux=on` on GitHub Actions.
+
+Initial grid:
+
+- 8 MiB;
+- 16 MiB;
+- 32 MiB;
+- 64 MiB;
+- 128 MiB control.
+
+Measure exact bytes, routing, paired decode timing, encode/decode peak RSS,
+roundtrip/hash, and subblock count. Preserve 128 MiB as the max-ratio/default
+point unless the experiment justifies a separately named memory/balanced
+profile.
+
+Historical evidence already proves this is a real rate/memory lever: small BWT
+subblocks can lose enough context to cost bytes, so the sweep is a genuine
+Pareto experiment rather than a free optimization.
+
+#### I10-1B — P4.1 bit-exact DEFLATE reconstruction — **NEXT ENGINEERING / ISOLATED**
 
 - implementation contract: `docs/I10-DEFLATE-REPLAY-INTEGRATION-PLAN.md`;
 - first production scope: ZIP method-8 raw DEFLATE only;
