@@ -608,6 +608,99 @@ simplest distribution.
 
 ---
 
+## 7.5 REPLAY is already a real mechanism class: preflate-rs
+
+Microsoft's current `preflate-rs` is direct, modern prior art for the exact
+DEFLATE-reconstruction direction planned for I10-1B.
+
+It does not merely decompress and hope a generic encoder recreates the same
+bytes. Its architecture is explicitly predictive:
+
+1. parse the original DEFLATE bitstream into literals and length/distance
+   decisions;
+2. fingerprint compressor behavior and parameters;
+3. replay compression with that predicted configuration;
+4. encode only the decision differences as corrections;
+5. reconstruct the original DEFLATE bitstream bit-exactly from plaintext,
+   parameters, and corrections.
+
+The project states that unrecognized compressors still round-trip exactly; they
+simply require more correction information. The corrections stream is CABAC
+coded, and processing is chunked to bound memory.
+
+Reference:
+- https://github.com/microsoft/preflate-rs
+
+This has three consequences for ANVIL.
+
+### 7.5.1 I10-1B is adopt-class engineering, not a novelty candidate
+
+The novelty target must not be "we can recreate DEFLATE from plaintext plus
+side information." That mechanism class is established.
+
+The useful I10-1B question is narrower and measurable:
+
+> **Does a REPLAY explanation produce a non-dominated complete-cost point inside
+> ANVIL's heterogeneous portfolio once plaintext compression, reconstruction
+> metadata, correction bytes, decoder code size, memory, and replay time are all
+> charged?**
+
+This is still strategically valuable because it tests a fundamentally
+different explanation from COPY or statistical coding.
+
+### 7.5.2 preflate-rs should be an oracle/reference before it is a dependency
+
+Before writing native ANVIL replay code, use the existing implementation to
+answer anatomy questions on the frozen DEFLATE population:
+
+- correction bytes per stream and compressor family;
+- fraction explained by inferred global parameters versus local corrections;
+- correction density and locality;
+- whether the same corrections exhibit reusable structures;
+- replay encode/decode cost;
+- memory and code-size implications;
+- behavior on recognized versus unknown compressor fingerprints.
+
+This work belongs in GitHub Actions, not on the workstation.
+
+The purpose is to determine whether ANVIL should:
+
+- integrate/pin an existing replay engine;
+- implement a deliberately narrower replay subset;
+- or treat preflate only as an oracle while searching for a more general
+  serialization-reconstruction abstraction.
+
+### 7.5.3 The transferable breakthrough idea is predictor + sparse innovation
+
+The deepest reusable pattern is:
+
+    original serialization
+      ~= deterministic predictor(semantic payload, global parameters)
+         + sparse decision corrections
+
+That is much broader than DEFLATE.
+
+Potential future domains include any deterministic or nearly deterministic
+serialization pipeline where the decoder can cheaply re-run a canonical model:
+
+- image/container encodings;
+- compiler/linker relocation choices;
+- structured binary encoders;
+- protocol/message serialization;
+- database/page layouts;
+- archive metadata.
+
+The general research question becomes:
+
+> **Can ANVIL identify the latent generating process of a byte region, store the
+> semantic object, and encode only the innovation required to replay the exact
+> original serialization?**
+
+That is a legitimate path toward "do not store the bytes at all" without
+pretending the reconstruction program is free.
+
+---
+
 ## 8. Information-anatomy oracles: determine why a region is expensive
 
 Before adding another codec mode, ANVIL should classify unexplained regions.
@@ -880,9 +973,22 @@ events**, not another full byte array.
 ### 10.3 PDEP/PEXT are worth considering, but selectively
 
 Earlier AMD generations made PDEP/PEXT unattractive. The Znver3 scheduling model
-treats them as native 3-latency operations.
+treats them as native 3-latency operations, and current uops.info Zen-3
+measurements agree: register PEXT/PDEP are one executed uop, three-cycle latency,
+with measured one-instruction-per-cycle throughput.
 
-Potential ANVIL uses:
+By contrast, uops.info measures AVX2 `VPGATHERDD ymm` on Zen 3 at 39 executed
+uops and roughly eight-cycle throughput. That is a useful reality check:
+**vector width does not make random-access dependencies cheap.** For LF mapping
+or other scattered tables, several interleaved ordinary scalar loads can be a
+better machine architecture than one wide gather.
+
+References:
+- https://uops.info/html-instr/PDEP_R64_R64_R64.html
+- https://uops.info/html-lat/ZEN3/PEXT_R32_R32_R32-Measurements.html
+- https://uops.info/html-instr/VPGATHERDD_YMM_VSIB_YMM_YMM.html
+
+Potential ANVIL uses for PEXT/PDEP:
 
 - gather/scatter small control bitfields;
 - compact lane-change masks;
@@ -1041,6 +1147,134 @@ A future BWT optimization should therefore prioritize:
 
 A wide gather over dependent/random LF states is not automatically superior to
 well-interleaved scalar loads.
+
+### 10.10 Current-source hardware opportunity map
+
+A source audit after I10-1A gives a much more precise priority order than
+"SIMD the decoder."
+
+#### Already architecturally strong: CRC
+
+`crc32()` is the pattern to imitate:
+
+- stable semantic operation;
+- scalar/slicing fallback;
+- PCLMUL-specialized kernel;
+- runtime CPUID dispatch;
+- identical wire and corruption semantics.
+
+This is mature enough to serve as ANVIL's template for future ISA-specialized
+operations.
+
+#### High-EV representation target: semantic varints
+
+`get_uvar()`, `read_varint_pull()`, and `read_varint_bytes()` are all
+byte-at-a-time continuation-bit loops. They appear across stream framing,
+lengths, distances, grammar symbols, and mode metadata.
+
+This does **not** mean "write a SIMD varint decoder first." It means the wire is
+frequently presenting semantic integers in a representation that inherently
+creates branch/length dependencies.
+
+Research priority:
+
+- census actual integer distributions and stream lengths;
+- compare exact bytes for current uvar, Stream-VByte-like control/data,
+  frame-of-reference + bitpack, PFor, and range/offset;
+- only build an ISA decoder for a representation that wins complete cost.
+
+#### Serial by construction: one-state rANS
+
+`rans_decode()` is one state recurrence:
+
+    slot -> symbol -> frequency/start -> next state -> renormalize
+
+There is little useful AVX2 width inside one such state. The useful experiment
+is **multiple independent states**, explicitly charging their initial states and
+partition metadata.
+
+This should be evaluated as another rate/speed Pareto choice, not silently
+substituted into max-ratio.
+
+#### Even more serial: context rANS
+
+`ctx_rans_decode()` adds a second dependency:
+
+    previous decoded symbol -> next context/model
+
+on top of the rANS state recurrence.
+
+Trying to vectorize this exact chain is low-EV. Plausible alternatives are:
+
+- independent restart stripes with explicit initial contexts;
+- context models on naturally separate semantic streams;
+- use the context coder only where its rate gain exceeds the dependency cost.
+
+The anatomy oracle should measure that trade before any new wire exists.
+
+#### Wire-invisible candidate: multi-symbol Huffman tables
+
+The current fast Huffman path uses a 12-bit table but emits one symbol per
+lookup. A wider decode-table entry can potentially emit two or more symbols
+from one prefix when sufficient bits are known, analogous to multi-symbol
+Huffman decoders used by mature codecs.
+
+This is attractive because it may be **wire-invisible**. The costs are larger
+decode tables, build time, cache pressure, and fallback complexity. It belongs
+in a remote micro/whole-codec experiment only if mode-4 traffic is significant.
+
+A separate four-stream Huffman representation is a different experiment: it
+spends wire to create independent states and must be treated as a new Pareto
+point.
+
+#### High-EV wire-invisible candidate: default-with-exceptions bulk reconstruction
+
+The fused `StreamPull` mode-5 path currently tests one mask bit per requested
+byte. Its semantics are naturally separable:
+
+1. fill a run with the default value;
+2. enumerate exception bits in word-sized masks;
+3. patch exception values.
+
+That maps directly to bulk memset/vector stores + POPCNT/TZCNT sparse patches,
+with no wire change. It is a much cleaner SIMD/word-parallel target than
+context-rANS.
+
+#### Copy kernels: specialize overlap classes, not generic memcpy folklore
+
+Several token decoders still copy overlapping matches byte-by-byte. The correct
+kernel depends on distance:
+
+- `dist >= len`: ordinary memcpy-like copy;
+- medium overlap: repeat a seed pattern with wide stores;
+- very small distances: specialized pattern expansion/chunk-set;
+- sparse-corrected copy: base copy then sparse patch pass.
+
+zlib-ng's architecture-specific inflate chunk-copy kernels are a useful
+reference because they specialize the **semantic operation** rather than
+vectorizing a generic token loop.
+
+#### Sparse patch decode is already close to the right abstraction
+
+The hot-op path reads 32-bit masks, uses POPCNT for residual accounting, and
+enumerates set bits with countr_zero / clear-lowest-set-bit. That is already a
+compact event representation.
+
+The likely SIMD opportunity is therefore more on the **encoder/anatomy side**
+(wide compare -> mask) and on the base copy, not replacing the sparse event
+loop with vector instructions for their own sake.
+
+#### StreamPull fusion is directionally correct
+
+`StreamPull::pull_bytes()` already avoids per-byte codec dispatch for raw,
+rANS, and fast-Huffman bulk reads. That confirms an important rule for the
+future Explanation Machine:
+
+> normalize/high-level-dispatch outside the hot region; expose long homogeneous
+> kernel runs inside it.
+
+The synthesis architecture should lower toward this shape rather than re-create
+a bytecode interpreter in the reconstruction loop.
 
 ---
 
