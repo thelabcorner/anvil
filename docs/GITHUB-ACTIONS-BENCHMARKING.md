@@ -179,6 +179,8 @@ Do not call "beats zstd" or "beats Brotli" a frontier result without naming the 
 
 `.github/workflows/anvil-research-bench.yml` is deliberately manual.
 
+Concurrency is keyed by suite (`anvil-research-bench-<suite>`). This allows independent Silesia/enwik8/smoke jobs to use separate hosted VMs while still preventing overlapping runs of the same suite. A single global concurrency key is incorrect here because GitHub retains at most one pending run per key and a newer pending dispatch can replace an older one.
+
 The intended suites are:
 
 - `smoke` — remote build + fuzz + development corpus;
