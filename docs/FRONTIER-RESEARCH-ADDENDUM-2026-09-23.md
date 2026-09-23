@@ -52,6 +52,51 @@ an important instance of the REPLAY explanation class. It should remain
 isolated and proceed only after this research reset is fully understood. It
 should not become the conceptual center of Iteration 10.
 
+### 0.1 Same-runner external evidence changes the systems priority
+
+After I10-1A closed, GitHub Actions run `35927623136` measured the frozen
+auxiliary-BWT candidate against xz -9e and Brotli q11/lw30 in the **same jobs**,
+with paired/interleaved decode timing, an A/A null control, exact bytes, and
+per-process peak RSS.
+
+The result is decisively **FRONT-GAP_COST**, not an external crossing.
+
+Silesia:
+
+- ANVIL aux: **46,466,339 B**, ~47.9 MB/s decode, **248.4 MiB** peak RSS;
+- xz -9e: 48,456,004 B, ~82.5 MB/s, 54.3 MiB;
+- Brotli q11/lw30: 49,383,136 B, ~166.9 MB/s, 124.5 MiB;
+- paired ANVIL/xz decode-time ratio: **1.7226**, 95% CI [1.6640, 1.8400];
+- paired ANVIL/Brotli ratio: **3.4474**, CI [3.2680, 3.5059];
+- ANVIL/xz RSS ratio: **4.572x**.
+
+enwik8:
+
+- ANVIL aux: **23,537,422 B**, ~26.5 MB/s decode, **598.9 MiB** peak RSS;
+- xz -9e: 24,831,648 B, ~103.6 MB/s, 66.2 MiB;
+- Brotli q11/lw30: 24,810,180 B, ~150.2 MB/s, 251.9 MiB;
+- paired ANVIL/xz decode-time ratio: **3.9065**, 95% CI [3.9003, 4.0088];
+- paired ANVIL/Brotli ratio: **5.6642**, CI [5.6528, 6.7596];
+- ANVIL/xz RSS ratio: **9.043x**.
+
+The A/A null intervals span 1.0 in both jobs.
+
+This changes the immediate engineering interpretation:
+
+> **For large BWT-routed inputs, working-set size is now a measured first-class
+> frontier problem, not a secondary implementation detail.**
+
+The existing `--bwt-subblock` representation therefore deserves a proper
+three-axis **bytes / decode / peak-RSS sweep** before inventing a new BWT
+mechanism. It already bounds the size of any one inverse-BWT problem, and the
+historical audit proves that the knob is genuinely wired. The cost is known to
+be nonzero: smaller independent blocks can lose BWT context and add framing.
+
+That is exactly a Pareto experiment: spend some rate to reduce working set and
+possibly expose more independent decode work. Max-ratio keeps the 128 MiB
+effectively-off point; a memory/balanced profile is allowed to retain a
+different non-dominated cap.
+
 ---
 
 ## 1. Re-state the actual optimization problem
@@ -1541,6 +1586,68 @@ This also feeds back into Explanation Synthesis: every synthesized node should
 carry exact output extent whenever possible so lowering can choose whole-region
 kernels rather than a generic streaming interface.
 
+### 10.12 PivCo-Huffman: redesign the decoding problem for SIMD
+
+Zukowski's 2026 **PivCo-Huffman** is directly relevant to ANVIL's current
+canonical-Huffman stream mode. Instead of accelerating the conventional
+one-code-at-a-time table walk, it represents Huffman decoding using
+wavelet-tree-style per-node bitmaps and processes blocks of symbols with SIMD
+partition/merge primitives. A flat-subtree path collapses multiple tree levels
+into packed local codes and direct symbol lookup.
+
+The paper reports decode throughput above the tested production Huffman
+baselines and also explores selectively ANS-coding skewed partition bitmaps to
+move ratio toward ANS while retaining high decode speed. The public project has
+scalar, NEON, x86 SSE/AVX2, and AVX-512-oriented implementations.
+
+References:
+- https://arxiv.org/abs/2606.05765
+- https://github.com/MarcinZukowski/pivco-huffman
+
+The relevant lesson is not "replace ANVIL Huffman with PivCo immediately."
+PivCo is currently a research project and its own Zen-3 benchmark notes include
+distributions where the new representation loses.
+
+The stronger lesson is architectural:
+
+> **If a scalar decoding recurrence resists SIMD, ask whether an equivalent
+> representation can turn it into block operations that SIMD naturally likes.**
+
+For ANVIL this creates a concrete oracle experiment:
+
+1. identify how many bytes/time are actually spent in stream mode 4;
+2. on those exact semantic streams, compare current canonical Huffman against a
+   PivCo-style block representation;
+3. charge its tree/bitmap wire completely;
+4. keep both rate and decode throughput;
+5. reject it if the useful traffic share is too small or Zen-3 behavior is not
+   robust.
+
+This should remain isolated from the Explanation Machine. It is an entropy-leaf
+architecture experiment, not a new explanation class.
+
+### 10.13 dtANS reinforces hardware-layout co-design, but is GPU-specific evidence
+
+Schätzle, Pegolotti, and Püschel's 2026 **dtANS** adapts tabled ANS for fast
+parallel GPU decoding inside sparse matrix-vector multiplication. Its encoding
+interleaves per-thread compressed word streams so a warp's reads are coalesced,
+and decoding is fused directly with the consumer computation.
+
+Reference:
+- https://arxiv.org/abs/2603.01915
+
+ANVIL should not import a GPU-oriented entropy format into its CPU codec from
+this result. The transferable principle is narrower:
+
+> **Compressed layout, independent-state partitioning, memory-access pattern,
+> and the consumer kernel should be designed together.**
+
+This is further support for ANVIL's planned fused lowering and multi-state
+entropy experiments. A representation that is a few bits worse may still
+dominate if it turns serial/random memory traffic into regular independent
+lanes. Conversely, a mathematically elegant entropy state that causes cache
+misses or a dependency chain may be system-level inferior.
+
 ---
 
 ## 11. A SIMD Stage-1 anatomy scanner should precede more semantic modes
@@ -1656,6 +1763,33 @@ The initial question is not "does the prototype beat ANVIL?"
 The question is:
 
 > Which operator families repeatedly explain bits that ANVIL currently stores?
+
+### R-C0 — Sweep the existing BWT memory/rate/decode representation
+
+No new codec mechanism.
+
+Use the already-wired `--bwt-subblock` framing with `--bwt-aux=on` and sweep
+caps on GitHub Actions, initially:
+
+- 8 MiB;
+- 16 MiB;
+- 32 MiB;
+- 64 MiB;
+- 128 MiB / effectively unsplit control.
+
+For every cap record:
+
+- exact compressed bytes;
+- exact routing;
+- paired/interleaved decode timing where practical;
+- encode time;
+- peak encode/decode RSS;
+- roundtrip/hash;
+- subblock count.
+
+The purpose is to discover whether a **memory-bounded BWT Pareto point** already
+exists. Do not alter the 128 MiB max-ratio default merely because a smaller cap
+uses less memory.
 
 ### R-C — Build the Stage-1 AVX2 anatomy kernel
 
