@@ -379,67 +379,244 @@ recorded as series/toolchain observations and are not ANVIL regressions.
 This closes the most important compatibility gate: **adding the auxiliary
 decoder/wire support does not perturb the legacy/default-off representation.**
 
-Before promotion:
-
-- close the corpus-wide routing/byte audit;
-- decide whether auxiliary framing should be:
-  - default for BWT,
-  - frontier/routing-selected,
-  - or remain an explicit representation option.
+The remaining promotion gates are now closed below.
 
 ---
 
-## 8. Active follow-ups
+## 8. Canonical portfolio economics
 
-Paired experiments:
+The corpus-wide exact byte/routing audit completed successfully in run
+`35920128901`. This is a deterministic byte/routing audit; its one-shot timing
+columns are context only. The paired experiments in §4–§6 remain the timing
+authority.
 
-- `webster`: run `35918797463` — **PASS_SPEED_GATE**;
-- `dickens`: run `35919229083` — **PASS_SPEED_GATE**;
-- `enwik8`: run `35919233744` — **PASS_SPEED_GATE**.
+### Silesia
 
-Candidate default-off canonical identity runs:
+| Metric | Legacy/default-off | Auxiliary v2 | Delta |
+|---|---:|---:|---:|
+| auto portfolio bytes | **46,446,995 B** | **46,466,339 B** | **+19,344 B** |
+| delta / source | — | — | **+0.00912717%** |
+| BWT-routed files | 7 / 12 | 7 / 12 | **0 route changes** |
 
-- Silesia: `35918898984` — **SUCCESS / byte-identical to frozen I9**;
-- enwik8: `35918904873` — **SUCCESS / byte-identical to frozen I9**.
+Per-file auto-portfolio byte deltas:
 
-Corpus-wide exact routing/byte audit:
+| File | Route | Aux delta |
+|---|---|---:|
+| dickens | BWT | +2,494 B |
+| mozilla | non-BWT | 0 B |
+| mr | BWT | +2,438 B |
+| nci | BWT | +4,098 B |
+| ooffice | non-BWT | 0 B |
+| osdb | BWT | +2,467 B |
+| reymont | BWT | +3,238 B |
+| samba | non-BWT | 0 B |
+| sao | non-BWT | 0 B |
+| webster | BWT | +2,535 B |
+| x-ray | BWT | +2,074 B |
+| xml | non-BWT | 0 B |
 
-- run `35920128901` — Silesia still running;
-- enwik8 cell complete:
-  - control auto: **23,534,368 B**;
-  - aux auto: **23,537,422 B**;
-  - delta: **+3,054 B** / **+0.003054% of source**;
-  - route remains BWT;
-  - no routing change.
+Every row roundtripped. Non-BWT routes remain byte-identical because the
+auxiliary representation is only charged when the BWT backend is actually
+selected.
 
-The portfolio run uses the unchanged measured codec source plus benchmark-tooling-only follow-up commits.
+### enwik8
 
-### Hardening validation
+| Metric | Legacy/default-off | Auxiliary v2 | Delta |
+|---|---:|---:|---:|
+| auto portfolio bytes | **23,534,368 B** | **23,537,422 B** | **+3,054 B** |
+| delta / source | — | — | **+0.003054%** |
+| route | BWT | BWT | no change |
 
-After the measured checkpoint, the branch received two behavior-preserving hardening changes:
+### Combined canonical byte surface
 
-- auxiliary wire decoding rejects sampling rates greater than the decoded output size, narrowing accepted malformed inputs to the encoder-reachable domain;
-- `--bwt-aux` now accepts only literal `on` or `off` instead of silently treating arbitrary values as enabled.
+Across Silesia + enwik8:
 
-Public hardening commit: `6c9831fa0d34851ebd2c3d5ef2464ed71803e97a`.
+- source bytes: **311,938,580 B**;
+- legacy auto: **69,981,363 B**;
+- aux auto: **70,003,761 B**;
+- charged increase: **22,398 B**;
+- increase / source: **0.00718026%**;
+- increase / legacy compressed bytes: **0.0320057%**;
+- routing changes: **0**.
 
-Remote smoke/fuzz run `35925127112`: **SUCCESS**.
+This matters for the ruling: auxiliary v2 is not a free byte win. It buys decode
+speed by spending a very small, explicit amount of wire.
 
-Fuzz summary:
+---
+
+## 9. Binary-size and memory cost
+
+Remote build-only audit run `35926420144` built the frozen I10 baseline and the
+final hardened auxiliary candidate with the same Ubuntu 24.04 / Clang 18
+toolchain.
+
+| Metric | Frozen baseline | Hardened aux | Delta |
+|---|---:|---:|---:|
+| unstripped ELF | 477,624 B | 485,816 B | **+8,192 B** |
+| stripped ELF | 445,320 B | 453,512 B | **+8,192 B** |
+| `.text` | — | — | **+2,976 B** |
+| `.rodata` | — | — | +496 B |
+| `.eh_frame` | — | — | +728 B |
+| `.gcc_except_table` | — | — | +288 B |
+
+The 8 KiB file-size step therefore should not be interpreted as 8 KiB of new
+decoder logic: the actual text-section growth is approximately **2.91 KiB**,
+with the remainder dominated by ELF layout/alignment and unwind/exception
+metadata.
+
+The final stripped combined encoder/decoder executable is **453,512 B**. This is
+not a decoder-only size measurement, but it keeps the whole research CLI well
+below the 1 MiB scale used by the AITDCC external-validation constraint.
+
+Observed decode peak RSS in the portfolio audit is effectively unchanged for
+the canonical enwik8 control/aux pair (~599 MiB) and generally near-identical on
+Silesia BWT rows. Single-shot RSS differences are retained in the artifact but
+are not promoted into a fine-grained memory claim.
+
+---
+
+## 10. Final hardening and format-contract audit
+
+After the original measured checkpoint, I10-1A received only
+compatibility-preserving hardening; no parser, entropy model, backend-routing,
+or BWT postcoder algorithm was changed.
+
+### First hardening pass
+
+Public commit `6c9831fa0d34851ebd2c3d5ef2464ed71803e97a`:
+
+- reject auxiliary sampling rates greater than decoded output size;
+- make `--bwt-aux` strictly `on|off`;
+- directly test invalid CLI values.
+
+Remote smoke/fuzz `35925127112`: **SUCCESS**, including 20 auxiliary assertions.
+
+### Final framing/contract pass
+
+Final hardened public source commit:
+`c08078ec98e611d51d22961fe4c78e47b8c0c3f5`
+(local research equivalent `dc5c47f`).
+
+The audit found that `FORMAT.md` still described historical zero-based BWT
+primary-index semantics even though the vendored libsais/current decoder use a
+1-based primary index. The normative format now explicitly specifies:
+
+- legacy primary range **[1, n]**;
+- `primary == n` valid, zero invalid;
+- additive inner auxiliary tag `0xFE`;
+- outer BWT-subblock tag `0xFF`;
+- v2 rate/index-count/index bounds;
+- exact payload consumption;
+- length-one inputs remain legacy v1;
+- legacy inverse uses `libsais_unbwt`, auxiliary inverse uses
+  `libsais_unbwt_aux`.
+
+The outer `0xFF` subblock decoder was also tightened to reject malformed
+payloads before expensive subdecode/allocation:
+
+- zero/impossible subblock counts;
+- decoded lengths larger than the remaining expected output;
+- zero decoded lengths;
+- trailing bytes after all declared subblocks.
+
+Direct malformed-frame tests were added for these cases plus `r > expected`.
+
+Final remote smoke/fuzz run `35926415068`: **SUCCESS**.
+
+Final summary:
 
 - roundtrip variants: **480**;
 - mutation cases: **2,880**;
 - deterministic rev-2: **9**;
 - deterministic BWT: **24**;
-- auxiliary-BWT assertions: **20**;
+- auxiliary-BWT assertions: **24**;
 - golden BWT: **4**;
 - forced postcoders: **20**;
 - registered block modes: **14**;
 - registered transforms: **5**.
 
-The extra auxiliary assertion is the invalid-CLI-value rejection. These hardening
-changes do not alter any valid control/candidate wire used by the paired
-measurements above, so the measured timing/byte evidence remains causally
-applicable.
+The paired timing evidence remains applicable because these hardenings reject
+only malformed/unreachable wire states and do not modify the valid measured
+legacy or auxiliary representation.
 
-No I10-1B DEFLATE-replay source work will be combined with this branch. I10-1A remains causally isolated until its ruling is complete.
+---
+
+## 11. I10-1A ruling
+
+**RULING: ADOPT the auxiliary-index BWT representation as a supported Pareto
+option; do not make it the default for the max-ratio/size-first profile.**
+
+The evidence is unusually clean:
+
+- three independent paired targets clear the pre-registered 2% whole-decode
+  speed gate:
+  - dickens **1.364×**;
+  - webster **1.795×**;
+  - enwik8 **2.339×**;
+- exact charged wire overhead is tiny and stable;
+- canonical routing does not change;
+- default-off bytes remain exactly identical to frozen I9, per file;
+- encode timing shows no reliable material penalty in the paired experiments;
+- the gain is single-threaded and not a resource/thread-count trick;
+- memory is effectively unchanged at the current measurement resolution;
+- final decoder-visible wire is documented and aggressively malformed-tested;
+- code growth is approximately **2,976 B of text** / **8,192 B ELF file size**.
+
+The legacy and auxiliary representations therefore occupy different useful
+points:
+
+- **legacy/default-off:** fewer bytes, slower BWT inverse;
+- **auxiliary v2:** slightly more bytes, substantially faster BWT inverse.
+
+Neither representation should erase the other. In particular, `--parse=ratio`
+currently means size-first/max-ratio research behavior, so silently enabling
+auxiliary indexes there would discard the smaller valid point for an objective
+the user did not request.
+
+A future explicitly named **balanced/frontier** profile may select auxiliary v2
+when decode cost is part of the requested objective. That router must use an
+explicit profile/Pareto budget, not an arbitrary hidden scalar lambda.
+
+### What is *not* established
+
+I10-1A is an **adopt-class engineering result**, not a novelty claim.
+
+It also does **not yet establish a current external `FRONT-CROSSING`** under
+ANVIL PR-3. The paired timing comparisons above are auxiliary-vs-legacy ANVIL.
+The historical I9 Brotli/xz timing rows were measured in a different host/tool
+series and cannot be spliced into the new GitHub Actions timing series.
+
+A current external-front claim requires a same-job paired/interleaved comparison
+against the binding reference codecs on the same hosted VM while preserving
+exact byte counts and hashes.
+
+---
+
+## 12. Closed evidence index
+
+Paired decode experiments:
+
+- webster: `35918797463` — **PASS_SPEED_GATE**;
+- dickens: `35919229083` — **PASS_SPEED_GATE**;
+- enwik8: `35919233744` — **PASS_SPEED_GATE**.
+
+Candidate-branch default-off identity:
+
+- Silesia: `35918898984` — **SUCCESS / byte-identical to frozen I9**;
+- enwik8: `35918904873` — **SUCCESS / byte-identical to frozen I9**.
+
+Portfolio/routing audit:
+
+- Silesia + enwik8 matrix: `35920128901` — **SUCCESS**.
+
+Hardening:
+
+- first hardened smoke: `35925127112` — **SUCCESS**;
+- final framing/format smoke: `35926415068` — **SUCCESS**.
+
+Binary size:
+
+- final same-toolchain size audit: `35926420144` — **SUCCESS**.
+
+No I10-1B DEFLATE-replay source work was combined with this branch. I10-1A is
+closed as a causally isolated experiment.
