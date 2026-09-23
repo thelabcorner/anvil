@@ -23,9 +23,9 @@
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 #include <wmmintrin.h>
-#if defined(_MSC_VER) || defined(__clang__)
+#if defined(_MSC_VER)
 #include <intrin.h>
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(__clang__)
 #include <cpuid.h>
 #endif
 #endif
@@ -359,9 +359,9 @@ static uint32_t crc32_slice8(const uint8_t* p, size_t n) {
 #if defined(__x86_64__) || defined(_M_X64)
 // PCLMULQDQ feature check (CPUID leaf 1, ECX bit 1).
 static bool crc32_has_pclmul() {
-#if defined(_MSC_VER) || defined(__clang__)
+#if defined(_MSC_VER)
     int regs[4]; __cpuid(regs, 1); return (regs[2] >> 1) & 1;
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(__clang__)
     unsigned a=0,b=0,c=0,d=0; __cpuid(1, a, b, c, d); return (c >> 1) & 1;
 #else
     return false;
