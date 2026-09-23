@@ -12,10 +12,15 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Install Brotli CLI
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends brotli
+          sudo apt-get install -y --no-install-recommends clang-18 cmake ninja-build libbrotli-dev
+      - name: Build canonical Brotli q11/lw30 helper
+        run: |
+          cmake -S . -B build-g0 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build build-g0 --parallel 4 --target brotli_lw
+          sha256sum build-g0/brotli_lw
       - name: Self-test frozen carrier
         run: python3 tools/grotli_g0.py --selftest
       - name: Fetch and verify frozen corpora
@@ -39,10 +44,10 @@ jobs:
           PY
       - name: Discovery families
         run: |
-          python3 tools/grotli_g0.py corpora/amazon_cellphones.ndjson corpora/adae.ndjson --out g0-discovery.json
+          python3 tools/grotli_g0.py corpora/amazon_cellphones.ndjson corpora/adae.ndjson --brotli-tool build-g0/brotli_lw --out g0-discovery.json
       - name: Frozen held-out validation
         run: |
-          python3 tools/grotli_g0.py corpora/gharchive-10mb.ndjson --out g0-validation.json
+          python3 tools/grotli_g0.py corpora/gharchive-10mb.ndjson --brotli-tool build-g0/brotli_lw --out g0-validation.json
       - name: Summarize
         run: |
           python3 - <<'PY'
