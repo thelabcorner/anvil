@@ -414,4 +414,32 @@ Corpus-wide exact routing/byte audit:
 
 The portfolio run uses the unchanged measured codec source plus benchmark-tooling-only follow-up commits.
 
+### Hardening validation
+
+After the measured checkpoint, the branch received two behavior-preserving hardening changes:
+
+- auxiliary wire decoding rejects sampling rates greater than the decoded output size, narrowing accepted malformed inputs to the encoder-reachable domain;
+- `--bwt-aux` now accepts only literal `on` or `off` instead of silently treating arbitrary values as enabled.
+
+Public hardening commit: `6c9831fa0d34851ebd2c3d5ef2464ed71803e97a`.
+
+Remote smoke/fuzz run `35925127112`: **SUCCESS**.
+
+Fuzz summary:
+
+- roundtrip variants: **480**;
+- mutation cases: **2,880**;
+- deterministic rev-2: **9**;
+- deterministic BWT: **24**;
+- auxiliary-BWT assertions: **20**;
+- golden BWT: **4**;
+- forced postcoders: **20**;
+- registered block modes: **14**;
+- registered transforms: **5**.
+
+The extra auxiliary assertion is the invalid-CLI-value rejection. These hardening
+changes do not alter any valid control/candidate wire used by the paired
+measurements above, so the measured timing/byte evidence remains causally
+applicable.
+
 No I10-1B DEFLATE-replay source work will be combined with this branch. I10-1A remains causally isolated until its ruling is complete.
