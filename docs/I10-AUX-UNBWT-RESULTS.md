@@ -1,7 +1,7 @@
 # ANVIL I10-1A — Auxiliary-index inverse-BWT Results
 
 **Date:** 2026-09-23
-**Status:** active experiment; first end-to-end target passed strongly
+**Status:** CLOSED — adopt as a supported Pareto representation; max-ratio default remains legacy/default-off
 **Mechanism class:** adopt-class decoder engineering; no novelty claim
 **Implementation plan:** `docs/I10-AUX-UNBWT-INTEGRATION-PLAN.md`
 
