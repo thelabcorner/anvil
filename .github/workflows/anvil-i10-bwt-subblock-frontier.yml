@@ -1,0 +1,171 @@
+name: ANVIL I10 BWT subblock frontier
+
+# Remote-only measurement of the existing BWT subblock representation.
+# No codec source mutation occurs here. The frozen I10-1A candidate is swept
+# over rate / decode / peak-RSS points on canonical corpora.
+on:
+  workflow_dispatch:
+    inputs:
+      reps:
+        description: Paired decode repetitions per cap
+        required: true
+        default: '7'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  group: anvil-i10-bwt-subblock-frontier
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  frontier:
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus:
+          - silesia
+          - enwik8
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    env:
+      CANDIDATE_TAG: i10-aux-unbwt-final-v1
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/subblock-${{ matrix.corpus }}
+
+    steps:
+      - name: Checkout measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Checkout frozen I10-1A candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_TAG }}
+          path: candidate
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            time python3
+
+      - name: Fingerprint runner and source
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=$GITHUB_SHA"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "candidate_tag=$CANDIDATE_TAG"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build frozen candidate
+        run: |
+          cmake -S candidate -B candidate/build-subblock -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-subblock --parallel 4 --target anvil
+          sha256sum candidate/build-subblock/anvil | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py \
+            "${{ matrix.corpus }}" \
+            --out "$CORPUS_ROOT"
+
+      - name: Prepare exact subblock representations
+        run: |
+          python3 tooling/tools/bwt_subblock_sweep.py prepare \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --anvil candidate/build-subblock/anvil \
+            --caps-mib 8,16,32,64,128 \
+            --out "$OUT_DIR"
+
+      - name: Paired/interleaved aggregate decode timing
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          reps = "${{ inputs.reps }}"
+          control = ["bash", str(out / "decode-cap-128.sh")]
+
+          def run_pair(label, candidate):
+              cmd = [
+                  sys.executable, str(driver),
+                  "--control-json", json.dumps(control),
+                  "--candidate-json", json.dumps(candidate),
+                  "--reps", reps,
+                  "--warmups", "2",
+                  "--seed", "41246",
+                  "--bootstrap", "20000",
+                  "--epsilon", "0.02",
+                  "--max-cv", "0.15",
+                  "--cpu", "0",
+                  "--ambient-reps", "5",
+                  "--ambient-iterations", "250000",
+                  "--ambient-max-cv", "0.10",
+                  "--out", str(out / f"paired-{label}.csv"),
+                  "--summary", str(out / f"paired-{label}.json"),
+              ]
+              print("RUN", label, flush=True)
+              subprocess.run(cmd, check=True)
+
+          # A/A validates the timing host once for the whole cap series.
+          run_pair("null", control)
+          for cap in (8, 16, 32, 64):
+              run_pair(f"cap-{cap}", ["bash", str(out / f"decode-cap-{cap}.sh")])
+          PY
+
+      - name: Measure per-file decode peak RSS
+        run: |
+          python3 tooling/tools/bwt_subblock_sweep.py rss \
+            --prepare "$OUT_DIR/prepare.json" \
+            --out "$OUT_DIR"
+
+      - name: Summarize internal subblock Pareto set
+        run: |
+          python3 tooling/tools/bwt_subblock_sweep.py summarize \
+            --prepare "$OUT_DIR/prepare.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --timing-dir "$OUT_DIR" \
+            --out "$OUT_DIR"
+          cat "$OUT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload compact raw evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i10-bwt-subblock-${{ matrix.corpus }}-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/*.json
+            ${{ env.OUT_DIR }}/*.csv
+            ${{ env.OUT_DIR }}/*.md
+            ${{ env.OUT_DIR }}/*.txt
+            ${{ env.OUT_DIR }}/decode-cap-*.sh
+          if-no-files-found: error
+          retention-days: 30

@@ -18,7 +18,7 @@ The frozen Iteration-9 checkpoint demonstrated that ANVIL's ratio portfolio can 
 
 Iteration 10 has now closed its first adopt-class improvement: auxiliary-index inverse BWT. On three paired same-runner targets it improved whole-codec decode by **1.364× to 2.339×** for a fully charged 2–4 KiB-per-file wire increase. Across canonical Silesia + enwik8, the size-first portfolio pays **22,398 B** (+0.00718% of source) with no routing changes. The legacy smaller representation remains the default for size-first mode; auxiliary BWT is retained as a distinct faster-decode Pareto option.
 
-That result is **not yet an external reference-front crossing**: current Brotli/xz/Zstd timing must be re-established in the same GitHub-runner jobs before making a PR-3 crossing claim. A ratio win is not, by itself, a codec win.
+The same-runner external reference-cost gate has now closed that question: I10-1A still wins bytes, but is **FRONT-GAP_COST**, not a complete reference-front crossing. On Silesia it is 1.72x xz decode time but 4.57x xz peak RSS; on enwik8 it is 3.91x xz decode time with ~599 MiB peak RSS. Decode dependency depth and BWT working-set size therefore remain binding system axes.
 
 The current research reset and execution program are documented in:
 

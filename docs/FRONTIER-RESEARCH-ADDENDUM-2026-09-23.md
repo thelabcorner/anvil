@@ -223,6 +223,70 @@ space.
 Reference:
 - https://proceedings.iclr.cc/paper_files/paper/2025/hash/db1d69ee01c2b42554f8e14e6f8ca8b6-Abstract-Conference.html
 
+### 2.3.1 Algorithmic sufficient statistics are almost exactly ANVIL's thesis
+
+Classical Kolmogorov complexity asks for the shortest complete description of
+one object. **Algorithmic statistics** asks a more useful two-part question:
+
+> How much of that description is reusable **model/structure**, and how much is
+> irreducible **data-to-model residual**?
+
+Gács, Tromp, and Vitányi formalize an algorithmic sufficient statistic as a
+model that captures essentially all meaningful regularity in an individual
+object while leaving the object typical inside that model. Vereshchagin and
+Vitányi's Kolmogorov structure function then studies the trade-off between a
+model-complexity budget and the shortest residual/index needed to identify the
+particular object inside the model.
+
+References:
+- https://doi.org/10.1109/18.945257
+- https://homepages.cwi.nl/~paulv/papers/algorithmicstatistics.pdf
+- https://doi.org/10.1109/TIT.2004.838346
+- https://homepages.cwi.nl/~paulv/papers/structure.pdf
+
+That is unusually close to ANVIL's design objective:
+
+    source
+      = compact decoder-visible explanation
+      + residual information not explained by that explanation
+
+The theoretical quantities are uncomputable in general, which is precisely why
+ANVIL should **not** attempt arbitrary program search.
+
+Instead define a computable, restricted analogue over an explicit operator DSL.
+
+For target region X and explanation-program budget b:
+
+    h_ANVIL(X, b)
+      = minimum exact residual bits found
+        using a valid ANVIL explanation whose serialized program <= b bits
+
+Then the byte-optimal point for that vocabulary is approximately the lower
+envelope of:
+
+    b + h_ANVIL(X, b)
+
+Unlike the classical structure function, ANVIL also cares about execution. A
+systems version should therefore retain at least:
+
+    (program bits, residual bits, decode work, working set)
+
+as a Pareto surface rather than collapsing them immediately.
+
+This gives the Explanation Machine a much sharper scientific role:
+
+> **It is a computable restricted structure-function estimator for the
+> explanation vocabulary ANVIL actually knows how to decode cheaply.**
+
+That framing also gives negative results value. If the curve stops improving
+after COPY/PATCH/SCAN/REPLAY operators are available, then adding more search
+effort inside the same vocabulary is unlikely to be the breakthrough. The next
+research question becomes: **which new primitive moves the restricted structure
+function downward without exploding decoder cost?**
+
+This is a more rigorous form of "make the bytes reconstructable rather than
+store them."
+
 ### 2.4 Prediction and compression are dual diagnostic views
 
 For a sequential probability model:
