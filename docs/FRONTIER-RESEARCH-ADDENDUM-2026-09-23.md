@@ -699,6 +699,107 @@ The general research question becomes:
 That is a legitimate path toward "do not store the bytes at all" without
 pretending the reconstruction program is free.
 
+### 7.6 Neural compressors quantify a large residual information gap — but do not solve ANVIL's systems problem
+
+The 2025 peer-reviewed LMCompress result and several 2026 preprints reinforce a
+useful fact: modern predictive models can expose source dependencies far beyond
+those represented by ordinary byte-local or dictionary models.
+
+LMCompress uses large generative models to supply probability distributions to
+a lossless entropy coder and reports very large ratio gains across text, image,
+audio, and video workloads. Nacrith combines a 135M-parameter language model
+with online corrections and high-precision arithmetic coding; its preprint
+reports 0.9389 bpb on enwik8. These systems are valuable evidence that substantial
+predictive information remains invisible to classical local models.
+
+References:
+- https://doi.org/10.1038/s42256-025-01033-7
+- https://arxiv.org/abs/2602.19626
+
+For ANVIL, however, the model is part of the deployment state. A 500 MB external
+weight file is not a free decoder prior merely because the compressed payload
+does not contain it.
+
+The correct accounting distinction is:
+
+    archive bits
+      + required shared model state
+      + inference working set
+      + decoder compute
+      + model-distribution/version cost
+
+unless a target environment independently guarantees that exact model as
+pre-existing side information.
+
+Therefore neural compression should primarily become an **information oracle**:
+
+- identify windows where ANVIL's current explanation leaves unusually large
+  predictive surprise;
+- compare the gain against CTW/PPM and structural oracles;
+- inspect which local/semantic features account for that gain;
+- attempt to distill those features into a much smaller deterministic operator
+  or bounded predictor.
+
+This turns "the LLM compresses better" into a useful research question:
+
+> **What compact state is the large predictor exploiting that ANVIL has not yet
+> made decoder-visible?**
+
+#### 7.6.1 StateSMix is a useful self-contained counterexample
+
+StateSMix (2026) is especially informative because it removes the external-model
+objection. It trains a small Mamba-style state-space model online, mixes it with
+sparse n-gram contexts, uses arithmetic coding, and is implemented in C with
+AVX2.
+
+Reference:
+- https://arxiv.org/abs/2605.02904
+
+The reported scale behavior is the important part, not the headline win:
+
+- it beats xz -9e on the authors' 1 MB, 3 MB, and 10 MB enwik8 prefixes;
+- the public project reports **2.130 bpb on full 100 MB enwik8 versus about
+  1.989 bpb for xz**, i.e. the advantage reverses at full scale;
+- the implementation uses roughly 6 GB of RAM, dominated by sparse n-gram
+  tables, and processes only around 2,000 tokens/s in the cited configuration.
+
+This is a nearly ideal warning for ANVIL:
+
+> A sophisticated predictor can expose real information and still move the
+> wrong system-level Pareto axis.
+
+Use StateSMix-like models as anatomy controls or distillation teachers unless a
+much smaller/faster state representation emerges.
+
+### 7.7 Frequency-ordered tokenization reinforces "choose the alphabet first"
+
+Kalcher's 2026 frequency-ordered tokenization work provides a much cheaper
+example of the same representational principle. It tokenizes text, assigns
+smaller integer IDs to more frequent tokens, emits variable-length integers, and
+then hands the result to an ordinary compressor. The paper reports improvements
+even after vocabulary overhead and reports that preprocessing can reduce total
+wall time for expensive backends because the transformed input becomes smaller.
+
+Reference:
+- https://arxiv.org/abs/2602.22958
+
+The ANVIL lesson is not to add BPE as a universal transform. It is:
+
+> **Symbol identity and numeric labeling are part of the model.**
+
+If a semantic stream has a Zipf-like or clustered distribution, arbitrary raw
+IDs can create needless high bits and poor varint behavior. Candidate ANVIL
+streams should test:
+
+- frequency-ranked local IDs;
+- move-to-front / recency-ranked IDs;
+- per-block dictionary IDs;
+- class ID + local offset;
+- stable global ID only when avoiding remap metadata is cheaper.
+
+Again, total dictionary/remap cost must be charged. The important change is to
+stop treating the numeric label of a symbol as semantically inevitable.
+
 ---
 
 ## 8. Information-anatomy oracles: determine why a region is expensive
