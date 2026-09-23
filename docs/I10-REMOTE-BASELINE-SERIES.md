@@ -113,14 +113,35 @@ Promotion note:
 - one-repetition throughput is context/scout evidence only;
 - no new Pareto timing claim follows from this run alone.
 
-### Run 35913398693 — enwik8
+### enwik8 queue correction
+
+The original workflow used one global concurrency key. GitHub Actions retains at most one pending run for a concurrency group, so later pending dispatches can replace an older pending run even when `cancel-in-progress: false`.
+
+Three runs were therefore retired **before producing benchmark evidence**:
+
+- `35913398693` — original enwik8 dispatch; cancelled while pending when a later run occupied the single pending slot;
+- `35913973522` — manifest-smoke validation; cancelled/replaced while pending;
+- `35914200895` — enwik8 requeue under the old global key; manually cancelled after the concurrency design was corrected.
+
+No codec result is attributed to any of those runs.
+
+The workflow now keys concurrency by suite:
+
+`anvil-research-bench-<suite>`
+
+so independent Silesia, enwik8, and smoke jobs can occupy independent hosted VMs while same-suite overlap remains controlled.
+
+### Run 35914309555 — enwik8
 
 URL:
-`https://github.com/thelabcorner/anvil/actions/runs/35913398693`
+`https://github.com/thelabcorner/anvil/actions/runs/35914309555`
 
 Dispatched source:
 
-- `95ce16a8cc15c4e43e9c77d6b8be029559d27d1d`
+- public commit `c6914d86bc4fe86658052084fb283f05eec6862e`;
+- `src/anvil.cpp` blob `5082cdf0d1efc5eb170409e8f4181ed0520907bd`.
+
+The Silesia baseline commit `95ce16a8cc15c4e43e9c77d6b8be029559d27d1d` contains the **same** `src/anvil.cpp` blob `5082cdf0d1efc5eb170409e8f4181ed0520907bd`. Intervening public commits are documentation/CI-tooling changes, not codec-source changes.
 
 Requested suite:
 
@@ -128,9 +149,12 @@ Requested suite:
 - independent reps: `1`
 - canonical manifest verification enabled;
 - CPU affinity enabled;
-- same codec reference set as the Silesia run.
+- same codec reference set as the Silesia run;
+- machine-readable `manifest.json` / `bytes.csv` artifact generation enabled.
 
-Status at ledger creation: **QUEUED/PENDING behind Silesia** under the workflow concurrency group.
+Current status: **IN PROGRESS**, canonical enwik8 benchmark step active.
+
+This run and Silesia are now executing concurrently on independent GitHub-hosted VMs.
 
 ---
 
