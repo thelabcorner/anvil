@@ -4440,9 +4440,9 @@ static std::vector<uint8_t> ratio_backend_encode(uint8_t backend,const std::vect
         //   if in <= cap:  bare bwt_backend_encode payload (byte-identical to old).
         //   else:          0xFF (framing tag) uvar(n_subblocks)
         //                  per sub block: uvar(decoded_len) uvar(payload_len) payload
-        // The 0xFF tag cannot collide with a bare payload, whose first byte is a
-        // postcoder id in 0..4 (consumed by the decoder's 0xFF check at
-        // ratio_backend_decode).
+        // The 0xFF tag cannot collide with a bare payload, whose first byte is
+        // either a legacy postcoder id in 0..4 or the auxiliary-v2 tag 0xFE
+        // (consumed by the decoder's 0xFF check at ratio_backend_decode).
         const size_t cap=static_cast<size_t>(opt.bwt_subblock);
         if(in.size()<=cap) return bwt_backend_encode(in,opt);
         std::vector<uint8_t> z; z.push_back(0xFF); size_t off=0; uint32_t nsub=0;
@@ -4467,18 +4467,28 @@ static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* 
 #ifdef ANVIL_HAVE_LIBSAIS
     if(backend==kRatioBackendBwt) {
         const uint8_t* e=p+n;
-        // Subblock framing uses a 0xFF tag as its first byte; a bare single-subblock
-        // payload starts with a postcoder id in 0..4, so the tag cannot collide.
+        // Subblock framing uses a 0xFF tag as its first byte; a bare inner payload
+        // starts with a legacy postcoder id in 0..4 or auxiliary-v2 tag 0xFE,
+        // so the outer tag cannot collide.
         if(p<e && *p==0xFF) {
             ++p; uint64_t nsub=get_uvar(p,e);
+            // Each subblock necessarily consumes at least two one-byte varints
+            // (decoded length + payload length). Bound the loop before any
+            // subblock allocation so hostile metadata cannot create a huge
+            // iteration count relative to the enclosing payload.
+            if(nsub==0 || nsub>expected || nsub>static_cast<uint64_t>(e-p)/2u)
+                throw std::runtime_error("bad BWT subblock count");
             std::vector<uint8_t> out; out.reserve(expected);
             for(uint64_t i=0;i<nsub;++i) {
                 uint64_t dlen=get_uvar(p,e); uint64_t plen=get_uvar(p,e);
+                if(dlen==0 || dlen>expected-out.size())
+                    throw std::runtime_error("bad BWT subblock decoded length");
                 if(plen>uint64_t(e-p)) throw std::runtime_error("truncated BWT subblock");
                 auto sub=bwt_backend_decode(p,static_cast<size_t>(plen),static_cast<size_t>(dlen)); p+=plen;
                 if(sub.size()!=static_cast<size_t>(dlen)) throw std::runtime_error("BWT subblock size mismatch");
                 out.insert(out.end(),sub.begin(),sub.end());
             }
+            if(p!=e) throw std::runtime_error("BWT subblock trailing bytes");
             if(out.size()!=expected) throw std::runtime_error("BWT subblock reconstruction size mismatch");
             return out;
         }
