@@ -576,12 +576,14 @@ This is the cheapest place to kill bad ideas.
 
 ## 10. Immediate queue
 
-### I10-0 — finish remote reference validation
+### I10-0 — remote reference validation — **CLOSED / PASS**
 
-1. Complete canonical Silesia remote run.
-2. Complete enwik8 remote run.
-3. Validate corpus hashes, roundtrips and deterministic bytes.
-4. Record the Linux runner/toolchain as a **new benchmark series**, not a continuation of Windows throughput numbers.
+Closure record: `docs/I10-REMOTE-BASELINE-CLOSURE.md`.
+
+1. Canonical Silesia remote run completed successfully.
+2. Canonical enwik8 remote run completed successfully.
+3. Corpus hashes, roundtrips and deterministic ANVIL bytes validated; `anvil-auto-direct` is byte-identical to frozen I9 per file.
+4. Linux zstd/xz differences are recorded as a **new benchmark series**, not a continuation of Windows reference bytes or throughput numbers.
 
 ### I10-1 — land high-EV existing work after remote baselines
 

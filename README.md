@@ -22,6 +22,7 @@ The current research reset and execution program are documented in:
 
 - [`docs/FRONTIER-RESET-2026-09-23.md`](docs/FRONTIER-RESET-2026-09-23.md) — post-I9 synthesis and mechanism frontier
 - [`docs/I10-BREAKTHROUGH-PROGRAM.md`](docs/I10-BREAKTHROUGH-PROGRAM.md) — falsifiable Iteration-10 execution program
+- [`docs/I10-REMOTE-BASELINE-CLOSURE.md`](docs/I10-REMOTE-BASELINE-CLOSURE.md) — closed Linux/GitHub baseline and deterministic I9 identity ruling
 - [`docs/anvil-i9-findings.md`](docs/anvil-i9-findings.md)
 - [`RESEARCH_LEDGER.md`](RESEARCH_LEDGER.md)
 - [`docs/audit-2026-09-07/06-do-not-reburn.md`](docs/audit-2026-09-07/06-do-not-reburn.md)
