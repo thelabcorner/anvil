@@ -14,14 +14,17 @@ That means ANVIL studies not only entropy coding, but the representation that ex
 
 ANVIL is a research prototype. The bitstream is unstable and the project is not a production replacement for established codecs.
 
-The frozen Iteration-9 checkpoint demonstrated that ANVIL's ratio portfolio can beat the measured Brotli q11 and xz -9e byte totals on the project's canonical Silesia/enwik8 runs, but **it produced zero complete Pareto-front crossings** because the BWT-heavy path remains far too slow to decode.
+The frozen Iteration-9 checkpoint demonstrated that ANVIL's ratio portfolio can beat the measured Brotli q11 and xz -9e byte totals on the project's canonical Silesia/enwik8 runs, but **it produced zero complete Pareto-front crossings** because the BWT-heavy path remained far too slow to decode.
 
-That distinction is important: **a ratio win is not a codec win.**
+Iteration 10 has now closed its first adopt-class improvement: auxiliary-index inverse BWT. On three paired same-runner targets it improved whole-codec decode by **1.364× to 2.339×** for a fully charged 2–4 KiB-per-file wire increase. Across canonical Silesia + enwik8, the size-first portfolio pays **22,398 B** (+0.00718% of source) with no routing changes. The legacy smaller representation remains the default for size-first mode; auxiliary BWT is retained as a distinct faster-decode Pareto option.
+
+That result is **not yet an external reference-front crossing**: current Brotli/xz/Zstd timing must be re-established in the same GitHub-runner jobs before making a PR-3 crossing claim. A ratio win is not, by itself, a codec win.
 
 The current research reset and execution program are documented in:
 
 - [`docs/FRONTIER-RESET-2026-09-23.md`](docs/FRONTIER-RESET-2026-09-23.md) — post-I9 synthesis and mechanism frontier
 - [`docs/I10-BREAKTHROUGH-PROGRAM.md`](docs/I10-BREAKTHROUGH-PROGRAM.md) — falsifiable Iteration-10 execution program
+- [`docs/I10-AUX-UNBWT-RESULTS.md`](docs/I10-AUX-UNBWT-RESULTS.md) — closed I10-1A paired timing, byte economics, hardening and ruling
 - [`docs/I10-REMOTE-BASELINE-CLOSURE.md`](docs/I10-REMOTE-BASELINE-CLOSURE.md) — closed Linux/GitHub baseline and deterministic I9 identity ruling
 - [`docs/anvil-i9-findings.md`](docs/anvil-i9-findings.md)
 - [`RESEARCH_LEDGER.md`](RESEARCH_LEDGER.md)
@@ -85,10 +88,13 @@ The working research abstraction is a bounded set of **decoder-visible explanati
 
 This is a research model, not a novelty claim. Each concrete mechanism still has to pass ANVIL's prior-art and quantitative gates.
 
-Two near-term engineering items remain especially high-value from I9:
+The first high-EV I9 carry-forward is now closed:
 
-1. native integration of the measured auxiliary-index inverse-BWT path;
-2. native integration of bit-exact DEFLATE reconstruction (P4.1), followed by roundtrip/fuzz and complete cost accounting.
+1. **auxiliary-index inverse BWT — ADOPTED as an explicit faster-decode Pareto option**, while the byte-smaller legacy representation remains the size-first default.
+
+The next isolated engineering experiment is:
+
+2. **native bit-exact DEFLATE reconstruction (P4.1)**, followed by direct roundtrip/fuzz, complete wire/code-size accounting, and same-backend causal measurement.
 
 New mechanism work is expected to begin with **anatomy/oracle probes**, not full codec modes.
 
