@@ -1096,6 +1096,153 @@ The no-double-credit rule from Grotli remains binding:
 
 ---
 
+## 18.3 Portfolio monotonicity and expert admission
+
+There is a useful mathematical property to the representation-portfolio
+architecture.
+
+Let P be the current candidate set and cost(x,p) the complete encoded bytes for
+candidate p on region x.
+
+The max-ratio selector emits:
+
+    C_P(x) = min over p in P of cost(x,p)
+
+Adding a new representation expert E yields:
+
+    C_(P union E)(x) <= C_P(x)
+
+for every region where all old candidates remain reachable.
+
+So **candidate-level compressed bytes are monotone non-increasing as the
+representation portfolio grows.**
+
+That is a powerful property, but it is not a free-lunch theorem for the whole
+system.
+
+Every expert can add:
+
+- encoder search work;
+- decoder text/rodata;
+- tables;
+- branch/dispatch surface;
+- fuzz/security surface;
+- maintenance burden;
+- representation IDs/framing;
+- potentially worse instruction-cache behavior even when not selected.
+
+Therefore expert admission must be based on **marginal portfolio contribution**,
+not isolated benchmark wins.
+
+For expert E define:
+
+    marginal_gain(E) =
+        bytes(portfolio_without_E)
+        -
+        bytes(portfolio_with_E)
+
+on the frozen validation portfolio.
+
+Report:
+
+- aggregate marginal bytes saved;
+- number and source bytes of regions uniquely won;
+- median/p90 win where selected;
+- added decoder text + rodata bytes;
+- decode-time delta when selected;
+- encode-search cost;
+- overlap with existing experts.
+
+A representation that looks spectacular against raw Brotli but is never chosen
+once an existing ANVIL expert competes contributes **zero** and should not earn a
+permanent decoder ID.
+
+This also gives a natural pruning loop:
+
+1. evaluate candidate pool;
+2. measure each expert's leave-one-out marginal contribution;
+3. remove zero/tiny-contribution experts;
+4. re-evaluate because contribution can change after pruning;
+5. keep a compact complementary basis.
+
+This is essentially an empirical basis-selection problem for lossless
+representations.
+
+### 18.4 Separate representation search from leaf-codec search
+
+The long-term candidate should be factored as:
+
+    Candidate = Representation x LeafBackend
+
+rather than creating one monolithic codec ID for every combination.
+
+Example compatibility matrix:
+
+| Representation | Direct lightweight | Brotli | BWT | entropy streams |
+|---|---:|---:|---:|---:|
+| RAW | yes | yes | yes | limited |
+| vXOR / record residual | possible | yes | maybe | yes |
+| FOR / bitpack | **yes** | optional | usually low-EV | metadata only |
+| Dictionary | **yes** | optional | low-EV | IDs yes |
+| Gorilla / ALP float | **yes** | optional | low-EV | descriptors yes |
+| Shape/lexical carrier | possible | **yes** | maybe | per-stream later |
+| REPLAY | residual-dependent | yes | maybe | corrections yes |
+
+Not every Cartesian-product pair should be evaluated.
+
+Each representation declares a short list of compatible leaf families. Sampling
+then prunes representations first, and leaf arbitration occurs only for
+surviving finalists.
+
+This prevents the search from growing as:
+
+    number_of_representations x number_of_backends
+
+on every region.
+
+### 18.5 Encoder-only learned routing is allowed
+
+ANVIL can spend intelligence at encode time without making the decoder
+intelligent.
+
+Every exact finalist evaluation produces a supervised label:
+
+- anatomy features;
+- candidate byte sizes;
+- winning representation;
+- winning leaf;
+- measured encode/decode cost.
+
+That creates a free training set for an encoder-side routing model.
+
+Possible router evolution:
+
+1. hand-written sampled heuristics;
+2. online per-file bandit / win-rate model;
+3. small decision tree or gradient-boosted model trained on prior exact results;
+4. more expensive learned model only if its avoided candidate evaluations pay
+   for its encoder cost.
+
+The router can change between encoder versions without changing the wire.
+
+The decoder receives only:
+
+    selected representation ID + parameters + payload
+
+and never runs the learned model.
+
+For long heterogeneous files, an online bandit is especially attractive:
+
+- explore several candidates in early blocks;
+- condition on anatomy features;
+- exploit reliable winners in stationary regions;
+- re-open exploration after a detected distribution shift.
+
+Exact raw/general fallback remains available, so router uncertainty is an
+encode-cost problem before it is a correctness problem.
+
+---
+
 ## 19. Key difference from Brevis
 
 Brevis starts with typed tensor structure.
