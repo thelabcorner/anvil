@@ -188,6 +188,17 @@ The intended suites are:
 
 `reps` controls independent scout repetitions for standard-corpus timing. Deterministic byte counts should be identical across repetitions; a mismatch is a hard failure.
 
+### 8.1 Machine-readable artifact contract
+
+Future runs generate two stable machine-readable files in addition to raw logs/CSVs:
+
+- `manifest.json` — commit/run identity, runner CPU/toolchain, timing class, dependency versions, result-file hashes, and deterministic byte summaries;
+- `bytes.csv` — one aggregate deterministic row per corpus/codec after cross-repetition equality checks.
+
+`tools/gha_manifest.py` creates both after the benchmark cells finish. It does not benchmark or reinterpret timing. If deterministic aggregate bytes differ across repetitions, manifest generation fails rather than averaging the discrepancy away.
+
+This moves provenance from prose-only logs into an artifact that later Pareto/oracle tooling can consume directly.
+
 ## 9. Promotion rules for a new mechanism
 
 Before a new decoder-visible mechanism is integrated, its remote anatomy job should answer:
