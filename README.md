@@ -27,6 +27,7 @@ The current research reset and execution program are documented in:
 - [`docs/I10-EXPLANATION-GAP-ORACLE-DESIGN.md`](docs/I10-EXPLANATION-GAP-ORACLE-DESIGN.md) — concrete oracle architecture for identifying which explanatory family ANVIL is actually missing
 - [`docs/I10-GROTLI-REPRESENTATION-SYNTHESIS.md`](docs/I10-GROTLI-REPRESENTATION-SYNTHESIS.md) — Grotli-derived adaptive representation compiler architecture: structure discovery, predictor/residual synthesis, exact downstream arbitration, and raw-Brotli fallback
 - [`docs/I10-GROTLI-G0-PREREG.md`](docs/I10-GROTLI-G0-PREREG.md) — frozen first causal experiment: exact record-aligned vXOR+Brotli versus raw Brotli
+- [`docs/I10-GROTLI-G0-CORPUS-FREEZE.md`](docs/I10-GROTLI-G0-CORPUS-FREEZE.md) — immutable discovery/validation split and upstream Git-object identities frozen before G0 implementation
 - [`docs/I10-BREAKTHROUGH-PROGRAM.md`](docs/I10-BREAKTHROUGH-PROGRAM.md) — falsifiable Iteration-10 execution program
 - [`docs/I10-AUX-UNBWT-RESULTS.md`](docs/I10-AUX-UNBWT-RESULTS.md) — closed I10-1A paired timing, byte economics, hardening and ruling
 - [`docs/I10-REMOTE-BASELINE-CLOSURE.md`](docs/I10-REMOTE-BASELINE-CLOSURE.md) — closed Linux/GitHub baseline and deterministic I9 identity ruling

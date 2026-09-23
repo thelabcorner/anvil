@@ -229,6 +229,109 @@ These are not direct ANVIL implementations. They are evidence that Grotli's
 basic strategy is a broad compression pattern rather than a JSON-specific
 accident.
 
+### DataCortex — direct JSON/NDJSON prior art for the lower SRS layer
+
+DataCortex (public Rust project, 2026) is materially close prior art to a
+JSON-specialized subset of the proposed SRS architecture.
+
+Its current fast path publicly describes and implements:
+
+1. JSON/NDJSON format detection;
+2. schema inference;
+3. uniform/grouped/selective columnar reorganization;
+4. type-specific encodings;
+5. multiple raw/preprocessed zstd/Brotli candidate paths;
+6. final smallest-output arbitration;
+7. reversible transform metadata and byte-exact reconstruction.
+
+The source goes beyond the README in several important ways:
+
+- NDJSON can be grouped by schema and optionally by a low-cardinality
+  discriminator;
+- high-cardinality long columns may deliberately remain row-major because
+  zstd/Brotli can exploit inter-row locality better in the original layout;
+- typed leaves include integer delta+zigzag+LEB128, boolean bitmaps, timestamp
+  deltas, enum dictionaries, string representations, UUID packing, nullable
+  bitmaps, and raw fallback;
+- some apparently compact transforms are explicitly disabled/avoided when they
+  make the downstream generic compressor worse;
+- transform-chain metadata is serialized and may itself be compressed or
+  embedded into the backend payload;
+- fast mode evaluates several complete raw/preprocessed backend paths and picks
+  the smallest including metadata/header overhead.
+
+References:
+- https://github.com/rushikeshmore/DataCortex
+- https://docs.rs/datacortex-core/latest/datacortex_core/format/
+- https://docs.rs/datacortex-core/latest/datacortex_core/format/ndjson/fn.preprocess.html
+
+DataCortex reports substantial wins over Brotli-11/zstd-19 on its current JSON
+benchmarks, but these are author-reported project measurements. They are useful
+competitive evidence, not ANVIL evidence until independently reproduced.
+
+**Prior-art ruling for ANVIL:**
+
+The following are **not** plausible mechanism-level novelty claims by
+themselves:
+
+- infer JSON/NDJSON schema;
+- reorganize records into columns;
+- encode typed columns;
+- selectively retain high-cardinality data in row order;
+- try raw/preprocessed Brotli/zstd paths and choose the smallest;
+- serialize reversible transform metadata.
+
+These remain fully valid engineering components.
+
+The open ANVIL layer is broader:
+
+- arbitrary-byte / weak-schema structure discovery;
+- compression-objective structure hypotheses rather than format semantics;
+- target-directed predictor/explanation synthesis;
+- reference/replay/generative experts beyond typed columns;
+- representation x leaf factorization;
+- marginal-expert basis selection;
+- explicit byte/decode/RSS/code-size Pareto extraction;
+- hardware-oriented fused lowering.
+
+### CLP and LogPrism — structure extraction must serve compression, not semantics
+
+CLP (OSDI 2021) already showed a successful domain-specific pattern for logs:
+separate static logtype structure, timestamps, dictionary variables, and
+non-dictionary variables, then apply a lightweight compressor to the encoded
+streams.
+
+Reference:
+- https://www.usenix.org/conference/osdi21/presentation/rodrigues
+
+LogPrism (2026) pushes the lesson further. It argues that the conventional
+"parse then compress" boundary can itself lose compression because a
+semantically accurate parser may:
+
+- over-generalize templates and dump too much entropy into variable streams;
+- over-fit templates and spend too much dictionary metadata;
+- destroy correlations between a template and its variables;
+- destroy inter-variable co-occurrence information.
+
+Its Unified Redundancy Tree instead integrates structural extraction and
+variable encoding under the compression objective.
+
+Reference:
+- https://arxiv.org/abs/2601.17482
+
+This is a critical design correction for SRS:
+
+> **ANVIL should infer the representation that minimizes complete decoder-visible
+> cost, not the representation that most closely resembles an application's
+> semantic schema.**
+
+A "wrong" field partition can be the right compression explanation if it is
+byte-exact, cheaper to describe, and creates lower residual cost.
+
+Therefore semantic JSON/record schemas are only candidate explanations. They do
+not receive privileged status over byte-position, predictor, reference, or
+cross-field partitions.
+
 ---
 
 ## 4. Proposed architecture: Structured Representation Synthesizer (SRS)

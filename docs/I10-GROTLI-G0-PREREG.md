@@ -4,6 +4,7 @@
 **Class:** engineering / representation-capability experiment; no mechanism-novelty claim
 **Production source changes:** forbidden until this experiment closes
 **Compute policy:** compression/decompression measurements run on GitHub Actions only
+**Frozen corpus/split:** [I10-GROTLI-G0-CORPUS-FREEZE.md](I10-GROTLI-G0-CORPUS-FREEZE.md)
 
 ---
 
