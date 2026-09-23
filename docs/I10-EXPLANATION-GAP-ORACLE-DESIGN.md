@@ -177,7 +177,24 @@ Initial controls:
 - Repeat / periodic generator;
 - small affine/integer sequence rules;
 - bounded morphic substitutions on small windows;
-- restricted iterated rules.
+- restricted iterated rules;
+- **PROGRAM_COPY oracle**: reference a contiguous sequence of prior explanation
+  operations whose boundaries are already decoder-visible, then transmit only
+  changed parameters/residuals. This is motivated by LZBE's factor-aligned
+  reference structure, but the object being reused here is an ANVIL explanation
+  sequence rather than merely the raw prior bytes.
+
+For PROGRAM_COPY record separately:
+
+- instruction bytes avoided;
+- inherited versus overridden parameters;
+- underlying output bytes covered;
+- explanation dependency depth;
+- whether the same gain remains after ordinary entropy-coding of the instruction
+  stream.
+
+If instruction-stream entropy coding erases most of the opportunity, do not add
+a new decoder reference mechanism.
 
 Every rule must have:
 
