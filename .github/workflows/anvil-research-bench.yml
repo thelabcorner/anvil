@@ -41,7 +41,9 @@ on:
           - '100'
 
 concurrency:
-  group: anvil-research-bench
+  # Independent suites run on independent hosted VMs and should not replace
+  # one another in GitHub's single-pending-run concurrency queue.
+  group: anvil-research-bench-${{ inputs.suite }}
   cancel-in-progress: false
 
 permissions:
