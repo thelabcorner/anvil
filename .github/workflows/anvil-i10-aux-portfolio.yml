@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   portfolio:
+    if: github.ref == 'refs/heads/i10-aux-unbwt'
     strategy:
       fail-fast: false
       matrix:
