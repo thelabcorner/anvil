@@ -1,5 +1,7 @@
 # ANVIL — Novelty-Gated Research Agenda (v2)
 
+> **Historical agenda / superseded ranking.** Keep this file as mechanism provenance, but do not use its ranking table as the current queue. Later I8/I9 evidence closed several items listed here. The synthesized post-I9 research direction and binding do-not-reburn constraints are in `docs/FRONTIER-RESET-2026-09-23.md`, `docs/anvil-i9-findings.md`, and `docs/audit-2026-09-07/06-do-not-reburn.md`.
+
 Owner: `research` lane. This document is the gatekeeper artifact for every
 mechanism ANVIL may implement. Nothing enters `src/anvil.cpp` as a claimed
 win unless it clears the four-step novelty gate below and its ablation is
