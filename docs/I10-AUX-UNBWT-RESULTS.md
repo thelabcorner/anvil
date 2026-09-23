@@ -158,7 +158,77 @@ Every timed encode produced the same deterministic bytes and SHA-256 for its res
 
 ---
 
-## 4. Relation to the I9 projection
+## 4. Dickens paired experiment
+
+GitHub Actions run: `35919229083`
+
+Measured commit:
+
+- `e76beb65071d9a56a3f786e47dc273a3345b5d57`
+
+Runner:
+
+- AMD EPYC 7763 64-Core Processor;
+- timing affinity: CPU 0.
+
+Canonical input:
+
+- source bytes: **10,192,446**
+- SHA-256: `b24c37886142e11d0ee687db6ab06f936207aa7f2ea1fd1d9a36763c7a507e6a`
+
+### 4.1 Charged wire cost
+
+| Arm | Encoded bytes | Delta |
+|---|---:|---:|
+| control, aux OFF | 2,571,873 | — |
+| candidate, aux ON | 2,574,367 | **+2,494** |
+
+The integrated overhead is:
+
+- **+2,494 B**
+- **+0.024469% of source size**
+- approximately **+0.09697% of the control compressed payload**
+
+The I9 prototype predicted a 2,492-B raw index for this policy, so complete integrated framing is only 2 B above the raw-index count.
+
+### 4.2 Whole-codec decode
+
+| Metric | Control | Aux candidate |
+|---|---:|---:|
+| median decode | 0.607222 s | **0.443266 s** |
+| robust CV | 7.293% | 2.082% |
+
+Paired candidate/control ratio:
+
+- point: **0.732896**
+- 95% CI: **[0.684844, 0.783031]**
+- point speedup: **1.3645×**
+- ambient robust CV: **1.335%**
+- timing-valid: **yes**
+
+Ruling:
+
+> **PASS_SPEED_GATE.**
+
+The effect is smaller and noisier than on `webster`, but the entire CI remains comfortably beyond the 2% practical threshold.
+
+### 4.3 Encode
+
+Paired encode:
+
+- control median: **0.757793 s**
+- candidate median: **0.751732 s**
+- candidate/control ratio: **0.988795**
+- 95% CI: **[0.987006, 1.001520]**
+- ambient robust CV: **0.228%**
+
+Ruling:
+
+> **NO_SPEED_GATE** — again, no reliable material encode difference.
+
+---
+
+## 5. Relation to the I9 projection
 
 The I9 prototype measured the inverse-BWT stage at roughly 3.49× faster on `webster` and projected whole-codec decode around 1.82–1.91×.
 
@@ -177,9 +247,9 @@ The result therefore validates the central I10-1A hypothesis on `webster`.
 
 ---
 
-## 5. What this result does and does not establish
+## 6. What these results do and do not establish
 
-It establishes on one canonical target that:
+The two completed canonical targets establish that:
 
 1. auxiliary-index inverse BWT survives integration;
 2. legacy/default-off behavior remains available;
@@ -192,7 +262,6 @@ It does **not yet** justify changing ANVIL's default wire representation globall
 
 Before promotion:
 
-- reproduce on `dickens`;
 - reproduce on `enwik8`;
 - close the candidate branch's full Silesia/enwik8 default-off byte-identity runs;
 - inspect corpus-wide routing economics;
@@ -203,12 +272,13 @@ Before promotion:
 
 ---
 
-## 6. Active follow-ups
+## 7. Active follow-ups
 
-Dispatched paired experiments:
+Paired experiments:
 
-- `dickens`: run `35919229083`
-- `enwik8`: run `35919233744`
+- `webster`: run `35918797463` — **PASS_SPEED_GATE**;
+- `dickens`: run `35919229083` — **PASS_SPEED_GATE**;
+- `enwik8`: run `35919233744` — in progress.
 
 Candidate default-off canonical identity runs:
 
