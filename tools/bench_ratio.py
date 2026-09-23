@@ -135,6 +135,14 @@ def codec_specs(src: Path, n: int, anvil: Path, brotli_lw: Path):
                 False,
             ),
             (
+                "anvil-bwt-direct-aux",
+                lambda packed: [str(anvil), "c", str(src), str(packed), "--parse=ratio", "--ratio-backend=bwt",
+                                "--ratio-context=off", "--ratio-lines=off", "--bwt-aux=on", "--quiet"],
+                lambda packed, dec: [str(anvil), "d", str(packed), str(dec), "--quiet"],
+                False,
+                False,
+            ),
+            (
                 "anvil-bwt",
                 lambda packed: [str(anvil), "c", str(src), str(packed), "--parse=ratio", "--ratio-backend=bwt", "--quiet"],
                 lambda packed, dec: [str(anvil), "d", str(packed), str(dec), "--quiet"],
@@ -149,12 +157,30 @@ def codec_specs(src: Path, n: int, anvil: Path, brotli_lw: Path):
                 False,
             ),
             (
+                "anvil-ratio-auto-aux",
+                lambda packed: [str(anvil), "c", str(src), str(packed), "--parse=ratio", "--ratio-backend=auto",
+                                "--bwt-aux=on", "--quiet"],
+                lambda packed, dec: [str(anvil), "d", str(packed), str(dec), "--quiet"],
+                False,
+                False,
+            ),
+            (
                 "anvil-auto-direct",
                 # Whole-file --ratio-backend=auto with transforms DISABLED, so the
                 # result is directly comparable to the naked-Brotli / direct-BWT oracle.
                 # This is the E2 / E7 measurement cell.
                 lambda packed: [str(anvil), "c", str(src), str(packed), "--parse=ratio", "--ratio-backend=auto",
                                 "--ratio-context=off", "--ratio-lines=off", "--quiet"],
+                lambda packed, dec: [str(anvil), "d", str(packed), str(dec), "--quiet"],
+                False,
+                False,
+            ),
+            (
+                "anvil-auto-direct-aux",
+                # Same auto backend oracle, but every BWT candidate carries the
+                # fully-charged I10 auxiliary-index representation.
+                lambda packed: [str(anvil), "c", str(src), str(packed), "--parse=ratio", "--ratio-backend=auto",
+                                "--ratio-context=off", "--ratio-lines=off", "--bwt-aux=on", "--quiet"],
                 lambda packed, dec: [str(anvil), "d", str(packed), str(dec), "--quiet"],
                 False,
                 False,
