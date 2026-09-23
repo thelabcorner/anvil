@@ -1,0 +1,99 @@
+name: ANVIL I10-1A aux portfolio bytes
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-i10-aux-portfolio
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  portfolio:
+    if: github.ref == 'refs/heads/i10-aux-unbwt'
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus: [silesia, enwik8]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      BUILD_DIR: build-i10-aux-portfolio
+      CORPUS_DIR: ${{ github.workspace }}/.ci-corpora
+      OUT_DIR: ${{ github.workspace }}/i10-aux-portfolio-${{ matrix.corpus }}
+
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev zstd xz-utils python3 python3-pip
+          python3 -m pip install --break-system-packages --disable-pip-version-check psutil
+
+      - name: Fingerprint runner
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "sha=$GITHUB_SHA"
+            echo "ref=$GITHUB_REF"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "corpus=${{ matrix.corpus }}"
+            uname -a
+            lscpu
+            clang-18 --version
+            zstd --version
+            xz --version
+          } > "$OUT_DIR/provenance.txt"
+
+      - name: Build
+        run: |
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$BUILD_DIR" --parallel 4 --target anvil brotli_lw
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 tools/gha_fetch_corpus.py "${{ matrix.corpus }}" --out "$CORPUS_DIR"
+
+      - name: Measure exact control/aux portfolio bytes
+        run: |
+          if [ "${{ matrix.corpus }}" = "silesia" ]; then
+            mapfile -t FILES < <(find "$CORPUS_DIR/silesia" -maxdepth 1 -type f | sort)
+          else
+            FILES=("$CORPUS_DIR/enwik8/enwik8")
+          fi
+
+          python3 tools/bench_ratio.py "${FILES[@]}" \
+            --corpus "${{ matrix.corpus }}" \
+            --anvil "$BUILD_DIR/anvil" \
+            --brotli "$BUILD_DIR/brotli_lw" \
+            --out "$OUT_DIR/portfolio.csv" \
+            --codecs "anvil-auto-direct,anvil-auto-direct-aux,anvil-bwt-direct,anvil-bwt-direct-aux,anvil-ratio-auto,anvil-ratio-auto-aux" \
+            --verify-manifest \
+            --no-resume \
+            | tee "$OUT_DIR/portfolio.log"
+
+      - name: Summarize routing economics
+        run: |
+          python3 tools/summarize_aux_portfolio.py "$OUT_DIR/portfolio.csv" \
+            --json-out "$OUT_DIR/portfolio-summary.json" \
+            --md-out "$OUT_DIR/portfolio-summary.md"
+          cat "$OUT_DIR/portfolio-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i10-aux-portfolio-${{ matrix.corpus }}-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
