@@ -1,8 +1,8 @@
 # ANVIL I10-1A — Auxiliary-Index inverse-BWT Integration Plan
 
-**Date:** 2026-09-23  
-**Status:** implementation-ready design; source change deferred until the I10 remote baseline is closed  
-**Evidence base:** `prototypes/i9-bwtinv/{RESULTS.md,INTEGRATION-SPEC.md}`  
+**Date:** 2026-09-23
+**Status:** implementation-ready design; source change deferred until the I10 remote baseline is closed
+**Evidence base:** `prototypes/i9-bwtinv/{RESULTS.md,INTEGRATION-SPEC.md}`
 **Novelty:** none; adopt-class decoder engineering
 
 ## 1. Purpose
