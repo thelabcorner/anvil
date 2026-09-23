@@ -255,6 +255,15 @@ jobs:
               raise SystemExit("deterministic bytes or roundtrip changed across repetitions")
           PY
 
+      - name: Create machine-readable manifest
+        if: ${{ always() }}
+        run: |
+          python3 tools/gha_manifest.py \
+            --out-dir "$OUT_DIR" \
+            --suite "${{ inputs.suite }}" \
+            --reps "${{ inputs.reps }}" \
+            --fuzz-cases "${{ inputs.fuzz_cases }}"
+
       - name: Write job summary
         if: ${{ always() }}
         run: |
@@ -270,6 +279,12 @@ jobs:
             echo
             if [ -f "$OUT_DIR/determinism.md" ]; then
               cat "$OUT_DIR/determinism.md"
+            fi
+            if [ -f "$OUT_DIR/bytes.csv" ]; then
+              echo "## Deterministic aggregate bytes"
+              echo '~~~csv'
+              cat "$OUT_DIR/bytes.csv"
+              echo '~~~'
             fi
             if [ -f "$OUT_DIR/smoke-summary.txt" ]; then
               echo "## Smoke summary"
