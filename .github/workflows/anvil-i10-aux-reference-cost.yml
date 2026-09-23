@@ -1,0 +1,181 @@
+name: ANVIL I10-1A reference-cost gate
+
+# Evaluation-only lane: frozen I10-1A source vs binding Brotli/xz references.
+# It does not mutate or benchmark on the developer workstation.
+on:
+  workflow_dispatch:
+    inputs:
+      reps:
+        description: Paired decode repetitions
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  group: anvil-i10-aux-reference-cost
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reference-cost:
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus:
+          - silesia
+          - enwik8
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    env:
+      CANDIDATE_TAG: i10-aux-unbwt-final-v1
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/reference-cost-${{ matrix.corpus }}
+
+    steps:
+      - name: Checkout evaluation tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Checkout frozen I10-1A candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_TAG }}
+          path: candidate
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils time python3
+
+      - name: Fingerprint runner and source
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "candidate_tag=$CANDIDATE_TAG"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build frozen candidate and Brotli reference helper
+        run: |
+          cmake -S candidate -B candidate/build-ref -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-ref --parallel 4 --target anvil brotli_lw
+          sha256sum candidate/build-ref/anvil candidate/build-ref/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py \
+            "${{ matrix.corpus }}" \
+            --out "$CORPUS_ROOT"
+
+      - name: Prepare exact payloads and correctness gate
+        run: |
+          if [ "${{ matrix.corpus }}" = "silesia" ]; then
+            EXPECTED=46466339
+          else
+            EXPECTED=23537422
+          fi
+          python3 tooling/tools/reference_cost_gate.py prepare \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --anvil candidate/build-ref/anvil \
+            --brotli candidate/build-ref/brotli_lw \
+            --out "$OUT_DIR" \
+            --expected-candidate-total "$EXPECTED"
+
+      - name: Paired/interleaved decode timing
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          reps = "${{ inputs.reps }}"
+          candidate = ["bash", str(out / "decode-anvil-aux.sh")]
+
+          comparisons = {
+              "xz": ["bash", str(out / "decode-xz.sh")],
+              "brotli": ["bash", str(out / "decode-brotli.sh")],
+              "null": candidate,
+          }
+
+          for name, control in comparisons.items():
+              cmd = [
+                  sys.executable, str(driver),
+                  "--control-json", json.dumps(control),
+                  "--candidate-json", json.dumps(candidate),
+                  "--reps", reps,
+                  "--warmups", "2",
+                  "--seed", "41246",
+                  "--bootstrap", "20000",
+                  "--epsilon", "0.02",
+                  "--max-cv", "0.15",
+                  "--cpu", "0",
+                  "--ambient-reps", "5",
+                  "--ambient-iterations", "250000",
+                  "--ambient-max-cv", "0.10",
+                  "--out", str(out / f"paired-{name}.csv"),
+                  "--summary", str(out / f"paired-{name}.json"),
+                  "--stdout-dir", str(out / f"stdout-{name}"),
+              ]
+              print("RUN", name, flush=True)
+              subprocess.run(cmd, check=True)
+          PY
+
+      - name: Measure per-process decode peak RSS
+        run: |
+          python3 tooling/tools/reference_cost_gate.py rss \
+            --manifest "$OUT_DIR/anvil-aux-commands.json" \
+            --manifest "$OUT_DIR/brotli-commands.json" \
+            --manifest "$OUT_DIR/xz-commands.json" \
+            --out "$OUT_DIR"
+
+      - name: Rule existing decode/memory cost gap
+        run: |
+          python3 tooling/tools/reference_cost_gate.py summarize \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --xz-pair "$OUT_DIR/paired-xz.json" \
+            --brotli-pair "$OUT_DIR/paired-brotli.json" \
+            --null-pair "$OUT_DIR/paired-null.json" \
+            --out "$OUT_DIR/ruling.json"
+
+          cat "$OUT_DIR/ruling.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw reference-cost evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i10-aux-reference-cost-${{ matrix.corpus }}-${{ github.run_id }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
