@@ -1,0 +1,167 @@
+name: ANVIL I10-1A binary-size audit
+
+# Build-only remote audit. No compression benchmark runs in this workflow.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-i10-aux-size
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    if: github.ref == 'refs/heads/i10-aux-unbwt'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      OUT_DIR: ${{ github.workspace }}/i10-aux-size
+
+    steps:
+      - name: Checkout hardened candidate
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Checkout frozen I10 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: i10-baseline-codec-20260923
+          path: baseline
+
+      - name: Install pinned build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev binutils python3
+
+      - name: Fingerprint
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "baseline_sha=$(git -C baseline rev-parse HEAD)"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            size --version | head -n 1
+            strip --version | head -n 1
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build both source lines identically
+        run: |
+          for ARM in baseline candidate; do
+            cmake -S "$ARM" -B "$ARM/build-size" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER=clang-18 \
+              -DCMAKE_CXX_COMPILER=clang++-18 \
+              -DANVIL_BUILD_NATIVE_BENCH=OFF
+            cmake --build "$ARM/build-size" --parallel 4 --target anvil
+            cp "$ARM/build-size/anvil" "$OUT_DIR/$ARM-anvil"
+            cp "$OUT_DIR/$ARM-anvil" "$OUT_DIR/$ARM-anvil.stripped"
+            strip --strip-all "$OUT_DIR/$ARM-anvil.stripped"
+            size "$OUT_DIR/$ARM-anvil" > "$OUT_DIR/$ARM-size.txt"
+            size -A "$OUT_DIR/$ARM-anvil" > "$OUT_DIR/$ARM-sections.txt"
+            size "$OUT_DIR/$ARM-anvil.stripped" > "$OUT_DIR/$ARM-stripped-size.txt"
+            size -A "$OUT_DIR/$ARM-anvil.stripped" > "$OUT_DIR/$ARM-stripped-sections.txt"
+            sha256sum "$OUT_DIR/$ARM-anvil" "$OUT_DIR/$ARM-anvil.stripped" \
+              > "$OUT_DIR/$ARM-sha256.txt"
+          done
+
+      - name: Summarize binary and section deltas
+        run: |
+          python3 - "$OUT_DIR" <<'PY'
+          from __future__ import annotations
+          import json, pathlib, sys
+
+          root = pathlib.Path(sys.argv[1])
+
+          def parse_sections(path: pathlib.Path):
+              out = {}
+              for line in path.read_text().splitlines():
+                  parts = line.split()
+                  if len(parts) >= 3 and parts[0].startswith("."):
+                      try:
+                          out[parts[0]] = int(parts[1], 0)
+                      except ValueError:
+                          pass
+              return out
+
+          def arm(name: str):
+              raw = root / f"{name}-anvil"
+              stripped = root / f"{name}-anvil.stripped"
+              sections = parse_sections(root / f"{name}-sections.txt")
+              stripped_sections = parse_sections(root / f"{name}-stripped-sections.txt")
+              return {
+                  "file_bytes": raw.stat().st_size,
+                  "stripped_file_bytes": stripped.stat().st_size,
+                  "sections": sections,
+                  "stripped_sections": stripped_sections,
+              }
+
+          base = arm("baseline")
+          cand = arm("candidate")
+
+          keys = sorted(set(base["stripped_sections"]) | set(cand["stripped_sections"]))
+          section_delta = {
+              k: cand["stripped_sections"].get(k, 0) - base["stripped_sections"].get(k, 0)
+              for k in keys
+              if cand["stripped_sections"].get(k, 0) != base["stripped_sections"].get(k, 0)
+          }
+
+          result = {
+              "schema": 1,
+              "baseline": base,
+              "candidate": cand,
+              "delta": {
+                  "file_bytes": cand["file_bytes"] - base["file_bytes"],
+                  "stripped_file_bytes": cand["stripped_file_bytes"] - base["stripped_file_bytes"],
+                  "file_pct": (cand["file_bytes"] / base["file_bytes"] - 1.0) * 100.0,
+                  "stripped_file_pct": (
+                      cand["stripped_file_bytes"] / base["stripped_file_bytes"] - 1.0
+                  ) * 100.0,
+                  "stripped_sections": section_delta,
+              },
+          }
+
+          (root / "size-summary.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+
+          md = [
+              "# I10-1A binary-size audit",
+              "",
+              "| Metric | Baseline | Aux candidate | Delta |",
+              "|---|---:|---:|---:|",
+              f"| unstripped ELF | {base['file_bytes']:,} B | {cand['file_bytes']:,} B | {result['delta']['file_bytes']:+,} B |",
+              f"| stripped ELF | {base['stripped_file_bytes']:,} B | {cand['stripped_file_bytes']:,} B | {result['delta']['stripped_file_bytes']:+,} B |",
+              "",
+              "## Changed stripped sections",
+              "",
+              "| Section | Delta |",
+              "|---|---:|",
+          ]
+          for k, v in sorted(section_delta.items(), key=lambda kv: (-abs(kv[1]), kv[0])):
+              md.append(f"| {k} | {v:+,} B |")
+          md.append("")
+          (root / "size-summary.md").write_text("\n".join(md), encoding="utf-8")
+          print("\n".join(md))
+          PY
+
+          cat "$OUT_DIR/size-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload size evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i10-aux-size-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
