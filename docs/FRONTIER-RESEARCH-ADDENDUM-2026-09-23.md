@@ -1183,6 +1183,18 @@ Research priority:
   frame-of-reference + bitpack, PFor, and range/offset;
 - only build an ISA decoder for a representation that wins complete cost.
 
+Two established references define the useful baseline:
+
+- Masked VByte demonstrates that the existing continuation-byte format itself
+  can be SIMD-decoded substantially faster than a branchy scalar loop;
+- Stream VByte goes further by separating control and data streams so widths can
+  be consumed ahead of packed values, which is a much more regular machine
+  representation.
+
+References:
+- https://arxiv.org/abs/1503.07387
+- https://arxiv.org/abs/1709.08990
+
 #### Serial by construction: one-state rANS
 
 `rans_decode()` is one state recurrence:
@@ -1253,6 +1265,17 @@ kernel depends on distance:
 zlib-ng's architecture-specific inflate chunk-copy kernels are a useful
 reference because they specialize the **semantic operation** rather than
 vectorizing a generic token loop.
+
+LZ4 makes the same principle especially explicit: its decoder has wide
+wild-copy paths for ordinary offsets and dedicated construction for tiny
+offsets such as 1, 2, and 4. At offset 1, for example, the operation is
+semantically "repeat one byte", so materializing an 8-byte repeated seed and
+issuing wide copies is more appropriate than preserving a bytewise dependency
+chain.
+
+References:
+- https://github.com/lz4/lz4/blob/dev/lib/lz4.c
+- https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md
 
 #### Sparse patch decode is already close to the right abstraction
 
