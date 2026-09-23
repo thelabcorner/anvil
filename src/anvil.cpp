@@ -4349,7 +4349,8 @@ static std::vector<uint8_t> bwt_backend_decode(const uint8_t* p,size_t n,size_t 
         if(expected<=1) throw std::runtime_error("BWT auxiliary payload invalid for tiny output");
         uint64_t rv=get_uvar(p,e);
         uint64_t icount=get_uvar(p,e);
-        if(rv<2 || rv>static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) || (rv&(rv-1))!=0)
+        if(rv<2 || rv>static_cast<uint64_t>(expected) ||
+           rv>static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) || (rv&(rv-1))!=0)
             throw std::runtime_error("bad BWT auxiliary sampling rate");
         const uint64_t want=1+(static_cast<uint64_t>(expected)-1)/rv;
         if(icount==0 || icount!=want || icount>kBwtAuxMaxIndexes || icount>expected)
@@ -4971,7 +4972,12 @@ int main(int argc,char**argv) {
             else if(a.rfind("--ratio-lines=",0)==0)opt.ratio_lines=(a.substr(14)!="off");
             else if(a.rfind("--ratio-backend=",0)==0)opt.ratio_backend=a.substr(16);
             else if(a.rfind("--bwt-post=",0)==0){ int v=std::stoi(a.substr(11)); if(v<-1||v>255) throw std::runtime_error("--bwt-post must be -1 or 0..255"); opt.bwt_post=v; }
-            else if(a.rfind("--bwt-aux=",0)==0)opt.bwt_aux=(a.substr(10)!="off");
+            else if(a.rfind("--bwt-aux=",0)==0){
+                const std::string v=a.substr(10);
+                if(v=="on") opt.bwt_aux=true;
+                else if(v=="off") opt.bwt_aux=false;
+                else throw std::runtime_error("--bwt-aux must be on or off");
+            }
             else if(a.rfind("--bwt-lzp=",0)==0)opt.bwt_lzp=(a.substr(10)!="off");
             else if(a.rfind("--bwt-subblock=",0)==0){ uint64_t v=std::stoull(a.substr(15)); if(v==0 || v>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("--bwt-subblock must be 1..2GiB"); opt.bwt_subblock=static_cast<uint32_t>(v); }
             else if(a.rfind("--decode-threads=",0)==0){ uint64_t v=std::stoull(a.substr(17)); if(v==0 || v>1024) throw std::runtime_error("--decode-threads must be 1..1024"); opt.decode_threads=static_cast<uint32_t>(v); }
