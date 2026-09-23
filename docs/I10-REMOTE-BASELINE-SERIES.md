@@ -1,7 +1,7 @@
 # ANVIL I10 — Remote Baseline Series
 
-**Series:** `linux-gha-i10-2026-09-23`  
-**Purpose:** establish the first post-I9 Linux/GitHub-hosted correctness + canonical-corpus baseline without consuming workstation or homelab compute.  
+**Series:** `linux-gha-i10-2026-09-23`
+**Purpose:** establish the first post-I9 Linux/GitHub-hosted correctness + canonical-corpus baseline without consuming workstation or homelab compute.
 **Timing class:** GitHub-hosted shared-runner scout/ranking evidence unless promoted by the normative paired protocol in `docs/github-actions-benchmark-protocol.md`.
 
 ## 1. Source line
