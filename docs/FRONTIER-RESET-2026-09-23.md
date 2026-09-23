@@ -1032,13 +1032,13 @@ Every benchmark job should capture:
 
 ### Executable normalization controls / prior art
 
-- Chromium Courgette design  
+- Chromium Courgette design
   https://www.chromium.org/developers/design-documents/software-updates-courgette/
 - xz BCJ filters  
   https://tukaani.org/xz/
 - ZPAQ E8/E9 transform documentation  
   https://manpages.debian.org/trixie/zpaq/zpaq.1.en.html
-- Microsoft delta-compression patching, US 7,509,636 / WO 2005/071542  
+- Microsoft delta-compression patching, US 7,509,636 / WO 2005/071542
   https://patents.google.com/patent/US7509636B2/en
 
 ---
