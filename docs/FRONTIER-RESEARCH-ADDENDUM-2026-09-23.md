@@ -949,6 +949,49 @@ streams should test:
 Again, total dictionary/remap cost must be charged. The important change is to
 stop treating the numeric label of a symbol as semantically inevitable.
 
+### 7.8 Bits-back coding: explanation choice need not always be paid naively
+
+Bits-Back ANS (Townsend, Bird, Barber, 2019) shows a subtle but important limit
+of the simple "latent/model bits + residual bits" accounting picture.
+
+With a latent-variable generative model, a naive code appears to pay for both:
+
+    latent z + data x given z
+
+Yet if the encoder has an approximate posterior q(z|x), ANS's stack semantics
+allow it to decode posterior-distributed latent choices from existing message
+bits, use z to encode x under the generative model, encode z under its prior,
+and eventually recover much of the information used to select z. Over chained
+items, the effective rate approaches the variational coding objective rather
+than simply paying a full independent latent description each time.
+
+References:
+- https://arxiv.org/abs/1901.04866
+- https://proceedings.mlr.press/v97/kingma19a.html
+
+This does **not** make explanation information free, and the initial seed/model
+state, approximation gap, inference compute, and model distribution are all
+real costs.
+
+The ANVIL implication is nevertheless interesting:
+
+> If many decoder-valid explanations describe the same target, transmitting the
+> identity of one explanation as an ordinary independent symbol may be an
+> information-theoretically wasteful formulation.
+
+A distant future oracle could therefore compare:
+
+- explicit explanation-ID cost;
+- entropy-coded explanation families conditioned on anatomy;
+- deterministic canonical explanation selection;
+- latent/explanation-choice coding where ambiguous choice information is
+  recoverable or recyclable.
+
+The production bar should be extremely high. ANVIL should **not** adopt a
+bits-back neural stack merely because the theory is elegant. The near-term use
+is conceptual: do not assume that every latent structural decision must be paid
+as an unrelated side-channel bit string.
+
 ---
 
 ## 8. Information-anatomy oracles: determine why a region is expensive
@@ -1787,6 +1830,136 @@ dispatch per patch.
 This is how ANVIL can gain expressivity without paying a branch-heavy general-VM
 tax.
 
+### 12.1 Equality saturation belongs in lowering, not source explanation search
+
+ANVIL's target-directed synthesizer and its decoder-lowering problem are
+different search problems and should use different machinery.
+
+The synthesizer asks:
+
+> Which exact explanation can reconstruct these target bytes cheaply?
+
+That search should remain target-directed: invert/restrict an operator against
+the known target, derive the exact child streams, and prune impossible
+explanations before constructing them.
+
+The lowering stage instead asks:
+
+> Given one exact explanation, which semantically equivalent execution form is
+> cheapest on this machine/profile?
+
+This second question is where **e-graphs / equality saturation** are a strong
+fit.
+
+Equality saturation stores many equivalent expressions without destructively
+choosing a rewrite order. Recent work pushes this idea beyond a one-shot
+external optimizer: Merckx et al. (2026) represent the e-graph as a persistent
+compiler abstraction so equalities can survive and interact with ordinary
+compiler transformations across abstraction levels.
+
+References:
+- https://arxiv.org/abs/2602.16707
+- https://doi.org/10.1145/3815481
+
+For ANVIL, a lowering e-graph could retain equivalences such as:
+
+- MAP_XOR(0, x) == x;
+- nested constant maps folded into one map;
+- SCAN_ADD plus known initial state lowered to a specialized prefix kernel;
+- compatible field splits fused with the consumer transform;
+- COPY + PATCH represented as either copy-then-sparse-patch or a fused
+  fixed-lane reconstruction kernel;
+- consecutive literals/coalescible outputs combined into one bulk store region;
+- independent child regions reordered when the wire/semantic contract permits;
+- scalar, AVX2, AVX-512, NEON, or other ISA kernels represented as equivalent
+  implementations of the same normalized operation.
+
+The e-graph must **not** become part of the compressed format. It is an
+encoder/compiler-side optimization structure. The archive still contains the
+small validated explanation/kernel IDs required by the decoder.
+
+### 12.2 Extraction complexity is a design constraint
+
+There is an important theoretical warning. Optimal extraction from a general
+e-graph is NP-hard and is even hard to approximate within a constant factor in
+the worst case. Goharshady, Lam, and Parreaux (OOPSLA 2024) show, however, that
+optimal extraction becomes tractable for sparse e-graphs of bounded
+treewidth/pathwidth, and report practical optimal extraction on real compiler
+e-graphs with low treewidth.
+
+Reference:
+- https://doi.org/10.1145/3689801
+
+This should influence ANVIL's IR design from day one:
+
+> **Keep the lowering equality space deliberately sparse and local.**
+
+Concretely:
+
+- cap rewrite rounds/nodes;
+- do not saturate arbitrary arithmetic identities globally;
+- rewrite within one bounded explanation region/kernel group;
+- prefer typed rewrites that preserve known shape/output extent;
+- separate source-synthesis alternatives from lowering equivalences;
+- canonicalize aggressively after obviously dominating identities;
+- retain only a small set of machine-relevant alternatives.
+
+The explanation DSL is already intended to be shallow and bounded, which makes
+this much more plausible than equality-saturating a general program.
+
+### 12.3 Extraction should preserve a Pareto set, not hide it behind one lambda
+
+A standard e-graph extractor usually minimizes one scalar cost. ANVIL has
+multiple first-class axes:
+
+- serialized bytes / decoder instruction IDs;
+- predicted/measured decode cycles;
+- working-set/cache footprint;
+- temporary memory;
+- decoder code/table footprint;
+- required ISA.
+
+Collapsing those into one arbitrary scalar recreates the exact objective problem
+ANVIL has spent Iteration 10 avoiding.
+
+For bounded local e-graphs, extraction should instead retain a small
+**non-dominated frontier per e-class** under explicit profile constraints.
+For example:
+
+- max-ratio extraction can reject any lowering that changes wire size and then
+  minimize decode work among byte-identical forms;
+- balanced extraction can admit a bounded byte charge and retain several
+  byte/cycle/memory alternatives;
+- a memory-constrained extraction can eliminate implementations whose working
+  set exceeds the profile budget.
+
+If the frontier grows too large, that is a signal that the lowering search space
+is not sufficiently bounded—not permission to silently invent a lambda.
+
+### 12.4 The practical architecture becomes synthesis -> equality-preserving lowering
+
+The resulting compiler-like architecture is:
+
+    target bytes
+      -> anatomy / oracle signals
+      -> target-directed explanation synthesis
+      -> exact explanation IR
+      -> local equality saturation / canonicalization
+      -> Pareto-aware extraction
+      -> ISA-aware fused kernel schedule
+      -> serialized bounded explanation
+
+This division of labor is important.
+
+- **Synthesis discovers explanatory power.**
+- **Equality saturation removes phase ordering from equivalent implementations.**
+- **Extraction chooses a machine/profile point.**
+- **The decoder executes; it does not search.**
+
+That gives ANVIL a path to a richer explanation vocabulary without forcing
+either an exponential runtime decoder or a brittle hand-ordered lowering pass
+pipeline.
+
 ---
 
 ## 13. Proposed research sequence before committing to another breakthrough mode
@@ -2040,11 +2213,20 @@ underlying memory/entropy work.
   Synthesizing Effective Lossless Compressors**, ISPASS 2025:
   https://userweb.cs.txstate.edu/~burtscher/papers/ispass25.pdf
 
-### Graph / specialization architecture
+### Graph / specialization / lowering architecture
 
 - OpenZL: https://github.com/facebook/openzl
 - OpenZL v0.2.0:
   https://github.com/facebook/openzl/releases/tag/v0.2.0
+- Merckx et al., **E-Graphs as a Persistent Compiler Abstraction**, 2026:
+  https://arxiv.org/abs/2602.16707
+- Willsey et al., **egg: Fast and Extensible Equality Saturation**:
+  https://doi.org/10.1145/3815481
+- Goharshady, Lam, Parreaux, **Fast and Optimal Extraction for Sparse Equality
+  Graphs**, OOPSLA 2024:
+  https://doi.org/10.1145/3689801
+- Arbore, Cheung, Willsey, **Optimism in Equality Saturation**, PLDI 2026:
+  https://doi.org/10.1145/3808302
 
 ### Grammar / repetitiveness / noncausal oracles
 
@@ -2062,6 +2244,12 @@ underlying memory/entropy work.
 - Ibrahim et al., **Shannonic: Efficient Entropy-Optimal Compression for ML
   Workloads**, MLSys 2026:
   https://proceedings.mlsys.org/paper_files/paper/2026/hash/96f39c8de84678cb2a908cd52bfd7819-Abstract-Conference.html
+- Townsend, Bird, Barber, **Practical Lossless Compression with Latent Variables
+  using Bits Back Coding**, ICLR 2019:
+  https://arxiv.org/abs/1901.04866
+- Kingma, Abbeel, Ho, **Bit-Swap: Recursive Bits-Back Coding for Lossless
+  Compression with Hierarchical Latent Variables**, ICML 2019:
+  https://proceedings.mlr.press/v97/kingma19a.html
 - Lemire et al., **Stream VByte**:
   https://arxiv.org/abs/1709.08990
 - TurboPFor:
