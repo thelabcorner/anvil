@@ -1,5 +1,7 @@
 # Project ANVIL — Shared Swarm Context (v1)
 
+> **Historical shared context.** This file contains valuable mechanism history but also intentionally preserved stale intermediate priorities. For current decisions, prefer `docs/anvil-i9-findings.md`, `RESEARCH_LEDGER.md` PART XIV, `docs/audit-2026-09-07/06-do-not-reburn.md`, and `docs/FRONTIER-RESET-2026-09-23.md`.
+
 Mission: discover, design, implement, and experimentally validate a genuinely
 new general-purpose lossless compression architecture that beats Brotli on a
 meaningful compression/performance Pareto frontier. Not "optimize Brotli."
