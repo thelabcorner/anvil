@@ -392,6 +392,58 @@ Consequently:
 This is another reason ANVIL's anatomy tools should measure explanation gaps,
 not just entropy histograms.
 
+### 2.8 Finite-block sample complexity matters as much as asymptotic entropy
+
+Viaud & Kontoyiannis (2026) introduce a non-asymptotic **sample complexity of
+lossless compression**: the smallest blocklength at which a source can be
+compressed to a specified target rate with a specified excess-rate
+probability.
+
+For memoryless sources, their characterization is governed by Rényi entropy of
+order 1/2 rather than simply the Shannon entropy. They extend the framework to
+Markov sources through the corresponding Rényi entropy rate.
+
+Reference:
+- https://arxiv.org/abs/2601.06688
+
+ANVIL implication:
+
+> **A representation can be asymptotically excellent yet economically poor at
+> the block sizes where the codec must actually operate.**
+
+Finite blocks must amortize:
+
+- model/table descriptions;
+- dictionaries/rules;
+- transform/program IDs;
+- restart/parallel-state metadata;
+- statistical estimation error;
+- loss of dependencies that cross block boundaries.
+
+This gives a deeper interpretation to the current BWT-subblock experiment.
+Reducing the cap can simultaneously:
+
+1. lower inverse-BWT working set and dependency depth;
+2. create more independent units;
+3. lose long-range transform context;
+4. force more model/header restarts.
+
+The resulting byte penalty is therefore not merely framing overhead. Some of it
+can be a genuine **finite-sample/modeling penalty** caused by shortening the
+statistical object presented to the backend.
+
+Future ANVIL reports should distinguish:
+
+- asymptotic/model-family opportunity;
+- finite-block realization cost;
+- explicit wire framing cost;
+- hardware benefit from the smaller working set.
+
+This also argues against choosing one global block size for every explanation
+family. A fast local operator may want small blocks while a transform whose
+compression quality needs long context may require large regions and a
+different strategy for bounding decode memory.
+
 ---
 
 ## 3. The strongest new systems result: Brevis
@@ -1976,7 +2028,7 @@ Define sampled windows and record current ANVIL cost against:
 - restricted transform synthesis;
 - repeat/generative synthesis.
 
-Deliverable: explanation-gap report.
+Deliverable: explanation-gap report. The concrete sampling, exact-cost, decoder-work, promotion, and remote-execution contract is specified in [`I10-EXPLANATION-GAP-ORACLE-DESIGN.md`](I10-EXPLANATION-GAP-ORACLE-DESIGN.md).
 
 ### R-B — Build a target-directed synthesis oracle
 
@@ -2194,6 +2246,17 @@ underlying memory/entropy work.
 ---
 
 ## 17. Research references
+
+### Information theory / finite-block compression
+
+- Viaud & Kontoyiannis, **The Sample Complexity of Lossless Data Compression**,
+  2026: https://arxiv.org/abs/2601.06688
+- MIT 6.441 information theory lecture notes (entropy, mutual information,
+  Slepian-Wolf and source coding):
+  https://ocw.mit.edu/courses/6-441-information-theory-spring-2016/pages/lecture-notes/
+- Grünwald et al., **Learning with the Minimum Description Length Principle**,
+  2025/2026:
+  https://doi.org/10.1080/01621459.2025.2583392
 
 ### Program synthesis / executable explanations
 
