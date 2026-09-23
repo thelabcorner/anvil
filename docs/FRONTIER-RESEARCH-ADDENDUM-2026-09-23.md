@@ -606,6 +606,46 @@ For integer/residual streams, candidate representations should include:
 The entropy coder should be the final stage after symbolization has exposed the
 simplest distribution.
 
+### 7.4 Mature compositional codecs are prior art for operators, not for the synthesis architecture
+
+Two existing general-purpose projects are useful reality checks.
+
+**bzip3** uses a fixed per-block pipeline of RLE -> LZP -> BWT -> arithmetic
+coding. Its source explicitly documents that the LZP dictionary/minimum-match
+settings were chosen to collapse long redundant regions without interfering too
+much with the later BWT/postcoder, and notes that the prepass can improve both
+speed and compression on some inputs.
+
+References:
+- https://github.com/iczelia/bzip3
+- https://github.com/iczelia/bzip3/blob/master/bzip3.1.in
+
+This means that ANVIL combinations such as "long-match LZP before BWT" are
+engineering/prior-art territory unless the mechanism materially differs.
+
+**Kanzi** exposes an even broader manually composable vocabulary:
+
+- BWT and bijective BWTS;
+- LZ/LZX/LZP/ROLZ/ROLZX;
+- RLT/ZRLT;
+- MTF/rank/sorted-rank;
+- executable, text, UTF, multimedia, packing, and DNA transforms;
+- Huffman, ANS, range, FPAQ, context mixing, and neural-ish TPAQ backends.
+
+References:
+- https://github.com/flanglet/kanzi-cpp
+- https://github.com/flanglet/kanzi-go/wiki/Main-page
+
+The lesson is deliberately restrictive:
+
+> **"Many transforms" and "transform pipelines" are not the ANVIL breakthrough.**
+
+The potential architectural step beyond these systems is target-directed,
+typed, exact-cost **explanation synthesis**, where operators are selected and
+composed because their inverse semantics algebraically explain the particular
+target region, and where the result is lowered to a bounded fused decoder
+schedule.
+
 ---
 
 ## 7.5 REPLAY is already a real mechanism class: preflate-rs
@@ -1009,6 +1049,68 @@ prune candidates.
 
 The archive should not silently change objective.
 
+### 9.6 Current ANVIL modes already want to become a normalized explanation IR
+
+A direct source inventory shows that the existing block-mode portfolio contains
+many useful ideas, but several are bundled variants of a smaller set of
+underlying explanation primitives.
+
+Current rev-1 families include:
+
+- ordinary LZ parses with several literal/context entropy models;
+- rANS token coding;
+- SPARSE-REF;
+- SHAPE displacement modeling;
+- TOPOLOGY residual/exception masks;
+- TCOPY arithmetic-adjusted copies;
+- ARI-REF additive reference;
+- HOTOP compiled instruction books.
+
+The rev-2 ratio path separately owns:
+
+- direct bytes;
+- context-1 permutation;
+- line/column transforms;
+- Brotli/BWT backend selection;
+- BWT postcoder selection.
+
+This is evidence for **factorization**, not another mode ID.
+
+A normalized research IR could represent much of the current portfolio using
+combinations such as:
+
+    COPY
+    COPY + PATCH
+    COPY + predicted displacement
+    COPY + arithmetic map + PATCH
+    SPLIT control/data
+    literal/residual leaf codec
+
+The important consequences are:
+
+1. search can compare combinations at the primitive level rather than only
+   comparing preassembled modes;
+2. lower-level decoder kernels can be reused across explanation families;
+3. a primitive that repeatedly loses can be removed globally instead of being
+   rediscovered inside several modes;
+4. new mechanisms can be identified by whether they add a genuinely new
+   explanatory primitive rather than a new packaging of old ones.
+
+The current source also makes several **missing or only partially represented**
+primitive families obvious:
+
+- explicit CONST / REPEAT generation;
+- general XOR/add MAP and SCAN rather than mode-specific arithmetic relations;
+- typed field and bit-plane decomposition beyond the current line transform;
+- RANGE_OFFSET / frame-of-reference integer representation;
+- deterministic serialization REPLAY;
+- bounded noncausal references / grammar generation as oracle-only primitives
+  until their value is measured.
+
+This is a major architectural reason to build the synthesis system as an oracle
+first. It can tell us whether the current mode zoo actually spans the useful
+space before any production format is redesigned.
+
 ---
 
 ## 10. The CPU is part of the format design
@@ -1399,6 +1501,45 @@ future Explanation Machine:
 
 The synthesis architecture should lower toward this shape rather than re-create
 a bytecode interpreter in the reconstruction loop.
+
+### 10.11 Whole-buffer information is itself a performance resource
+
+`libdeflate` is a useful counterexample to the idea that a newer format is
+required for a large implementation-speed improvement. It stays within DEFLATE
+but deliberately targets whole-buffer operation.
+
+Its decompressor documents several reasons for its speed relative to vanilla
+zlib:
+
+- word accesses rather than byte accesses when reading input;
+- word accesses rather than byte accesses when copying matches;
+- faster Huffman decoding;
+- a larger bit-buffer variable that requires less frequent refill.
+
+The project also explicitly avoids a streaming API because streaming adds
+complexity and slows the fast paths it is designed around.
+
+References:
+- https://github.com/ebiggers/libdeflate
+- https://github.com/ebiggers/libdeflate/blob/master/lib/deflate_decompress.c
+
+ANVIL implication:
+
+> **Known output extent, block boundaries, and validated framing should be
+> treated as optimization inputs, not merely safety metadata.**
+
+If a block already declares exact reconstructed size, the hot decoder should be
+free to use:
+
+- bounded wild-copy kernels with a separately safe tail;
+- larger bit-buffer refills;
+- up-front buffer allocation;
+- fewer repeated boundary branches;
+- fused operation batches whose output extent is statically known.
+
+This also feeds back into Explanation Synthesis: every synthesized node should
+carry exact output extent whenever possible so lowering can choose whole-region
+kernels rather than a generic streaming interface.
 
 ---
 
