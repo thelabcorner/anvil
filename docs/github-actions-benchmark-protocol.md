@@ -181,9 +181,21 @@ Use AITDCC as a **separate external validation class**, not as another corpus to
 
 ANVIL should additionally report decoder binary size on this class. That guards against “compress by shipping the corpus/model in the decoder” and makes the reconstruct-don't-store philosophy pay its complete description cost.
 
-### Existing harness limitation
+### Timing harnesses
 
-The current `tools/bench_native.cpp` groups all repetitions for one codec before moving to the next and emits only medians. It is suitable for rough scouting but does **not** satisfy the paired/interleaved protocol above. Before any CI timing result is promoted, create a benchmark driver that emits raw repetitions and interleaves candidate/control arms within one process/job.
+The current `tools/bench_native.cpp` groups all repetitions for one codec before moving to the next and emits only medians. It remains suitable for rough scouting but does **not** satisfy the paired/interleaved protocol above.
+
+`tools/paired_bench.py` is the promotion-path driver for two-arm experiments. It:
+
+- warms both arms symmetrically;
+- schedules seeded interleaved A/B or B/A pairs inside one job/VM;
+- retains every raw repetition and measurement order;
+- reports median, MAD-derived robust CV and paired `log(t_candidate/t_control)`;
+- computes a seeded bootstrap 95% CI for the paired ratio;
+- applies an ambient-jitter block rather than dropping timing outliers;
+- can verify output size/SHA after each timed run, outside the timing interval.
+
+The driver was self-checked with a synthetic faster-arm experiment that cleared the speed gate and an A/A null experiment whose CI spanned 1.0. Candidate-specific workflows must still provide the correctness, byte-count, runner-fingerprint and reference-front evidence required elsewhere in this protocol.
 
 ## 8. Reference policy
 
