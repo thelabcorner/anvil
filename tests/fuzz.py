@@ -405,6 +405,13 @@ def aux_bwt_roundtrip(exe: Path, td: Path) -> int:
     src=td/'aux-source.bin'; src.write_bytes(data)
     dec=td/'aux.out'
 
+    # CLI contract is strict: typos must never silently enable a new wire format.
+    bad_cli=run([exe,'c',src,td/'aux-bad-cli.anv','--parse=ratio',
+                 '--ratio-backend=bwt','--bwt-aux=banana','--quiet'],ok=False)
+    if bad_cli.returncode==0 or b'--bwt-aux must be on or off' not in bad_cli.stderr:
+        raise RuntimeError('invalid --bwt-aux value was not rejected explicitly')
+    n+=1
+
     # Default-off and explicit-off must be literally identical.
     default_p=td/'aux-default.anv'
     off_p=td/'aux-off.anv'
