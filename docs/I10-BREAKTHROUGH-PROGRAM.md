@@ -592,6 +592,7 @@ Separate experiments:
    - forced/default-off first; legacy BWT bytes remain identical;
    - additive inner-BWT v2 wire with the auxiliary index fully charged.
 2. P4.1 bit-exact DEFLATE reconstruction integration.
+   - implementation contract: `docs/I10-DEFLATE-REPLAY-INTEGRATION-PLAN.md`;
    - first production scope: ZIP method-8 raw DEFLATE only;
    - the frozen mozilla census puts 3,132,001 of 3,177,007 DEFLATE compressed bytes in ZIP (~98.6%), while PNG contributes only 45,006 B;
    - valid ZIP replay population is 2,289 streams / 2,856,886 compressed bytes;
