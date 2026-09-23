@@ -1,6 +1,7 @@
 # ANVIL I10 — GROTLI-ANVIL-0 Pre-Registration
 
 **Frozen:** 2026-09-23
+**Closed:** 2026-09-23 — **NO-GO-REPRESENTATION**; see [I10-GROTLI-G0-RESULTS.md](I10-GROTLI-G0-RESULTS.md)
 **Class:** engineering / representation-capability experiment; no mechanism-novelty claim
 **Production source changes:** forbidden until this experiment closes
 **Compute policy:** compression/decompression measurements run on GitHub Actions only
