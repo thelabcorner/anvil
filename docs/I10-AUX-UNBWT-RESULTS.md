@@ -577,18 +577,52 @@ A future explicitly named **balanced/frontier** profile may select auxiliary v2
 when decode cost is part of the requested objective. That router must use an
 explicit profile/Pareto budget, not an arbitrary hidden scalar lambda.
 
-### What is *not* established
+### External reference-front closure
 
 I10-1A is an **adopt-class engineering result**, not a novelty claim.
 
-It also does **not yet establish a current external `FRONT-CROSSING`** under
-ANVIL PR-3. The paired timing comparisons above are auxiliary-vs-legacy ANVIL.
-The historical I9 Brotli/xz timing rows were measured in a different host/tool
-series and cannot be spliced into the new GitHub Actions timing series.
+The same-job external reference-cost experiment has now been completed as
+GitHub Actions run `35927623136`. It used the frozen
+`i10-aux-unbwt-final-v1` candidate, exact corpus/hash/roundtrip gates,
+paired/interleaved decode timing, an A/A null experiment, and per-process peak
+RSS.
 
-A current external-front claim requires a same-job paired/interleaved comparison
-against the binding reference codecs on the same hosted VM while preserving
-exact byte counts and hashes.
+The ruling is **FRONT-GAP_COST** on both canonical corpora.
+
+Silesia:
+
+- ANVIL aux: **46,466,339 B**, ~47.9 MB/s decode, **248.4 MiB** peak RSS;
+- xz -9e: 48,456,004 B, ~82.5 MB/s, 54.3 MiB;
+- Brotli q11/lw30: 49,383,136 B, ~166.9 MB/s, 124.5 MiB;
+- paired ANVIL/xz decode-time ratio: **1.7226**, 95% CI
+  **[1.6640, 1.8400]** — inside the predeclared 2x xz cost margin;
+- paired ANVIL/Brotli ratio: **3.4474**, 95% CI
+  **[3.2680, 3.5059]** — outside the 2x margin;
+- peak-RSS ratios: **4.572x xz**, **1.995x Brotli**.
+
+enwik8:
+
+- ANVIL aux: **23,537,422 B**, ~26.5 MB/s decode, **598.9 MiB** peak RSS;
+- xz -9e: 24,831,648 B, ~103.6 MB/s, 66.2 MiB;
+- Brotli q11/lw30: 24,810,180 B, ~150.2 MB/s, 251.9 MiB;
+- paired ANVIL/xz decode-time ratio: **3.9065**, 95% CI
+  **[3.9003, 4.0088]**;
+- paired ANVIL/Brotli ratio: **5.6642**, 95% CI
+  **[5.6528, 6.7596]**;
+- peak-RSS ratios: **9.043x xz**, **2.378x Brotli**.
+
+The A/A null confidence intervals span 1.0 in both jobs, so the paired timing
+series passed its control.
+
+Therefore the current external-front question is no longer unresolved: the
+candidate still wins bytes, but **does not cross the complete reference front**.
+The binding deficits are decode cost and, especially on the large BWT case,
+working-set/peak memory.
+
+This result promotes the already-wired `--bwt-subblock` representation to the
+next BWT systems experiment. A remote bytes/decode/RSS sweep can test whether
+smaller independent BWT problems create another non-dominated Pareto point
+without changing the max-ratio default.
 
 ---
 
@@ -617,6 +651,11 @@ Hardening:
 Binary size:
 
 - final same-toolchain size audit: `35926420144` — **SUCCESS**.
+
+External same-job reference-cost closure:
+
+- Silesia + enwik8 matrix: `35927623136` — **SUCCESS /
+  FRONT-GAP_COST on both corpora**.
 
 No I10-1B DEFLATE-replay source work was combined with this branch. I10-1A is
 closed as a causally isolated experiment.
