@@ -55,7 +55,7 @@ jobs:
     env:
       BUILD_DIR: build-ci
       OUT_DIR: ${{ github.workspace }}/ci-results
-      CORPUS_DIR: ${{ runner.temp }}/anvil-corpora
+      CORPUS_DIR: ${{ github.workspace }}/.ci-corpora
 
     steps:
       - name: Checkout sanitized source
