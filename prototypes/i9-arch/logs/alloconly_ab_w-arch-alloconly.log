@@ -1,0 +1,37 @@
+# mat_ab 2026-09-12T05:22:48.1669378-05:00
+# armA=prototypes\i9-arch\anvil_bench_premat.exe sha=7BE7CB34A25EEAD736265C25085C9AFE0FB51BE3597A9BCC287F65786A92855F
+# armB=prototypes\i9-arch\anvil_bench_alloc.exe sha=13AA6C31FA902BFEB3B4BA0E186576E9A70D2CB984142329C8C2DC05B2FF02D3  core=18 reps=7
+REP file=generated.json codec=anvil-mdl-rans arm=A rep=0 dec_MBps=198.476 ms=4.17 bytes=89589 rt=OK load=34
+REP file=generated.json codec=anvil-mdl-rans arm=B rep=0 dec_MBps=234.167 ms=3.535 bytes=89589 rt=OK load=37
+REP file=generated.json codec=anvil-mdl-rans arm=B rep=1 dec_MBps=271.517 ms=3.048 bytes=89589 rt=OK load=19
+REP file=generated.json codec=anvil-mdl-rans arm=A rep=1 dec_MBps=201.55 ms=4.106 bytes=89589 rt=OK load=22
+REP file=generated.json codec=anvil-mdl-rans arm=A rep=2 dec_MBps=189.862 ms=4.359 bytes=89589 rt=OK load=54
+REP file=generated.json codec=anvil-mdl-rans arm=B rep=2 dec_MBps=269.019 ms=3.077 bytes=89589 rt=OK load=20
+REP file=generated.json codec=anvil-mdl-rans arm=B rep=3 dec_MBps=270.143 ms=3.064 bytes=89589 rt=OK load=6
+REP file=generated.json codec=anvil-mdl-rans arm=A rep=3 dec_MBps=198.939 ms=4.16 bytes=89589 rt=OK load=43
+REP file=generated.json codec=anvil-mdl-rans arm=A rep=4 dec_MBps=202.566 ms=4.086 bytes=89589 rt=OK load=18
+REP file=generated.json codec=anvil-mdl-rans arm=B rep=4 dec_MBps=263.57 ms=3.14 bytes=89589 rt=OK load=14
+REP file=generated.json codec=anvil-mdl-rans arm=B rep=5 dec_MBps=268.626 ms=3.081 bytes=89589 rt=OK load=57
+REP file=generated.json codec=anvil-mdl-rans arm=A rep=5 dec_MBps=198.309 ms=4.174 bytes=89589 rt=OK load=16
+REP file=generated.json codec=anvil-mdl-rans arm=A rep=6 dec_MBps=202.516 ms=4.087 bytes=89589 rt=OK load=5
+REP file=generated.json codec=anvil-mdl-rans arm=B rep=6 dec_MBps=271.267 ms=3.051 bytes=89589 rt=OK load=30
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=A rep=0 dec_MBps=183.775 ms=1.524 bytes=140898 rt=OK load=18
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=B rep=0 dec_MBps=203.149 ms=1.378 bytes=140898 rt=OK load=8
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=B rep=1 dec_MBps=202.869 ms=1.38 bytes=140898 rt=OK load=31
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=A rep=1 dec_MBps=184.758 ms=1.515 bytes=140898 rt=OK load=6
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=A rep=2 dec_MBps=188.819 ms=1.483 bytes=140898 rt=OK load=15
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=B rep=2 dec_MBps=196.961 ms=1.422 bytes=140898 rt=OK load=15
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=B rep=3 dec_MBps=199.189 ms=1.406 bytes=140898 rt=OK load=48
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=A rep=3 dec_MBps=192.44 ms=1.455 bytes=140898 rt=OK load=19
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=A rep=4 dec_MBps=190.541 ms=1.47 bytes=140898 rt=OK load=20
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=B rep=4 dec_MBps=204.633 ms=1.368 bytes=140898 rt=OK load=12
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=B rep=5 dec_MBps=200.444 ms=1.397 bytes=140898 rt=OK load=26
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=A rep=5 dec_MBps=190.827 ms=1.467 bytes=140898 rt=OK load=16
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=A rep=6 dec_MBps=186.282 ms=1.503 bytes=140898 rt=OK load=8
+REP file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans arm=B rep=6 dec_MBps=205.218 ms=1.364 bytes=140898 rt=OK load=94
+# SUMMARY
+ARM=generated.json, anvil-mdl-rans, A file=generated.json codec=anvil-mdl-rans n=7 median_ms=4.1604 CV=2.1% bytes=89589
+ARM=generated.json, anvil-mdl-rans, B file=generated.json codec=anvil-mdl-rans n=7 median_ms=3.0766 CV=5.18% bytes=89589
+ARM=synth-timeseries.bin, anvil-hotop-rlzp-rans, A file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans n=7 median_ms=1.4829 CV=1.63% bytes=140898
+ARM=synth-timeseries.bin, anvil-hotop-rlzp-rans, B file=synth-timeseries.bin codec=anvil-hotop-rlzp-rans n=7 median_ms=1.3802 CV=1.39% bytes=140898
+# done 2026-09-12T05:32:05.0986787-05:00

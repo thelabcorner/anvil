@@ -1,0 +1,65 @@
+================================================================================================================
+CRITICAL THROUGHPUT  t_crit(L) = the decode speed a candidate of L bytes MUST exceed to cross
+================================================================================================================
+
+candidate                   file                       L (B)   ratio  t_crit (MB/s)     binding ref  kind
+----------------------------------------------------------------------------------------------------------------
+mode-16 ARI-REF validated h synth-arith.bin           89,363  0.3491          191.3      brotli-q11  GENUINE-CROSSING
+brotli-q6 parity (120,669 B synth-timeseries.bin     120,680  0.4310          287.8       brotli-q6  GENUINE-CROSSING
+brotli-q11 parity (87,013 B synth-arith.bin           87,013  0.3399          191.3      brotli-q11  GENUINE-CROSSING
+brotli-q11 parity (79,172 B generated.json            79,172  0.0957          517.5      brotli-q11  GENUINE-CROSSING
+brotli-q11 parity (81,946 B generated.log             81,946  0.0422          966.4      brotli-q11  GENUINE-CROSSING
+brotli-q11 parity (185,702  generated.sqlite         185,702  0.1067          454.1      brotli-q11  GENUINE-CROSSING
+brotli-q11 parity (150,619  generated.jsonl          150,619  0.0535          884.5      brotli-q11  GENUINE-CROSSING
+brotli-q11 parity (62,717 B synth-jitter.bin          62,717  0.0643          861.2      brotli-q11  GENUINE-CROSSING
+
+================================================================================================================
+CURRENT BEST ANVIL ROW: how far from a crossing, on both axes
+================================================================================================================
+file                     best ANVIL B       r     dec | t_crit @ that size  multiple |   bytes to q11
+generated.jsonl               183,506  0.0652   173.2 |             2024.2    11.68x |        +32,887
+generated.log                 129,739  0.0668   203.0 |             2134.4    10.52x |        +47,793
+anvil_bench.exe               830,331  0.4304    77.1 |              790.2    10.25x |       +183,656
+generated.sqlite              323,014  0.1856   122.3 |             1278.5    10.46x |       +137,312
+synth-jitter.bin               87,412  0.0897   165.7 |             2231.1    13.46x |        +24,695
+generated.repeat.jsonl            873  0.0009   234.4 |            24968.8   106.54x |           +711
+generated.json                 89,589  0.1082   112.8 |              517.5     4.59x |        +10,417
+synth-timeseries.bin          140,898  0.5032   158.4 |              287.8     1.82x |         +6,180
+anvil.exe                     107,468  0.3998    89.1 |             1055.7    11.85x |        +19,146
+random.bin                    262,166  1.0001   320.6 |             2753.7     8.59x |            +17
+synth-arith.bin               256,022  1.0001   362.5 |              903.5     2.49x |       +169,009
+src.cpp                         9,483  0.2917    26.7 |             1105.4    41.36x |         +1,492
+doc.md                          1,444  0.5301    19.9 |              479.0    24.09x |           +397
+
+================================================================================================================
+DECODE-SPEEDUP CEILING vs REQUIRED MULTIPLE  (is the speed route even open?)
+================================================================================================================
+  scenario conservative (CRC only)                      removes 44.0% of decode time -> ceiling  1.79x
+  scenario middle (CRC + lazy mat + half concat)        removes 64.5% of decode time -> ceiling  2.82x
+  scenario perfect (eliminate all three)                removes 85.0% of decode time -> ceiling  6.67x
+
+file                     required multiple  vs MID ceiling   vs PERFECT ceiling  verdict
+----------------------------------------------------------------------------------------------------------------
+generated.jsonl                     11.68x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+generated.log                       10.52x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+anvil_bench.exe                     10.25x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+generated.sqlite                    10.46x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+synth-jitter.bin                    13.46x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+generated.repeat.jsonl             106.54x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+generated.json                       4.59x              NO                   ok  MARGINAL (needs the perfect-decoder ceiling)
+synth-timeseries.bin                 1.82x              ok                   ok  SPEED ROUTE OPEN (middle scenario suffices)
+anvil.exe                           11.85x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+random.bin                           8.59x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+synth-arith.bin                      2.49x              ok                   ok  SPEED ROUTE OPEN (middle scenario suffices)
+src.cpp                             41.36x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+doc.md                              24.09x              NO                   NO  SPEED ROUTE CLOSED (beyond even a perfect decoder)
+
+NOTE on the ceiling: the CRC leg is wire-invisible (byte-identical output).
+The materialization and concat legs are NOT free -- lazy materialization
+defers work, it does not delete it. The 'middle' scenario assumes half of
+each is genuinely eliminable; that is an ASSUMPTION, stated as such.
+Entropy-codec selection lives inside the token loop (11% of
+decode), of which the entropy pulls themselves are 0.3% => the maximum
+speedup obtainable by per-stream codec choice is ~1.003x. That is
+why S6-1 measured zero decode effect from budget selection: it is not a
+tuning failure, it is the size of the target.

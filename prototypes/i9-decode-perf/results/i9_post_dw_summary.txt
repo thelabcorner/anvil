@@ -1,0 +1,66 @@
+ANVIL BWT postcoder stage profile (decode-perf, I9 leg 3)
+  LABEL: i9_post_dw
+  reps=7 interleaved, median; CV=stdev/mean; threads=1
+
+=== containers\post_dickens_id2.anv ===
+src=10192446 comp=2571873 ratio=0.2523 post=2 xlen=10192446 (arith O1)
+BASELINE full decode: 13.14 MB/s (med 775.88 ms CV 4.4% min 749.74 ms)
+POSTCODER (arith) med=404.07 ms = 52.1% of e2e (CV 1.6%)
+  setup (ad init + eager models): 0.40 ms = 0.1% of e2e (0.1% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 373.72 ms = 48.2% of e2e (92.5% of post)
+  output materialization (writes): 30.35 ms = 3.9% of e2e (7.5% of post)
+  counters: tokens=5578448 runs=1203850 run_bytes=5817848 out_bytes=10192446 O1_model_builds=127
+  PROTOTYPE fast_renorm: 388.37 ms vs full 404.07 ms -> 1.040x (candidate C=1.021x if this share is removed)
+  model_build_x257: 393.432 ms per full set (1.5309 ms/model) -> lazy-build est share = 127 * per_model / post_full = 48.1%
+  rank hist (1..15+): 1492822 718075 461493 332037 251588 201800 166764 138224 116571 97242 80667 66209 52962 43544 154600 0
+
+=== containers\post_dickens_id1.anv ===
+src=10192446 comp=2643577 ratio=0.2594 post=1 xlen=10192446 (arith O0)
+BASELINE full decode: 12.92 MB/s (med 789.11 ms CV 21.4% min 745.59 ms)
+POSTCODER (arith) med=400.88 ms = 50.8% of e2e (CV 1.3%)
+  setup (ad init + eager models): 0.32 ms = 0.0% of e2e (0.1% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 369.22 ms = 46.8% of e2e (92.1% of post)
+  output materialization (writes): 31.66 ms = 4.0% of e2e (7.9% of post)
+  counters: tokens=5578448 runs=1203850 run_bytes=5817848 out_bytes=10192446 O1_model_builds=0
+  PROTOTYPE fast_renorm: 382.43 ms vs full 400.88 ms -> 1.048x (candidate C=1.024x if this share is removed)
+  model_build_x257: 386.204 ms per full set (1.5027 ms/model) -> lazy-build est share = 0 * per_model / post_full = 0.0%
+  rank hist (1..15+): 1492822 718075 461493 332037 251588 201800 166764 138224 116571 97242 80667 66209 52962 43544 154600 0
+
+=== containers\post_dickens_id3.anv ===
+src=10192446 comp=3901580 ratio=0.3828 post=3 xlen=10192446 (raw stream)
+BASELINE full decode: 18.88 MB/s (med 539.96 ms CV 14.8% min 483.33 ms)
+POSTCODER (raw stream) med=60.88 ms = 11.3% of e2e (CV 1.8%)  codec=6 wire=3901543 raw=10192446
+
+=== containers\post_webster_id2.anv ===
+src=41458703 comp=7317361 ratio=0.1765 post=2 xlen=41458703 (arith O1)
+BASELINE full decode: 13.05 MB/s (med 3177.08 ms CV 3.2% min 3124.93 ms)
+POSTCODER (arith) med=1155.75 ms = 36.4% of e2e (CV 3.1%)
+  setup (ad init + eager models): 0.43 ms = 0.0% of e2e (0.0% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 1065.49 ms = 33.5% of e2e (92.2% of post)
+  output materialization (writes): 90.26 ms = 2.8% of e2e (7.8% of post)
+  counters: tokens=15710659 runs=3552880 run_bytes=29300924 out_bytes=41458703 O1_model_builds=121
+  PROTOTYPE fast_renorm: 1111.54 ms vs full 1155.75 ms -> 1.040x (candidate C=1.014x if this share is removed)
+  model_build_x257: 1117.426 ms per full set (4.3480 ms/model) -> lazy-build est share = 121 * per_model / post_full = 45.5%
+  rank hist (1..15+): 4310619 1910111 1212325 872011 666470 531919 436676 363607 306995 260454 221183 187827 157440 131392 588750 0
+
+=== containers\post_webster_id1.anv ===
+src=41458703 comp=7557402 ratio=0.1823 post=1 xlen=41458703 (arith O0)
+BASELINE full decode: 13.04 MB/s (med 3178.42 ms CV 8.2% min 3075.71 ms)
+POSTCODER (arith) med=1141.11 ms = 35.9% of e2e (CV 0.8%)
+  setup (ad init + eager models): 0.30 ms = 0.0% of e2e (0.0% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 1036.17 ms = 32.6% of e2e (90.8% of post)
+  output materialization (writes): 104.94 ms = 3.3% of e2e (9.2% of post)
+  counters: tokens=15710659 runs=3552880 run_bytes=29300924 out_bytes=41458703 O1_model_builds=0
+  PROTOTYPE fast_renorm: 1107.31 ms vs full 1141.11 ms -> 1.031x (candidate C=1.011x if this share is removed)
+  model_build_x257: 1089.996 ms per full set (4.2412 ms/model) -> lazy-build est share = 0 * per_model / post_full = 0.0%
+  rank hist (1..15+): 4310619 1910111 1212325 872011 666470 531919 436676 363607 306995 260454 221183 187827 157440 131392 588750 0
+
+=== containers\post_webster_id3.anv ===
+src=41458703 comp=14711551 ratio=0.3548 post=3 xlen=41458703 (raw stream)
+BASELINE full decode: 18.83 MB/s (med 2201.20 ms CV 11.2% min 2157.17 ms)
+POSTCODER (raw stream) med=227.31 ms = 10.3% of e2e (CV 3.2%)  codec=6 wire=14711515 raw=41458703
+

@@ -1,0 +1,3 @@
+corpus,file,input_bytes,codec,compressed_bytes,ratio,compress_s,decompress_s,compress_peak_mib,decompress_peak_mib,roundtrip,timing_status,legacy_compress_s,legacy_decompress_s,legacy_compress_peak_mib,legacy_decompress_peak_mib
+enwik8,enwik8,100000000,anvil-auto-direct,23534368,0.235343680,434.538917,16.976938,10601.594,695.012,OK,VALID_100MS_NONRECURSIVE,,,,
+enwik8,enwik8,100000000,anvil-bwt-direct,23534368,0.235343680,96.811125,14.859763,1265.734,695.004,OK,VALID_100MS_NONRECURSIVE,,,,

@@ -1,0 +1,17 @@
+{
+ "summary": {
+  "file": "ooffice",
+  "size": 6152192,
+  "n_streams": 0,
+  "n_verified": 0,
+  "n_crc_ok": 0,
+  "deflate_clen": 0,
+  "deflate_ulen": 0,
+  "deflate_clen_verified": 0,
+  "deflate_ulen_verified": 0,
+  "stored_clen": 0,
+  "by_kind": {},
+  "n_raw_zlib_attempts": 3563
+ },
+ "streams": []
+}

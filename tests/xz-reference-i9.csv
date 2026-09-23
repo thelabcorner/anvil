@@ -1,0 +1,23 @@
+file,input_bytes,codec,compressed_bytes,ratio,encode_MBps,decode_MBps,roundtrip,provenance
+anvil.exe,268800,xz-9e,86652,0.322366071,2.337,67.47,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+anvil_bench.exe,1929216,xz-9e,632472,0.327838873,2.754,67.539,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+doc.md,2724,xz-9e,1388,0.509544787,0.318,67.002,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+generated.json,827664,xz-9e,76952,0.092974927,1.325,178.683,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+generated.jsonl,2815267,xz-9e,153536,0.054536923,1.476,334.476,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+generated.log,1942280,xz-9e,77356,0.039827419,0.509,347.803,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+generated.repeat.jsonl,940000,xz-9e,456,0.000485106,25.319,571.767,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+generated.sqlite,1740800,xz-9e,170032,0.097674632,2.114,185.767,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+pe-git.exe,4383048,xz-9e,1778240,0.405708539,2.466,58.716,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+pe-ninja.exe,603648,xz-9e,247312,0.409695717,3.466,57.602,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+pe-notepad.exe,360448,xz-9e,183756,0.509798917,3.224,46.526,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+pe-python.exe,103704,xz-9e,50352,0.485535756,1.946,48.568,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+pe-where.exe,61440,xz-9e,19696,0.320572917,1.816,71.675,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+pe-winver.exe,28672,xz-9e,5008,0.174665179,1.85,152.769,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+random.bin,262144,xz-9e,262216,1.000274658,3.367,1177.488,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+src.cpp,32512,xz-9e,8332,0.256274606,1.88,103.101,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+synth-arith.bin,256000,xz-9e,79372,0.310046875,3.51,58.149,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+synth-columnar-align.bin,276000,xz-9e,111184,0.40284058,2.975,45.838,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+synth-counters.log,1107326,xz-9e,93936,0.084831387,1.013,205.727,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+synth-drift-stride.bin,615376,xz-9e,93412,0.151796625,3.169,112.707,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+synth-jitter.bin,974920,xz-9e,54308,0.055705083,0.928,271.447,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade
+synth-timeseries.bin,280000,xz-9e,117448,0.419457143,2.465,44.899,OK,xz 5.6.4 -9e -T1 (single-thread xz CLI); encode=process-level single run; decode=concatenated-stream one process; ranking-grade

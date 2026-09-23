@@ -1,0 +1,8 @@
+[host] logical processors=24 pinned=0x800000 priority=HIGH profile=post_prof
+[file] containers\post_enwik8_id2.anv comp=23534368 src=100000000 post=2 xlen=100000000
+  -> results/i9_post_enwik8_results_post_enwik8_id2.anv.txt
+[file] containers\post_enwik8_id1.anv comp=24181513 src=100000000 post=1 xlen=100000000
+  -> results/i9_post_enwik8_results_post_enwik8_id1.anv.txt
+[file] containers\post_enwik8_id3.anv comp=44100996 src=100000000 post=3 xlen=100000000
+  -> results/i9_post_enwik8_results_post_enwik8_id3.anv.txt
+[done] summary -> results/i9_post_enwik8_summary.txt

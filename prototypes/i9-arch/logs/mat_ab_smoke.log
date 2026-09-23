@@ -1,0 +1,9 @@
+# mat_ab 2026-09-12T03:22:21.5053995-05:00
+# armA=prototypes\i9-arch\anvil_bench_premat.exe sha=7BE7CB34A25EEAD736265C25085C9AFE0FB51BE3597A9BCC287F65786A92855F
+# armB=prototypes\i9-arch\anvil_bench_mat.exe sha=34735B07F696F7AE37C2949C2758AA77A9D9304503631C465E315FF750229828  core=18 reps=1
+REP file=doc.md codec=anvil-mdl-rans arm=A rep=0 dec_MBps=70.57 ms=0.039 bytes=1514 rt=OK load=48
+REP file=doc.md codec=anvil-mdl-rans arm=B rep=0 dec_MBps=71.496 ms=0.038 bytes=1514 rt=OK load=40
+# SUMMARY
+ARM=doc.md, anvil-mdl-rans, A file=doc.md codec=anvil-mdl-rans n=1 median_ms=0.0386 CV=0% bytes=1514
+ARM=doc.md, anvil-mdl-rans, B file=doc.md codec=anvil-mdl-rans n=1 median_ms=0.0381 CV=0% bytes=1514
+# done 2026-09-12T03:22:24.0995312-05:00

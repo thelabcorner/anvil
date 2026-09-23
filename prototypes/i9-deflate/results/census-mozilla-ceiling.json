@@ -1,0 +1,38 @@
+{
+ "n_streams": 2354,
+ "deflate_bytes_C": 3177007,
+ "plain_bytes_U": 9991436,
+ "deflate_ratio": 0.3179730120875518,
+ "codecs": {
+  "deflate.bin": {
+   "brotli_q11_lgwin24": 3041864,
+   "xz_9e": 3064680,
+   "zstd_22": 3054524
+  },
+  "plain.bin": {
+   "brotli_q11_lgwin24": 1582355,
+   "xz_9e": 1592612,
+   "zstd_22": 1620772
+  }
+ },
+ "gain_local": {
+  "brotli_q11_lgwin24": {
+   "cost_deflate": 3041864,
+   "cost_plain": 1582355,
+   "gain": 1459509,
+   "gain_pct_of_deflate": 47.98074470127527
+  },
+  "xz_9e": {
+   "cost_deflate": 3064680,
+   "cost_plain": 1592612,
+   "gain": 1472068,
+   "gain_pct_of_deflate": 48.033334638526696
+  },
+  "zstd_22": {
+   "cost_deflate": 3054524,
+   "cost_plain": 1620772,
+   "gain": 1433752,
+   "gain_pct_of_deflate": 46.93863921187066
+  }
+ }
+}

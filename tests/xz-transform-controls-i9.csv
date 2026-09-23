@@ -1,0 +1,10 @@
+file,input_bytes,control,compressed_bytes,ratio,xz_args,provenance
+pe-git.exe,4383048,x86,1637188,0.373527281,--filters=x86 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+pe-ninja.exe,603648,x86,230696,0.382169741,--filters=x86 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+pe-notepad.exe,360448,x86,181724,0.504161488,--filters=x86 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+pe-python.exe,103704,x86,50352,0.485535756,--filters=x86 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+pe-where.exe,61440,x86,18660,0.303710938,--filters=x86 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+pe-winver.exe,28672,x86,5000,0.174386161,--filters=x86 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+synth-columnar-align.bin,276000,delta dist=23,21332,0.077289855,--filters=delta:dist=23 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+synth-counters.log,1107326,delta dist=1,137128,0.123837063,--filters=delta:dist=1 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)
+synth-drift-stride.bin,615376,delta dist=1,142272,0.231195237,--filters=delta:dist=1 lzma2:preset=9e,xz 5.6.4 -9e -T1; same-transform control; SIDE-CHANNEL (not arbiter front)

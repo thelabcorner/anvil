@@ -1,0 +1,78 @@
+====================================================================================================
+synth-arith.bin  N=256,000
+  reference rows (ratio computed from EXACT bytes/N):
+    brotli-q9    114,417 B  r=0.446941  dec=  139.7  enc=   8.49
+    brotli-q4    170,573 B  r=0.666301  dec=  163.7  enc=  59.89
+    brotli-q11    87,013 B  r=0.339895  dec=  187.5  enc=   0.60
+    brotli-q6    115,040 B  r=0.449375  dec=  188.8  enc=  27.37
+    brotli-q1    201,308 B  r=0.786359  dec=  204.6  enc= 245.05
+    zstd-19      106,614 B  r=0.416461  dec=  325.5  enc=   6.21
+    zstd-9       201,315 B  r=0.786387  dec=  839.3  enc= 181.07
+    zstd-1       201,318 B  r=0.786398  dec=  874.3  enc= 509.35
+    zstd-3       201,318 B  r=0.786398  dec=  885.8  enc= 408.10
+  minimum reference ratio = 0.339895
+
+  CANDIDATE arch mode-16 ARI-REF (landed)            75,455 B  ratio 0.294746
+       decode MB/s  status                dominated by       budget L*(t)
+               0.0  *** EXTENDS_FRONT *** -                        87,013
+              50.0  *** EXTENDS_FRONT *** -                        87,013
+             100.0  *** EXTENDS_FRONT *** -                        87,013
+             139.7  *** EXTENDS_FRONT *** -                        87,013
+             163.7  *** EXTENDS_FRONT *** -                        87,013
+             187.5  *** EXTENDS_FRONT *** -                        87,013
+             188.8  *** EXTENDS_FRONT *** -                       106,614
+             204.6  *** EXTENDS_FRONT *** -                       106,614
+             325.5  *** EXTENDS_FRONT *** -                       106,614
+             362.5  *** EXTENDS_FRONT *** -                       201,315
+             839.3  *** EXTENDS_FRONT *** -                       201,315
+    CLASSIFICATION: GENUINE-CROSSING ù ratio 0.294746 is STRICTLY BELOW every reference ratio
+      (min ref 0.339895). No reference row can dominate it on ratio at
+      ANY decode speed, so it is outside every axis-rectangle gap by construction.
+
+  CANDIDATE ARI-REF harness wire (EXP. Z, prior)     89,363 B  ratio 0.349074
+       decode MB/s  status                dominated by       budget L*(t)
+               0.0  DOMINATED             brotli-q11               87,013
+              50.0  DOMINATED             brotli-q11               87,013
+             100.0  DOMINATED             brotli-q11               87,013
+             139.7  DOMINATED             brotli-q11               87,013
+             163.7  DOMINATED             brotli-q11               87,013
+             187.5  DOMINATED             brotli-q11               87,013
+             188.8  *** EXTENDS_FRONT *** -                       106,614
+             204.6  *** EXTENDS_FRONT *** -                       106,614
+             325.5  *** EXTENDS_FRONT *** -                       106,614
+             362.5  *** EXTENDS_FRONT *** -                       201,315
+             839.3  *** EXTENDS_FRONT *** -                       201,315
+    CLASSIFICATION: requires the decode axis; check per-speed table above.
+
+  CANDIDATE entropy floor (theory, derived)          12,717 B  ratio 0.049676
+       decode MB/s  status                dominated by       budget L*(t)
+               0.0  *** EXTENDS_FRONT *** -                        87,013
+              50.0  *** EXTENDS_FRONT *** -                        87,013
+             100.0  *** EXTENDS_FRONT *** -                        87,013
+             139.7  *** EXTENDS_FRONT *** -                        87,013
+             163.7  *** EXTENDS_FRONT *** -                        87,013
+             187.5  *** EXTENDS_FRONT *** -                        87,013
+             188.8  *** EXTENDS_FRONT *** -                       106,614
+             204.6  *** EXTENDS_FRONT *** -                       106,614
+             325.5  *** EXTENDS_FRONT *** -                       106,614
+             362.5  *** EXTENDS_FRONT *** -                       201,315
+             839.3  *** EXTENDS_FRONT *** -                       201,315
+    CLASSIFICATION: GENUINE-CROSSING ù ratio 0.049676 is STRICTLY BELOW every reference ratio
+      (min ref 0.339895). No reference row can dominate it on ratio at
+      ANY decode speed, so it is outside every axis-rectangle gap by construction.
+
+  CANDIDATE brotli-q11 parity                        87,013 B  ratio 0.339895
+       decode MB/s  status                dominated by       budget L*(t)
+               0.0  DOMINATED             brotli-q11               87,013
+              50.0  DOMINATED             brotli-q11               87,013
+             100.0  DOMINATED             brotli-q11               87,013
+             139.7  DOMINATED             brotli-q11               87,013
+             163.7  DOMINATED             brotli-q11               87,013
+             187.5  DOMINATED             brotli-q11               87,013
+             188.8  *** EXTENDS_FRONT *** -                       106,614
+             204.6  *** EXTENDS_FRONT *** -                       106,614
+             325.5  *** EXTENDS_FRONT *** -                       106,614
+             362.5  *** EXTENDS_FRONT *** -                       201,315
+             839.3  *** EXTENDS_FRONT *** -                       201,315
+    CLASSIFICATION: requires the decode axis; check per-speed table above.
+

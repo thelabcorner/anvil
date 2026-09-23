@@ -1,0 +1,25 @@
+{
+ "file": "mozilla",
+ "region": "ALL",
+ "n_streams": 2354,
+ "C_deflate": 3177007,
+ "tally": {
+  "valid": 2331,
+  "diff": 23,
+  "brute": 0
+ },
+ "bytes_tally": {
+  "valid": 2898132,
+  "diff": 278875,
+  "brute": 0
+ },
+ "valid_fraction_of_streams": 0.9902293967714528,
+ "valid_fraction_of_bytes": 0.9122208418174717,
+ "diff_corr_proxy_xz_bytes": 279800,
+ "param_hist": {
+  "w-15_l6_m8_s0": 2282,
+  "w-15_l6_m9_s0": 7,
+  "w15_l6_m8_s1": 42
+ },
+ "zlib_version": "1.3.1"
+}

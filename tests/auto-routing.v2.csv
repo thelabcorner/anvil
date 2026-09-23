@@ -1,0 +1,13 @@
+corpus,file,input_bytes,codec,compressed_bytes,ratio,compress_s,decompress_s,compress_peak_mib,decompress_peak_mib,roundtrip,timing_status,legacy_compress_s,legacy_decompress_s,legacy_compress_peak_mib,legacy_decompress_peak_mib
+scratch/ratio-first/corpora/silesia,dickens,10192446,anvil-ratio,2827811,0.277441843,54.499486,0.101580,166.438,1.617,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,dickens,10192446,brotli-q11-lw30,2827779,0.277438703,16.562746,0.102110,136.375,1.609,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,dickens,10192446,zstd-ultra-22-long27,2849381,0.279558116,5.122423,0.101719,276.449,1.598,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,dickens,10192446,xz-9e,2831220,0.277776306,6.627822,0.202059,155.230,25.816,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mozilla,51220480,anvil-ratio,13806173,0.269543999,256.616367,0.404301,692.660,123.098,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mozilla,51220480,brotli-q11-lw30,13806141,0.269543374,123.548597,0.302281,577.719,122.754,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mozilla,51220480,zstd-ultra-22-long27,14967572,0.292218503,24.097349,0.101922,714.910,1.617,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mozilla,51220480,xz-9e,13376248,0.261150384,22.884362,0.603975,568.492,99.473,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mr,9970564,anvil-ratio,2768635,0.277680881,35.029730,0.102156,156.559,1.617,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mr,9970564,brotli-q11-lw30,2823137,0.283147172,17.966761,0.101884,138.676,1.617,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mr,9970564,zstd-ultra-22-long27,3105643,0.311481176,4.516837,0.102275,276.457,1.609,OK,VALID_100MS_NONRECURSIVE,,,,
+scratch/ratio-first/corpora/silesia,mr,9970564,xz-9e,2751900,0.276002441,5.520155,0.202902,158.598,19.695,OK,VALID_100MS_NONRECURSIVE,,,,

@@ -1,0 +1,14 @@
+=== containers\generated_json_mdl.anv ===
+src=827664 B  comp=89589 B  ratio=0.1082  blocks=4
+mode census: m10=4
+BASELINE full decode: 216.8 MB/s  (med 3.817 ms, CV 16.4%, min 3.746 ms)
+
+(no mode-15 blocks: stage ablation + per-stream table not applicable)
+
+fixed costs (file-level):
+  crc32_snapshot_dispatch=0.056 ms (0.067 ns/B, 14859.3 MB/s)   crc32_slice8_local=0.369 ms (0.446 ns/B)   crc32_bytewise(I8 base)=1.580 ms (1.909 ns/B, 524.0 MB/s)   slice8==bytewise=YES
+  memcpy-out=0.026 ms (0.032 ns/B)
+
+SHARES of end-to-end baseline (snapshot CRC=snapshot_dispatch, measured baseline): crc_snapshot=1.46%  crc_bytewise_counterfactual=29.57%  memcpy=0.69%  block_loop=0.00%  residual_concat_alloc_hdr=97.85%
+CRC-ONLY LIFT (full CRC-time removal): snapshot_dispatch=1.015x (share 0.0146)   bytewise_I8base=1.420x (share 0.2957)   slice8_local=1.107x (share 0.0967)
+COUNTERFACTUAL decode speed with bytewise CRC = 155.0 MB/s; with slice8 CRC = 200.4 MB/s; measured snapshot (snapshot_dispatch) = 216.8 MB/s

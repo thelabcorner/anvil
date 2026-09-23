@@ -1,0 +1,10 @@
+arm,backend,param,wire_bytes,ratio,roundtrip,header,literals,params,dfirst,startup,main,tail,sections_sum,regions,step_regions,main_syms,startup_syms
+pack3/transmitted,0,0,12921,0.050473,PASS,44,32,46,0,0,12799,0,12921,8,8,63992,0
+pack3/derived,0,1,12936,0.050531,PASS,44,32,40,13,16,12791,0,12936,8,8,63953,31
+raw2/transmitted,1,0,16120,0.062969,PASS,44,32,46,0,0,15998,0,16120,8,8,63992,0
+raw2/derived,1,1,16134,0.063023,PASS,44,32,40,13,16,15989,0,16134,8,8,63953,31
+brotli/transmitted,2,0,13441,0.052504,PASS,44,32,46,0,0,13319,0,13441,8,8,63992,0
+brotli/derived,2,1,13456,0.052562,PASS,44,32,40,13,16,13311,0,13456,8,8,63953,31
+pack5/ddelta,3,2,19817,0.077410,PASS,44,32,40,13,0,19688,0,19817,8,8,63984,0
+raw3/ddelta,4,2,64113,0.250441,PASS,44,32,40,13,0,63984,0,64113,8,8,63984,0
+literal/n/a/literal,0,1,256049,1.000191,PASS,44,256000,5,0,0,0,0,256049,1,0,0,0

@@ -1,0 +1,39 @@
+# dt_ab 2026-09-12T06:23:23.5892207-05:00
+# armA=prototypes\i9-arch\dt_preleg4.exe sha=1B34D319542F42BF128DED9BD8D9A8A3406A2481765CDBD1B8BFA694712DE371
+# armB=prototypes\i9-arch\dt_leg4.exe sha=215175736B00466E803A33501C71AB8B70D45DB28729129CD252033107611862 core=18 reps=7
+CONT sha=1F8FE57D70FD887B7512EB737231AF89EBD5DC0F7F4958DCA93F7470F567F9BB file=C:\Users\SLOOSH~1\AppData\Local\Temp\dickens.bwt.anv
+REP file=dickens.bwt.anv arm=A rep=0 ns_per_outB=82.567 MBps=12.1 load=20.1
+REP file=dickens.bwt.anv arm=B rep=0 ns_per_outB=74.125 MBps=13.5 load=31.4
+REP file=dickens.bwt.anv arm=B rep=1 ns_per_outB=71.458 MBps=14 load=30.7
+REP file=dickens.bwt.anv arm=A rep=1 ns_per_outB=111.566 MBps=9 load=70.3
+REP file=dickens.bwt.anv arm=A rep=2 ns_per_outB=100.52 MBps=9.9 load=38.6
+REP file=dickens.bwt.anv arm=B rep=2 ns_per_outB=83.989 MBps=11.9 load=39.6
+REP file=dickens.bwt.anv arm=B rep=3 ns_per_outB=73.511 MBps=13.6 load=45.5
+REP file=dickens.bwt.anv arm=A rep=3 ns_per_outB=89.121 MBps=11.2 load=31.3
+REP file=dickens.bwt.anv arm=A rep=4 ns_per_outB=80.475 MBps=12.4 load=32.2
+REP file=dickens.bwt.anv arm=B rep=4 ns_per_outB=63.782 MBps=15.7 load=15.3
+REP file=dickens.bwt.anv arm=B rep=5 ns_per_outB=61.726 MBps=16.2 load=22.0
+REP file=dickens.bwt.anv arm=A rep=5 ns_per_outB=80.137 MBps=12.5 load=18.8
+REP file=dickens.bwt.anv arm=A rep=6 ns_per_outB=91.981 MBps=10.9 load=16.1
+REP file=dickens.bwt.anv arm=B rep=6 ns_per_outB=73.353 MBps=13.6 load=100.0
+CONT sha=0DBECD01D48BB9F25738F9234CEDDC0598961FD7FAF13FAD5740AA129D188D35 file=C:\Users\SLOOSH~1\AppData\Local\Temp\webster.bwt.anv
+REP file=webster.bwt.anv arm=A rep=0 ns_per_outB=73.765 MBps=13.6 load=18.8
+REP file=webster.bwt.anv arm=B rep=0 ns_per_outB=63.206 MBps=15.8 load=17.1
+REP file=webster.bwt.anv arm=B rep=1 ns_per_outB=64.535 MBps=15.5 load=20.4
+REP file=webster.bwt.anv arm=A rep=1 ns_per_outB=74.98 MBps=13.3 load=9.1
+REP file=webster.bwt.anv arm=A rep=2 ns_per_outB=75.36 MBps=13.3 load=8.9
+REP file=webster.bwt.anv arm=B rep=2 ns_per_outB=64.135 MBps=15.6 load=15.0
+REP file=webster.bwt.anv arm=B rep=3 ns_per_outB=63.472 MBps=15.8 load=13.5
+REP file=webster.bwt.anv arm=A rep=3 ns_per_outB=81.602 MBps=12.3 load=16.3
+REP file=webster.bwt.anv arm=A rep=4 ns_per_outB=75.312 MBps=13.3 load=12.1
+REP file=webster.bwt.anv arm=B rep=4 ns_per_outB=98.642 MBps=10.1 load=10.7
+REP file=webster.bwt.anv arm=B rep=5 ns_per_outB=63.997 MBps=15.6 load=10.8
+REP file=webster.bwt.anv arm=A rep=5 ns_per_outB=73.828 MBps=13.5 load=30.7
+REP file=webster.bwt.anv arm=A rep=6 ns_per_outB=73.766 MBps=13.6 load=12.5
+REP file=webster.bwt.anv arm=B rep=6 ns_per_outB=65.563 MBps=15.3 load=12.8
+# SUMMARY
+ARM=A file=dickens.bwt.anv n=7 median_ns_per_outB=89.121 CV=11.89%
+ARM=B file=dickens.bwt.anv n=7 median_ns_per_outB=73.353 CV=9.5%
+ARM=A file=webster.bwt.anv n=7 median_ns_per_outB=74.98 CV=3.41%
+ARM=B file=webster.bwt.anv n=7 median_ns_per_outB=64.135 CV=17.5%
+# done 2026-09-12T06:25:19.6887165-05:00

@@ -1,0 +1,28 @@
+PR-4 attestation -- decode-perf I9 leg 3 (postcoder)
+label: i9_post_dw
+window_start_utc: 2026-09-12T08:40:50.2024910Z
+window_end_utc: 2026-09-12T08:44:44.8127748Z (instrumented) / 2026-09-12T08:45:21.1998406Z (incl. canonical CLI)
+host: JACKSON-PC
+canonical binary: build/anvil.exe sha256=0D1E130BA2FBC43ACCE46E423BDD2AE732A2CA56A419B45929E26A6487C1DDAB
+instrumented profiler: post_prof_wt.exe sha256=8DD0B8B8B0B53D44A6278E7D7FB4E87B1A3AF95A40503525D6E11B8E0F57380A (lane build, same src)
+HEAD: fc23d9a191d7ab488ebe05be598bfd93c1f840ca
+branch: blocksplit-exp
+snapshot source: WORKING TREE (raw copy: anvil_wt_raw.cpp)
+snapshot taken: 2026-09-12T01:55:25.8018720-05:00
+worktree diff-vs-HEAD (src): src/anvil.cpp | 1397 +++++++++++++++++++++++++++++++++++++++++++++++++++++++-- |  1 file changed, 1349 insertions(+), 48 deletions(-)
+raw copy sha256: 62BC663122D8240C1A79A29D315CCA44AFFFCBC4DE59F3B555B350922FFEE74A
+snapshot (possibly repaired) sha256: 62BC663122D8240C1A79A29D315CCA44AFFFCBC4DE59F3B555B350922FFEE74A
+repair state: NONE - arch's decode_one_block(mode,p,...) fix is present in the raw worktree; snapshot used UNMODIFIED
+api-compat: one-arg decompress = False; extra defs = /DANVIL_SNAPSHOT_NAME=anvil_snapshot_wt.cpp
+command(prof): .\post_prof_wt.exe --reps=7 --label=i9_post_dw --out=results <containers>
+command(containers): build\anvil.exe c <src> <out> --parse=ratio --ratio-backend=bwt --ratio-context=off --ratio-lines=off --bwt-post=<id> --quiet
+containers: dickens id2 comp_bytes=2571873 roundtrip=OK | dickens id1 comp_bytes=2643577 roundtrip=OK | dickens id3 comp_bytes=3901580 roundtrip=OK | webster id2 comp_bytes=7317361 roundtrip=OK | webster id1 comp_bytes=7557402 roundtrip=OK | webster id3 comp_bytes=14711551 roundtrip=OK
+cpu_sampler: Get-CimInstance Win32_Processor -> LoadPercentage avg + own-process CPU seconds, 0.7 Hz loop; samples=127
+cpu_load_pct_median=19 max=74 min=3
+own_process: profiler cpu_seconds=230.89 own_pct_of_one_core=98.4% window=234.6s threads=1
+pinning/priority: SetProcessAffinityMask last logical processor, HIGH_PRIORITY_CLASS (instrumented); canonical CLI unpinned (subprocess, disclosed)
+threads: 1 (decode_threads=1; libsais_unbwt single-thread)
+canonical_cli_decode:
+dickens id2 canonical_cli_median=1.0743s decode=9.49 MB/s reps=7 own_cpu_median=1.156s (threads=1)
+webster id2 canonical_cli_median=4.1087s decode=10.09 MB/s reps=7 own_cpu_median=4.063s (threads=1)
+prof_exit_code: 

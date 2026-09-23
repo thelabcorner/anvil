@@ -1,0 +1,92 @@
+========================================================================================================
+MODEL-PHRASE RATE DECOMPOSITION ù synth-arith.bin (8 block-wise u32 AP columns)
+========================================================================================================
+file size 256,000 B = 64,000 u32 values, 8 columns x 8000
+
+  column 0:
+    n=   8000  fit b=     64.0072 a=      748410.0
+    residual r_i = v_i-(a+b*i):  H= 6.397 b/val  (alphabet    104)  ->      6,397 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.192 b/val  (alphabet      5)  ->      2,192 B
+
+  column 1:
+    n=   8000  fit b=     83.0019 a=      402364.0
+    residual r_i = v_i-(a+b*i):  H= 5.876 b/val  (alphabet     89)  ->      5,876 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.199 b/val  (alphabet      5)  ->      2,199 B
+
+  column 2:
+    n=   8000  fit b=     79.0052 a=      475950.7
+    residual r_i = v_i-(a+b*i):  H= 5.748 b/val  (alphabet     72)  ->      5,748 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.199 b/val  (alphabet      5)  ->      2,199 B
+
+  column 3:
+    n=   8000  fit b=     68.9969 a=      602639.4
+    residual r_i = v_i-(a+b*i):  H= 5.746 b/val  (alphabet     78)  ->      5,746 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.199 b/val  (alphabet      5)  ->      2,199 B
+
+  column 4:
+    n=   8000  fit b=     95.9945 a=      152303.2
+    residual r_i = v_i-(a+b*i):  H= 5.841 b/val  (alphabet     73)  ->      5,841 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.202 b/val  (alphabet      5)  ->      2,202 B
+
+  column 5:
+    n=   8000  fit b=     47.9995 a=      816953.5
+    residual r_i = v_i-(a+b*i):  H= 6.396 b/val  (alphabet    123)  ->      6,396 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.205 b/val  (alphabet      5)  ->      2,205 B
+
+  column 6:
+    n=   8000  fit b=     91.0107 a=      722992.6
+    residual r_i = v_i-(a+b*i):  H= 5.921 b/val  (alphabet     82)  ->      5,921 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.210 b/val  (alphabet      5)  ->      2,210 B
+
+  column 7:
+    n=   8000  fit b=      1.9982 a=      467427.8
+Traceback (most recent call last):
+    residual r_i = v_i-(a+b*i):  H= 5.967 b/val  (alphabet     92)  ->      5,967 B
+    1st diff   d_i = v_i-v_(i-1): H= 1.585 b/val  (alphabet      3)  ->      1,585 B   <-- what ANVIL's finite-diff invariant sees
+    2nd diff  d2_i = d_i-d_(i-1): H= 2.184 b/val  (alphabet      5)  ->      2,184 B
+
+  ----------------------------------------------------------------------------------------------------
+  MODEL:      8 cols x (a:32 + b:12 bits)                =           44 B
+  RESIDUAL (regime 2, r_i vs fitted line):                =       47,892 B
+  TOTAL model-phrase wire (order-0 residual coding):      =       47,936 B  ratio 0.1873
+
+  For contrast ù regime 1, first differences (what a delta/
+  finite-difference transform sees):                      =       12,679 B  ratio 0.0495
+
+  brotli-q11 (measured)                                   =       87,013 B  ratio 0.3400
+  mode-16 ARI-REF harness wire (measured, EXP. Z)         =       89,363 B  ratio 0.3491
+  ANVIL today                                             =      256,022 B  ratio 1.0000
+
+========================================================================================================
+CROSSOVER: when does a model phrase stop paying?
+========================================================================================================
+
+  Let a span of N values of width w be explained EITHER by
+    (a) a model phrase:  M bits of model + N*H_r bits of residual, or
+    (b) the byte/LZ path: N*w/8 * h_raw bytes (h_raw = entropy ratio of the
+        raw bytes under the incumbent coder).
+
+  Model phrase wins iff
+        M + N*H_r  <  N*w*h_raw/8
+  i.e.  H_r        <  w*h_raw/8  -  M/N                     [bits per value]
+
+  With M = 44 bits/col (a 32 + b 12) amortised over N values:
+
+    N=   64:  M/N =  0.688 b/val      break-even H_r = w*h_raw/8 - 0.688   (h_raw=0.340 ->  0.673 b/val; h_raw=1.000 ->  3.312 b/val)
+    N=  256:  M/N =  0.172 b/val      break-even H_r = w*h_raw/8 - 0.172   (h_raw=0.340 ->  1.188 b/val; h_raw=1.000 ->  3.828 b/val)
+  File "C:\Users\<user>\Documents\ANVIL\prototypes\i8-theory\model_phrase_rate.py", line 181, in <module>
+    N= 1024:  M/N =  0.043 b/val      break-even H_r = w*h_raw/8 - 0.043   (h_raw=0.340 ->  1.317 b/val; h_raw=1.000 ->  3.957 b/val)
+    N= 4096:  M/N =  0.011 b/val      break-even H_r = w*h_raw/8 - 0.011   (h_raw=0.340 ->  1.349 b/val; h_raw=1.000 ->  3.989 b/val)
+    N= 8000:  M/N =  0.005 b/val      break-even H_r = w*h_raw/8 - 0.005   (h_raw=0.340 ->  1.355 b/val; h_raw=1.000 ->  3.994 b/val)
+    print(f"""
+  File "C:\Program Files\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2248' in position 29: character maps to <undefined>

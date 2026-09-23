@@ -1,0 +1,14 @@
+[host] logical processors=24 pinned=0x800000 priority=HIGH profile=post_prof
+[file] containers\post_dickens_id2.anv comp=2571873 src=10192446 post=2 xlen=10192446
+  -> results/i9_post_dw_results_post_dickens_id2.anv.txt
+[file] containers\post_dickens_id1.anv comp=2643577 src=10192446 post=1 xlen=10192446
+  -> results/i9_post_dw_results_post_dickens_id1.anv.txt
+[file] containers\post_dickens_id3.anv comp=3901580 src=10192446 post=3 xlen=10192446
+  -> results/i9_post_dw_results_post_dickens_id3.anv.txt
+[file] containers\post_webster_id2.anv comp=7317361 src=41458703 post=2 xlen=41458703
+  -> results/i9_post_dw_results_post_webster_id2.anv.txt
+[file] containers\post_webster_id1.anv comp=7557402 src=41458703 post=1 xlen=41458703
+  -> results/i9_post_dw_results_post_webster_id1.anv.txt
+[file] containers\post_webster_id3.anv comp=14711551 src=41458703 post=3 xlen=41458703
+  -> results/i9_post_dw_results_post_webster_id3.anv.txt
+[done] summary -> results/i9_post_dw_summary.txt

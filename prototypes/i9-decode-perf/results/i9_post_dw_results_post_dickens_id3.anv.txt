@@ -1,0 +1,4 @@
+=== containers\post_dickens_id3.anv ===
+src=10192446 comp=3901580 ratio=0.3828 post=3 xlen=10192446 (raw stream)
+BASELINE full decode: 18.88 MB/s (med 539.96 ms CV 14.8% min 483.33 ms)
+POSTCODER (raw stream) med=60.88 ms = 11.3% of e2e (CV 1.8%)  codec=6 wire=3901543 raw=10192446

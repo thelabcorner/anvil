@@ -1,0 +1,289 @@
+name: ANVIL research benchmark (scout-grade)
+
+# Public GitHub-hosted runners are a remote research vehicle, not a dedicated
+# performance lab. Deterministic byte/roundtrip results are authoritative when
+# reproduced; throughput is scout/ranking-grade unless a stricter paired gate
+# says otherwise. See docs/GITHUB-ACTIONS-BENCHMARKING.md.
+#
+# Deliberately manual-only: publishing/pushing ANVIL must never start a heavy
+# benchmark unexpectedly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Research suite
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - silesia
+          - enwik8
+          - all
+      reps:
+        description: Independent standard-corpus scout repetitions
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '3'
+          - '5'
+      fuzz_cases:
+        description: Fuzz cases for smoke/all
+        required: true
+        default: '50'
+        type: choice
+        options:
+          - '25'
+          - '50'
+          - '100'
+
+concurrency:
+  group: anvil-research-bench
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    env:
+      BUILD_DIR: build-ci
+      OUT_DIR: ${{ github.workspace }}/ci-results
+      CORPUS_DIR: ${{ runner.temp }}/anvil-corpora
+
+    steps:
+      - name: Checkout sanitized source
+        uses: actions/checkout@v4
+
+      - name: Install pinned build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build \
+            libbrotli-dev libzstd-dev zstd xz-utils \
+            python3 python3-pip util-linux
+          python3 -m pip install --break-system-packages --disable-pip-version-check psutil
+
+      - name: Capture pre-run provenance
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "ANVIL GitHub Actions provenance"
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "sha=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "image_os=${ImageOS:-unknown}"
+            echo "image_version=${ImageVersion:-unknown}"
+            echo
+            echo "== uname =="
+            uname -a
+            echo
+            echo "== lscpu =="
+            lscpu
+            echo
+            echo "== /proc/cpuinfo model+flags =="
+            grep -m1 -E 'model name|Hardware' /proc/cpuinfo || true
+            grep -m1 '^flags' /proc/cpuinfo || true
+            echo
+            echo "== toolchain =="
+            clang-18 --version
+            clang++-18 --version
+            cmake --version
+            ninja --version
+            python3 --version
+            zstd --version || true
+            xz --version || true
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev 2>/dev/null || true
+            dpkg-query -W -f='zstd-dev=${Version}\n' libzstd-dev 2>/dev/null || true
+            echo
+            echo "== git =="
+            git status --short --branch
+            git log -1 --format='%H %cI %s'
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Configure Release build
+        run: |
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=ON
+          cmake -LA -N "$BUILD_DIR" > "$OUT_DIR/cmake-cache.txt"
+
+      - name: Build
+        run: |
+          cmake --build "$BUILD_DIR" --parallel 4
+          {
+            echo
+            echo "== build artifacts =="
+            find "$BUILD_DIR" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+            echo
+            echo "== binary hashes =="
+            sha256sum "$BUILD_DIR/anvil" || true
+            sha256sum "$BUILD_DIR/anvil_bench" || true
+            sha256sum "$BUILD_DIR/brotli_lw" || true
+          } | tee -a "$OUT_DIR/provenance.txt"
+
+      - name: Remote fuzz and smoke corpus
+        if: ${{ inputs.suite == 'smoke' || inputs.suite == 'all' }}
+        run: |
+          taskset -c 0 python3 tests/fuzz.py \
+            --exe "$BUILD_DIR/anvil" \
+            --cases "${{ inputs.fuzz_cases }}" \
+            | tee "$OUT_DIR/fuzz.txt"
+
+          # The native bench is intentionally a research-grid smoke, not a
+          # canonical frontier measurement. One internal timing rep keeps the
+          # manual CI job bounded while still exposing major regressions.
+          taskset -c 0 python3 tools/bench_suite.py \
+            tests/corpus/generated.json \
+            tests/corpus/generated.log \
+            tests/corpus/generated.sqlite \
+            tests/corpus/random.bin \
+            --bench "$BUILD_DIR/anvil_bench" \
+            --reps 1 \
+            --out "$OUT_DIR/smoke.csv" \
+            | tee "$OUT_DIR/smoke-summary.txt"
+
+      - name: Fetch canonical Silesia
+        if: ${{ inputs.suite == 'silesia' || inputs.suite == 'all' }}
+        run: |
+          python3 tools/gha_fetch_corpus.py silesia --out "$CORPUS_DIR"
+          (
+            cd "$CORPUS_DIR/silesia"
+            md5sum * | sort
+          ) | tee "$OUT_DIR/silesia-md5.txt"
+
+      - name: Benchmark canonical Silesia
+        if: ${{ inputs.suite == 'silesia' || inputs.suite == 'all' }}
+        run: |
+          mapfile -t FILES < <(find "$CORPUS_DIR/silesia" -maxdepth 1 -type f -printf '%p\n' | sort)
+          for REP in $(seq 1 "${{ inputs.reps }}"); do
+            OUT="$OUT_DIR/silesia-rep${REP}.csv"
+            echo "rep=$REP command=taskset -c 0 python3 tools/bench_ratio.py [12 Silesia files] --corpus silesia --verify-manifest" \
+              | tee -a "$OUT_DIR/commands.txt"
+            taskset -c 0 python3 tools/bench_ratio.py \
+              "${FILES[@]}" \
+              --corpus silesia \
+              --anvil "$BUILD_DIR/anvil" \
+              --brotli "$BUILD_DIR/brotli_lw" \
+              --out "$OUT" \
+              --codecs "anvil-auto-direct,anvil-ratio-auto,brotli-q11-lw30,zstd-ultra-22-long27,xz-9e" \
+              --verify-manifest \
+              --no-resume \
+              | tee "$OUT_DIR/silesia-rep${REP}.log"
+          done
+
+      - name: Fetch canonical enwik8
+        if: ${{ inputs.suite == 'enwik8' || inputs.suite == 'all' }}
+        run: |
+          python3 tools/gha_fetch_corpus.py enwik8 --out "$CORPUS_DIR"
+          md5sum "$CORPUS_DIR/enwik8/enwik8" | tee "$OUT_DIR/enwik8-md5.txt"
+
+      - name: Benchmark canonical enwik8
+        if: ${{ inputs.suite == 'enwik8' || inputs.suite == 'all' }}
+        run: |
+          for REP in $(seq 1 "${{ inputs.reps }}"); do
+            OUT="$OUT_DIR/enwik8-rep${REP}.csv"
+            echo "rep=$REP command=taskset -c 0 python3 tools/bench_ratio.py enwik8 --corpus enwik8 --verify-manifest" \
+              | tee -a "$OUT_DIR/commands.txt"
+            taskset -c 0 python3 tools/bench_ratio.py \
+              "$CORPUS_DIR/enwik8/enwik8" \
+              --corpus enwik8 \
+              --anvil "$BUILD_DIR/anvil" \
+              --brotli "$BUILD_DIR/brotli_lw" \
+              --out "$OUT" \
+              --codecs "anvil-auto-direct,anvil-ratio-auto,brotli-q11-lw30,zstd-ultra-22-long27,xz-9e" \
+              --verify-manifest \
+              --no-resume \
+              | tee "$OUT_DIR/enwik8-rep${REP}.log"
+          done
+
+      - name: Verify deterministic byte stability across repetitions
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+          import csv
+          import glob
+          import os
+          from collections import defaultdict
+
+          out = os.environ["OUT_DIR"]
+          bad = False
+          lines = ["# Deterministic byte stability", ""]
+          for corpus in ("silesia", "enwik8"):
+              paths = sorted(glob.glob(os.path.join(out, f"{corpus}-rep*.csv")))
+              if not paths:
+                  continue
+              seen = defaultdict(set)
+              for path in paths:
+                  with open(path, newline="") as f:
+                      for row in csv.DictReader(f):
+                          key = (row["file"], row["codec"])
+                          seen[key].add((row["compressed_bytes"], row["roundtrip"]))
+              unstable = {k: v for k, v in seen.items() if len(v) != 1}
+              lines.append(f"## {corpus}")
+              lines.append(f"- repetitions: {len(paths)}")
+              lines.append(f"- cells: {len(seen)}")
+              lines.append(f"- unstable deterministic cells: {len(unstable)}")
+              if unstable:
+                  bad = True
+                  for key, values in sorted(unstable.items()):
+                      lines.append(f"  - {key}: {sorted(values)}")
+              for key, values in seen.items():
+                  if any(rt != "OK" for _, rt in values):
+                      bad = True
+                      lines.append(f"  - roundtrip failure: {key}: {sorted(values)}")
+              lines.append("")
+          report = "\n".join(lines) + "\n"
+          print(report)
+          with open(os.path.join(out, "determinism.md"), "w", encoding="utf-8") as f:
+              f.write(report)
+          if bad:
+              raise SystemExit("deterministic bytes or roundtrip changed across repetitions")
+          PY
+
+      - name: Write job summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "# ANVIL remote research run"
+            echo
+            echo "- suite: `${{ inputs.suite }}`"
+            echo "- independent standard-corpus reps: `${{ inputs.reps }}`"
+            echo "- commit: `${GITHUB_SHA}`"
+            echo "- runner: `${RUNNER_OS}/${RUNNER_ARCH}`"
+            echo "- timing class: **shared-runner scout/ranking-grade**"
+            echo "- deterministic bytes/roundtrip: inspect uploaded CSVs + determinism report"
+            echo
+            if [ -f "$OUT_DIR/determinism.md" ]; then
+              cat "$OUT_DIR/determinism.md"
+            fi
+            if [ -f "$OUT_DIR/smoke-summary.txt" ]; then
+              echo "## Smoke summary"
+              echo '~~~text'
+              tail -n 40 "$OUT_DIR/smoke-summary.txt"
+              echo '~~~'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw research artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-${{ inputs.suite }}-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30

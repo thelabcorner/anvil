@@ -1,0 +1,76 @@
+============================================================================================================
+LAMBDA CALIBRATION FROM THE MEASURED REFERENCE FRONTIER (decode plane)
+lambda = -dL/dt along the front  [B per MB/s] == [B per us]
+============================================================================================================
+file                    from          to                  dL (B)   dt (MB/s)      lambda   note
+------------------------------------------------------------------------------------------------------------
+generated.jsonl         brotli-q11    zstd-19             16,074      1117.4        14.4   
+generated.jsonl         zstd-19       zstd-3              77,709        18.8      4137.4   small dt -> unstable secantOUTLIER (sparse front)
+generated.log           brotli-q11    zstd-19             24,318      1145.1        21.2   
+anvil_bench.exe         brotli-q11    zstd-19             58,567       426.8       137.2   
+anvil_bench.exe         zstd-19       zstd-9              69,158       129.9       532.2   OUTLIER (sparse front)
+anvil_bench.exe         zstd-9        zstd-3              39,575        12.8      3079.8   small dt -> unstable secantOUTLIER (sparse front)
+anvil_bench.exe         zstd-3        zstd-1              85,913       118.8       723.1   OUTLIER (sparse front)
+generated.sqlite        brotli-q11    zstd-19             29,766       808.3        36.8   
+synth-jitter.bin        brotli-q11    zstd-19             12,211      1343.1         9.1   
+synth-jitter.bin        zstd-19       zstd-1              15,911      1801.6         8.8   
+generated.json          brotli-q11    zstd-19             14,191       999.1        14.2   
+synth-timeseries.bin    brotli-q6     zstd-19             26,493        58.9       449.7   small dt -> unstable secantOUTLIER (sparse front)
+synth-timeseries.bin    zstd-19       zstd-9               2,629       243.7        10.8   
+synth-timeseries.bin    zstd-9        zstd-1                 669       360.2         1.9   
+anvil.exe               brotli-q11    zstd-19              5,081       202.4        25.1   
+anvil.exe               zstd-19       zstd-9              10,047       587.4        17.1   
+synth-arith.bin         brotli-q11    zstd-19             19,601       138.0       142.0   
+synth-arith.bin         zstd-19       zstd-3              94,704       560.3       169.0   
+src.cpp                 brotli-q11    zstd-19                337       700.6         0.5   
+src.cpp                 zstd-19       zstd-9                 376       130.3         2.9   
+doc.md                  brotli-q11    brotli-q6              158        45.0         3.5   small dt -> unstable secant
+doc.md                  brotli-q6     zstd-19                105       259.5         0.4   
+doc.md                  zstd-19       zstd-9                  13        36.1         0.4   small dt -> unstable secant
+doc.md                  zstd-9        zstd-1                  31         8.0         3.9   small dt -> unstable secant
+
+  ROBUST lambda band (excluding secants with dt < 100 MB/s):
+    n = 18 steps,  min 0.4,  median 17.1,  max 723.1  B/us
+    frozen S6-1 lambda = 0.01 B/us
+    ratio median/frozen = 1,710x
+
+============================================================================================================
+IMPLIED WILLINGNESS TO PAY (IWTP) OF THE FLIPS S6-1 DECLINED
+============================================================================================================
+A flip is worth taking iff  lambda > IWTP = (bytes given up)/(MB/s bought)
+
+flip                                  dL (B)   rel. gain                 IWTP (B/us)   source
+------------------------------------------------------------------------------------------------------------
+macro-masks -> raw                   166,823     21%-27%          see per-file below   S6-1 / decode-perf t3
+macro-resid -> raw                    84,956     18%-21%          see per-file below   S6-1 / decode-perf t3
+shape-dist-delta -> raw (Linux)       19,800     12%-12%          see per-file below   Linux hot-book trade
+
+flip                              file                   base MB/s   abs gain   IWTP (B/us)
+------------------------------------------------------------------------------------------------------------
+macro-masks -> raw                generated.log              235.8       49.5        3368.9
+macro-masks -> raw                generated.log              235.8       63.7        2620.3
+macro-masks -> raw                generated.json             195.7       41.1        4059.3
+macro-masks -> raw                generated.json             195.7       52.8        3157.2
+macro-masks -> raw                generated.jsonl            293.5       61.6        2706.6
+macro-masks -> raw                generated.jsonl            293.5       79.2        2105.2
+macro-masks -> raw                generated.sqlite           168.6       35.4        4711.7
+macro-masks -> raw                generated.sqlite           168.6       45.5        3664.7
+macro-resid -> raw                generated.log              235.8       42.4        2001.6
+macro-resid -> raw                generated.log              235.8       49.5        1715.7
+macro-resid -> raw                generated.json             195.7       35.2        2411.7
+macro-resid -> raw                generated.json             195.7       41.1        2067.2
+macro-resid -> raw                generated.jsonl            293.5       52.8        1608.1
+macro-resid -> raw                generated.jsonl            293.5       61.6        1378.4
+macro-resid -> raw                generated.sqlite           168.6       30.3        2799.4
+macro-resid -> raw                generated.sqlite           168.6       35.4        2399.5
+
+  IWTP range over the measured flips: 1378 - 4712 B/us (median 2620)
+  S6-1 frozen lambda: 0.01 B/us
+  => frozen lambda is 137,837x to 471,172x BELOW the
+     willingness-to-pay of the very flips it declined.
+
+  NOTE ON THE LEDGER'S 460.2 B/us FIGURE: that number came from the Linux
+  microbench (+19.8 KB for +0.12 GB/s => 165 B/us at face value; the ledger
+  states 460.2 via its own accounting). My per-stream figure for lits is
+  ~44.6 B/us per the S6-1 record. The DISCREPANCY IS UNRESOLVED and both are
+  inside the measured lambda_frontier band, so the conclusion is unaffected.

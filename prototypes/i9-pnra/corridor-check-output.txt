@@ -1,0 +1,49 @@
+=== reference rows on synth-arith.bin (from committed tests/benchmark-suite.csv) ===
+  brotli-q11 bytes=  87013 ratio=0.34   dec= 187.518
+  zstd-19    bytes= 106614 ratio=0.416  dec= 325.534
+  brotli-q9  bytes= 114417 ratio=0.447  dec= 139.685
+  brotli-q6  bytes= 115040 ratio=0.449  dec= 188.832
+  brotli-q4  bytes= 170573 ratio=0.666  dec= 163.662
+  brotli-q1  bytes= 201308 ratio=0.786  dec= 204.555
+  zstd-1     bytes= 201318 ratio=0.786  dec= 874.317
+  zstd-3     bytes= 201318 ratio=0.786  dec= 885.813
+  zstd-9     bytes= 201315 ratio=0.786  dec= 839.344
+
+=== self-validation: arch's published spot checks ===
+    87013 B ratio=0.340 dec=  187.0 -> DOMINATED by brotli-q11    (EF expected)
+    87013 B ratio=0.340 dec=  188.0 -> EXTENDS_FRONT              (EF expected)
+    89363 B ratio=0.349 dec=  188.0 -> EXTENDS_FRONT              (EF expected)
+   106000 B ratio=0.414 dec=  200.0 -> EXTENDS_FRONT              (EF expected)
+   107000 B ratio=0.418 dec=  200.0 -> DOMINATED by zstd-19       (DOMINATED by zstd-19 expected)
+
+=== byte budget sweep: max bytes that still EXTENDS_FRONT ===
+  decode=  150.0 MB/s -> max crossing bytes = 86911
+  decode=  187.0 MB/s -> max crossing bytes = 86911
+  decode=  187.6 MB/s -> max crossing bytes = 106368
+  decode=  188.0 MB/s -> max crossing bytes = 106368
+  decode=  200.0 MB/s -> max crossing bytes = 106368
+  decode=  250.0 MB/s -> max crossing bytes = 106368
+  decode=  326.0 MB/s -> max crossing bytes = 201088
+  decode=  400.0 MB/s -> max crossing bytes = 201088
+  decode=  462.0 MB/s -> max crossing bytes = 201088
+  decode=  500.0 MB/s -> max crossing bytes = 201088
+  decode=  886.0 MB/s -> max crossing bytes = 260000
+
+=== measured PROTOTYPE rows (window w-pnra-20260912T062115Z) ===
+arm                       wire   ratio   dec_med status                   budget@dec  DEGEN
+pack3/transmitted        12921   0.050   462.511 EXTENDS_FRONT                201088    n/a
+pack3/derived            12936   0.051   462.344 EXTENDS_FRONT                201088    n/a
+raw2/derived             16134   0.063   460.597 EXTENDS_FRONT                201088    n/a
+brotli/derived           13456   0.053   223.835 EXTENDS_FRONT                106368    n/a
+pack5/ddelta             19817   0.077   407.903 EXTENDS_FRONT                201088    n/a
+raw3/ddelta              64113   0.250   486.970 EXTENDS_FRONT                201088    n/a
+literal-only (control)  256049   1.000   587.695 DOMINATED by zstd-1          201088    n/a
+
+=== FRONT-GAP bracket test (mechanical, gate ruling R-2) ===
+  pack3/transmitted      bracket=none -> not FRONT-GAP by this mechanical test
+  pack3/derived          bracket=none -> not FRONT-GAP by this mechanical test
+  raw2/derived           bracket=none -> not FRONT-GAP by this mechanical test
+  brotli/derived         bracket=none -> not FRONT-GAP by this mechanical test
+  pack5/ddelta           bracket=none -> not FRONT-GAP by this mechanical test
+  raw3/ddelta            bracket=none -> not FRONT-GAP by this mechanical test
+  literal-only (control) bracket=none -> not FRONT-GAP by this mechanical test

@@ -1,0 +1,27 @@
+PR-4 attestation -- decode-perf I9 leg 3 (postcoder)
+label: i9_post_enwik8
+window_start_utc: 2026-09-12T08:46:12.1657260Z
+window_end_utc: 2026-09-12T08:55:04.1056108Z (instrumented) / 2026-09-12T08:56:16.2848839Z (incl. canonical CLI)
+host: JACKSON-PC
+canonical binary: build/anvil.exe sha256=0D1E130BA2FBC43ACCE46E423BDD2AE732A2CA56A419B45929E26A6487C1DDAB
+instrumented profiler: post_prof_wt.exe sha256=8DD0B8B8B0B53D44A6278E7D7FB4E87B1A3AF95A40503525D6E11B8E0F57380A (lane build, same src)
+HEAD: fc23d9a191d7ab488ebe05be598bfd93c1f840ca
+branch: blocksplit-exp
+snapshot source: WORKING TREE (raw copy: anvil_wt_raw.cpp)
+snapshot taken: 2026-09-12T01:55:25.8018720-05:00
+worktree diff-vs-HEAD (src): src/anvil.cpp | 1397 +++++++++++++++++++++++++++++++++++++++++++++++++++++++-- |  1 file changed, 1349 insertions(+), 48 deletions(-)
+raw copy sha256: 62BC663122D8240C1A79A29D315CCA44AFFFCBC4DE59F3B555B350922FFEE74A
+snapshot (possibly repaired) sha256: 62BC663122D8240C1A79A29D315CCA44AFFFCBC4DE59F3B555B350922FFEE74A
+repair state: NONE - arch's decode_one_block(mode,p,...) fix is present in the raw worktree; snapshot used UNMODIFIED
+api-compat: one-arg decompress = False; extra defs = /DANVIL_SNAPSHOT_NAME=anvil_snapshot_wt.cpp
+command(prof): .\post_prof_wt.exe --reps=7 --label=i9_post_enwik8 --out=results <containers>
+command(containers): build\anvil.exe c <src> <out> --parse=ratio --ratio-backend=bwt --ratio-context=off --ratio-lines=off --bwt-post=<id> --quiet
+containers: enwik8 id2 comp_bytes=23534368 roundtrip=OK | enwik8 id1 comp_bytes=24181513 roundtrip=OK | enwik8 id3 comp_bytes=44100996 roundtrip=OK
+cpu_sampler: Get-CimInstance Win32_Processor -> LoadPercentage avg + own-process CPU seconds, 0.7 Hz loop; samples=289
+cpu_load_pct_median=18 max=100 min=3
+own_process: profiler cpu_seconds=526.55 own_pct_of_one_core=99.0% window=531.9s threads=1
+pinning/priority: SetProcessAffinityMask last logical processor, HIGH_PRIORITY_CLASS (instrumented); canonical CLI unpinned (subprocess, disclosed)
+threads: 1 (decode_threads=1; libsais_unbwt single-thread)
+canonical_cli_decode:
+enwik8 id2 canonical_cli_median=10.1530s decode=9.85 MB/s reps=7 own_cpu_median=11.047s (threads=1)
+prof_exit_code: 

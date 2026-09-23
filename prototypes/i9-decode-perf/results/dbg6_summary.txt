@@ -1,0 +1,17 @@
+ANVIL BWT postcoder stage profile (decode-perf, I9 leg 3)
+  LABEL: dbg6
+  reps=1 interleaved, median; CV=stdev/mean; threads=1
+
+=== containers\post_dickens_id2.anv ===
+src=10192446 comp=2571873 ratio=0.2523 post=2 xlen=10192446 (arith O1)
+BASELINE full decode: 12.37 MB/s (med 823.98 ms CV 0.0% min 823.98 ms)
+POSTCODER (arith) med=411.85 ms = 50.0% of e2e (CV 0.0%)
+  setup (ad init + eager models): 0.00 ms = 0.0% of e2e (0.0% of post)
+  token+uvar decode (no MTF/no writes): 363.55 ms = 44.1% of e2e (88.3% of post)
+  MTF list update (no writes): 24.27 ms = 2.9% of e2e (5.9% of post)
+  output materialization (writes): 24.03 ms = 2.9% of e2e (5.8% of post)
+  counters: tokens=5578448 runs=1203850 run_bytes=5817848 out_bytes=10192446 O1_model_builds=127
+  PROTOTYPE fast_renorm: 0.39 ms vs full 411.85 ms -> 1066.695x (candidate C=1.997x if this share is removed)
+  model_build_x257: 0.000 ms per full set (0.0000 ms/model) -> lazy-build est share = 127 * per_model / post_full = 0.0%
+  rank hist (1..15+): 1492822 718075 461493 332037 251588 201800 166764 138224 116571 97242 80667 66209 52962 43544 154600 0
+

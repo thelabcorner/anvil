@@ -1,0 +1,35 @@
+ANVIL BWT postcoder stage profile (decode-perf, I9 leg 3)
+  LABEL: i9_post_enwik8
+  reps=7 interleaved, median; CV=stdev/mean; threads=1
+
+=== containers\post_enwik8_id2.anv ===
+src=100000000 comp=23534368 ratio=0.2353 post=2 xlen=100000000 (arith O1)
+BASELINE full decode: 10.74 MB/s (med 9313.23 ms CV 3.7% min 9156.69 ms)
+POSTCODER (arith) med=3520.45 ms = 37.8% of e2e (CV 0.9%)
+  setup (ad init + eager models): 0.44 ms = 0.0% of e2e (0.0% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 3218.39 ms = 34.6% of e2e (91.4% of post)
+  output materialization (writes): 302.05 ms = 3.2% of e2e (8.6% of post)
+  counters: tokens=46790161 runs=10129123 run_bytes=63338962 out_bytes=100000000 O1_model_builds=224
+  PROTOTYPE fast_renorm: 3400.25 ms vs full 3520.45 ms -> 1.035x (candidate C=1.013x if this share is removed)
+  model_build_x257: 3424.899 ms per full set (13.3265 ms/model) -> lazy-build est share = 224 * per_model / post_full = 84.8%
+  rank hist (1..15+): 11079446 5430026 3606681 2681308 2094125 1700934 1412969 1195092 1023682 856860 729569 623193 528327 444724 3254102 0
+
+=== containers\post_enwik8_id1.anv ===
+src=100000000 comp=24181513 ratio=0.2418 post=1 xlen=100000000 (arith O0)
+BASELINE full decode: 10.90 MB/s (med 9176.14 ms CV 4.4% min 9116.89 ms)
+POSTCODER (arith) med=3454.38 ms = 37.6% of e2e (CV 0.6%)
+  setup (ad init + eager models): 0.47 ms = 0.0% of e2e (0.0% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 3159.84 ms = 34.4% of e2e (91.5% of post)
+  output materialization (writes): 294.54 ms = 3.2% of e2e (8.5% of post)
+  counters: tokens=46790161 runs=10129123 run_bytes=63338962 out_bytes=100000000 O1_model_builds=0
+  PROTOTYPE fast_renorm: 3342.70 ms vs full 3454.38 ms -> 1.033x (candidate C=1.012x if this share is removed)
+  model_build_x257: 3306.623 ms per full set (12.8662 ms/model) -> lazy-build est share = 0 * per_model / post_full = 0.0%
+  rank hist (1..15+): 11079446 5430026 3606681 2681308 2094125 1700934 1412969 1195092 1023682 856860 729569 623193 528327 444724 3254102 0
+
+=== containers\post_enwik8_id3.anv ===
+src=100000000 comp=44100996 ratio=0.4410 post=3 xlen=100000000 (raw stream)
+BASELINE full decode: 15.24 MB/s (med 6562.90 ms CV 4.7% min 6349.47 ms)
+POSTCODER (raw stream) med=587.65 ms = 9.0% of e2e (CV 0.6%)  codec=6 wire=44100959 raw=100000000
+

@@ -1,0 +1,36 @@
+# ANVIL corpus manifest (SHA-256) -- generated 2026-08-13; expanded 2026-08-21
+# (corpus-expand, swarm-i7-cost): +6 held-out PEs, +3 synth structure files,
+# +2 Gorilla/vXOR sweet-spot files (post-I7 research briefing).
+fcd30da5f2745df439aaedcb3d84ec71451e0974a5c0f84da814a73dd9ef4ce0    1929216  anvil_bench.exe
+09b9b0cc15d96c2b0c4cb371a69b61e617de95d28c00c115b4bd9a252c45fe4c     268800  anvil.exe
+091961daf263e0ad7b0fba178d59dd91499fb4602733f63312a9920f38bab705       2724  doc.md
+c114c83ab50084d1d34a2165a085564f6f2b144fce7a267ab906fd24968a89b3     827664  generated.json
+260a17f2a8166cd53b29d95a4a26dfb9a00208db431fc43fd5b824d33b58ac6c    2815267  generated.jsonl
+46bb433c261a61569e353a594209847d35099c36e46562adb0f0f1c19874fe06    1942280  generated.log
+77465cf36a36e73e67987decda6e94dd3dcf1a77f19f3837dcca276f54f8fd0c     940000  generated.repeat.jsonl
+fe2cbad25ed1614093abc9bef15f2e11258069270c73b536063cc11f1677b08a    1740800  generated.sqlite
+1a0043555d254618f2d56c936c3d9a1fbfb878bc878416a133c346bc7835eda9    4383048  pe-git.exe
+e52a7ad9538d9618c67a0bd777964e2eec8a30f68b810a2f6adce1f2daf847b8     603648  pe-ninja.exe
+49f096cbf9337b0a80bde835d29be41bc9371057c4ff6c72f8a36158c29cfa3a     360448  pe-notepad.exe
+fd5c46d73d29ba21b04c844bbaf9096066136526911230645a2a040d23fb612b     103704  pe-python.exe
+ade557dd65848c5cf6565913cf6e01cf5c9a8033f0d784c4d6932394958d743e      61440  pe-where.exe
+d1d050efbae74c970ba6e666de004405b21f60f34ff0886000026763fe117cf0      28672  pe-winver.exe
+0c2a8c337ac53f016f1d4cdf84b75ae80400417fb4767149215ac8d8304aeb02     262144  random.bin
+75751176c83f708c9ede9e719c027196af09bfd30b05f576494705f0a928830e      32512  src.cpp
+af05309f0e1eefb33df71cc444ca56be8d233088378eb4395332f4678d52e16d     256000  synth-arith.bin
+a42ea6b4bbba64720030646933199c8f35ef8145fcb8ab1995978b4361f0263b     276000  synth-columnar-align.bin
+df0a9d9b48dd4935d00888607257916293ba399f0baba5c92839f710d2a151c5    1107326  synth-counters.log
+ea580de5ea28f8bd3de9c7faa523c05914c7a41ca55b0482cbf9920baf6ba85f     615376  synth-drift-stride.bin
+baf543eb4b9d7c6fc3745e71c22748f94497ff632fb710fb97a57dcb74239ac5     974920  synth-jitter.bin
+8ad1e086b93cad2bf920be06f70738f3779b2fe6787c9b3bd196be9ee2b2d417     995894  synth-ndjson-columnar.ndjson
+ede91d55233736ab89bbc453f2a14dad95bd3971aa0ad0d570e37410179eec8a     320000  synth-telemetry-f64.bin
+1b7d618234f13418959a7dce166d65f1d08c7018fd1e335b7360f07869417425     280000  synth-timeseries.bin
+
+# DRIFT NOTE (2026-08-21): the entry for the LARGER pinned codec binary above was
+# re-pinned to the bytes actually on disk since before this expansion began:
+#   disk (re-pinned): 1,929,216 B  sha fcd30da5f2745df439aaedcb3d84ec71451e0974a5c0f84da814a73dd9ef4ce0
+#   old manifest    : 1,866,752 B  sha e5a0f8a7c415bed17058320a8a54b7623d61aa03e6d8407a8af04fd81c9aa72c
+# The old-hash bytes are unrecoverable (file is git-ignored, no history). The FILE was
+# not modified by this expansion -- only the manifest line was made truthful. Provenance
+# since RESOLVED empirically: S6-2 calibration + EXP. X both measured on the current
+# bytes (see README "Manifest drift note" + docs/s62-threshold-formula.md section 1).

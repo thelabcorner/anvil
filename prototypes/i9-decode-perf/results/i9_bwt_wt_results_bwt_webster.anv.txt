@@ -1,0 +1,12 @@
+=== containers\bwt_webster.anv ===
+src=41458703 B  comp=7317361 B  ratio=0.1765  transform=0 backend=2 postcoder=2 primary=1563625 xlen=41458703
+BASELINE full decode: 12.5 MB/s (med 3317.97 ms, CV 9.4%, min 3247.18 ms)
+-- stage split (seconds; shares of end-to-end baseline) --
+  stageA postcoder            med= 1166.96 ms  CV=  4.4%  share= 35.2%  (28.15 ns/B-out)
+  B1 alloc out+tmp            med=   25.81 ms  CV= 31.8%  share=  0.8%
+  B2 libsais_unbwt (B1+B2-B1) med= 3469.36 ms  (B1+B2 med= 3495.17 ms CV=  7.4%)
+  stageC transform inverse    med=    4.53 ms  CV= 17.3%  share=  0.1%
+  crc32 (bytewise, HEAD)      med=    8.56 ms  CV= 24.8%  share=  0.3%
+  memcpy final out            med=    0.00 ms  CV=  0.0%  share=  0.0%
+  residual (container parse+alloc+concat) med=-1352.71 ms  share=-40.8%
+  NOTE stageC variant includes A+B1+B2; stage C-only share reported after subtract. Sum check: seq+crc+mem+resid=3317.97 ms vs baseline 3317.97 ms

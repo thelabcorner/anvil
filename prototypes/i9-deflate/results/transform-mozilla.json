@@ -1,0 +1,14 @@
+{
+ "file": "mozilla",
+ "src_bytes": 51220480,
+ "transformed_bytes": 57034135,
+ "n_transformed": 2331,
+ "skipped_png_multi_idat": 0,
+ "side_table_raw": 21985,
+ "side_table_brotli_q11_lw24": 14199,
+ "roundtrip_sha256_identical": true,
+ "src_sha256": "657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b",
+ "transformed_sha256": "657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b",
+ "replay_command": "prototypes/i9-deflate/transform.py <census.json> <replay.csv> --src <file>",
+ "inverse_formula": "replace T[off+delta : off+delta+ulen] with zlib.replay(plain, level,memLevel,strategy,wbits)"
+}

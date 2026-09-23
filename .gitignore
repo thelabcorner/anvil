@@ -1,0 +1,36 @@
+# Build products
+build/
+build-*/
+cmake-build-*/
+*.obj
+*.o
+*.pdb
+*.ilk
+*.dll
+*.so
+*.dylib
+*.exe
+anvil
+anvil_bench
+bench_native
+brotli_lw
+
+# Runtime/research scratch
+.opencode/
+scratch/
+ci-results/
+**/__pycache__/
+*.pyc
+*.anv
+*.out
+
+# Third-party build products; pinned libsais source remains public
+third_party/*
+!third_party/libsais/
+!third_party/libsais/**
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

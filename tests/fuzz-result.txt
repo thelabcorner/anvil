@@ -1,0 +1,3 @@
+PASS seed=41246 roundtrip_variants=650 mutations=5200
+PASS seed=48879 roundtrip_variants=1050 mutations=10500
+PASS seed=41246 roundtrip_variants=800 mutations=6400 (post-F1-fix, arch's consumed_bytes guard live)

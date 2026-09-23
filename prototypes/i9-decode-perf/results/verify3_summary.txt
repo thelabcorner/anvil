@@ -1,0 +1,9 @@
+ANVIL BWT postcoder stage profile (decode-perf, I9 leg 3)
+  LABEL: verify3
+  reps=2 interleaved, median; CV=stdev/mean; threads=1
+
+=== containers\post_dickens_id3.anv ===
+src=10192446 comp=3901580 ratio=0.3828 post=3 xlen=10192446 (raw stream)
+BASELINE full decode: 18.27 MB/s (med 557.93 ms CV 2.7% min 528.76 ms)
+POSTCODER (raw stream) med=59.60 ms = 10.7% of e2e (CV 0.1%)  codec=6 wire=3901543 raw=10192446
+

@@ -1,0 +1,12 @@
+=== containers\post_dickens_id2.anv ===
+src=10192446 comp=2571873 ratio=0.2523 post=2 xlen=10192446 (arith O1)
+BASELINE full decode: 13.14 MB/s (med 775.88 ms CV 4.4% min 749.74 ms)
+POSTCODER (arith) med=404.07 ms = 52.1% of e2e (CV 1.6%)
+  setup (ad init + eager models): 0.40 ms = 0.1% of e2e (0.1% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 373.72 ms = 48.2% of e2e (92.5% of post)
+  output materialization (writes): 30.35 ms = 3.9% of e2e (7.5% of post)
+  counters: tokens=5578448 runs=1203850 run_bytes=5817848 out_bytes=10192446 O1_model_builds=127
+  PROTOTYPE fast_renorm: 388.37 ms vs full 404.07 ms -> 1.040x (candidate C=1.021x if this share is removed)
+  model_build_x257: 393.432 ms per full set (1.5309 ms/model) -> lazy-build est share = 127 * per_model / post_full = 48.1%
+  rank hist (1..15+): 1492822 718075 461493 332037 251588 201800 166764 138224 116571 97242 80667 66209 52962 43544 154600 0

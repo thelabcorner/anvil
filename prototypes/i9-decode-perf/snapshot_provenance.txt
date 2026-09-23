@@ -1,0 +1,7 @@
+HEAD: fc23d9a191d7ab488ebe05be598bfd93c1f840ca
+branch: blocksplit-exp
+snapshot source: git HEAD
+snapshot taken: 2026-09-12T01:20:05.4553456-05:00
+worktree diff-vs-HEAD (src): src/anvil.cpp | 1403 +++++++++++++++++++++++++++++++++++++++++++++++++++++++-- |  1 file changed, 1355 insertions(+), 48 deletions(-)
+snapshot sha256: FDC0FE561E42C8E0687CD68E9DF50DD3639793EA2EEEC86EBFE0E2AF4A2C9240
+snapshot bytes: 196533

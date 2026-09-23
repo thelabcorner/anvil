@@ -1,0 +1,166 @@
+========================================================================================================
+(a) MINIMUM N FOR SEED AMORTISATION ù pessimistic seed charge c_s = (k+1)*b
+========================================================================================================
+  N > (c_s - k*h)/(b - h).   Read: below this N the model is a LOSS vs raw bytes.
+
+  W    b  k   c_s |  h=1.585   h=2.32    h=4.0    h=8.0   h=16.0   h=24.0   h=30.0
+----------------------------------------------------------------------------------
+  1    8  0     8 |        2        2        3      n/a      n/a      n/a      n/a
+  1    8  1    16 |        3        3        4      n/a      n/a      n/a      n/a
+  1    8  2    24 |        4        4        5      n/a      n/a      n/a      n/a
+  2   16  0    16 |        2        2        2        3      n/a      n/a      n/a
+  2   16  1    32 |        3        3        3        4      n/a      n/a      n/a
+  2   16  2    48 |        4        4        4        5      n/a      n/a      n/a
+  4   32  0    32 |        2        2        2        2        3        5       17
+  4   32  1    64 |        3        3        3        3        4        6       18
+  4   32  2    96 |        4        4        4        4        5        7       19
+  8   64  0    64 |        2        2        2        2        2        2        2
+  8   64  1   128 |        3        3        3        3        3        3        3
+  8   64  2   192 |        4        4        4        4        4        4        4
+
+  Same, but asking 'beats BROTLI' (b*rho, rho=0.340 as on synth-arith):
+  W    b  k   c_s |  h=1.585   h=2.32    h=4.0    h=8.0   h=16.0   h=24.0   h=30.0
+----------------------------------------------------------------------------------
+  1    8  0     8 |        8       20    never    never    never    never    never
+  1    8  1    16 |       13       35    never    never    never    never    never
+  1    8  2    24 |       19       49    never    never    never    never    never
+  2   16  0    16 |        5        6       12    never    never    never    never
+  2   16  1    32 |        8       10       20    never    never    never    never
+  2   16  2    48 |       12       14       28    never    never    never    never
+  4   32  0    32 |        4        4        5       12    never    never    never
+  4   32  1    64 |        7        8        9       20    never    never    never
+  4   32  2    96 |       10       11       13       28    never    never    never
+  8   64  0    64 |        4        4        4        5       12    never    never
+  8   64  1   128 |        7        7        7        9       20    never    never
+  8   64  2   192 |       10       10       11       13       28    never    never
+
+========================================================================================================
+(c) ORDER SELECTION ù why 'minimise H(k-th difference)' is the WRONG statistic
+========================================================================================================
+
+  Going from order k to k+1 costs ONE extra seed and buys a different residual
+  alphabet. The wire costs are
+
+     C(k)   = c_s(k)   + (N - k)   h_k
+     C(k+1) = c_s(k+1) + (N - k - 1) h_{k+1}
+
+  Prefer k+1 iff  C(k+1) < C(k), i.e.
+
+     (N-k-1)(h_k - h_{k+1})  >  [c_s(k+1) - c_s(k)] - h_k
+                             ~=  b        (one extra full-width seed)
+
+  *** THE CORRECT STATISTIC IS THE TOTAL WIRE COST, NOT h_k ALONE. ***
+  Minimising h_k ignores the seed and, more importantly, ignores that
+  differencing an i.i.d. sequence can only INCREASE entropy (proof below),
+  so greedy "keep differencing while H drops" is not the right rule either.
+
+  THEOREM (differencing never helps an i.i.d. sequence).
+    Let X, Y iid, H(X) = h. Then H(X - Y) >= h.
+    Proof: H(X-Y) >= H(X-Y | Y) = H(X | Y) = H(X) = h.  (conditioning
+    cannot increase entropy; X-Y given Y=y is a translate of X.)   []
+
+    Consequence: if the k-th difference is ALREADY iid, one more
+    differencing step strictly increases the rate. Conversely, if the
+    process INTEGRATES its innovations, exactly one difference recovers
+    the innovation and that is the optimum.
+
+  CLOSED FORM FOR OPTIMAL k ù the discriminator decides it:
+
+    PROCESS                          OPTIMAL TRANSFORM          ACHIEVED RATE
+    v_i = trend_i + S_i,             k = 1 (one difference)     H(innovation)
+      S_i = cumsum(e_i)  [INTEGRATED]
+    v_i = a + b*i + e_i,             residual-to-FIT (no diff)  H(e)
+      e_i iid  [TREND-STATIONARY]
+    v_i = c + e_i, e_i iid           k = 0 (constant run)       H(e)
+
+    Doing the wrong one costs: integrated process coded at k=0 pays the walk's
+    unbounded marginal entropy; trend-stationary process differenced pays
+    H(e_i - e_{i-1}) > H(e_i).
+
+  MEASURED ORDER PROFILE (H of the k-th difference, bits/value):
+  file                      lane                      H(d0)    H(d1)    H(d2)    H(d3)  optimal
+  synth-arith.bin           S=4 W=4 off=0            15.915    4.586    2.202    2.998   k=2
+  synth-telemetry-f64.bin   S=16 W=8 off=0           14.288   -0.000   -0.000   -0.000   k=1
+  synth-telemetry-f64.bin   S=16 W=8 off=8           14.288    5.081    6.256    7.323   k=1
+  synth-timeseries.bin      S=14 W=8 off=0           14.288    6.655    7.372    8.169   k=1
+  synth-timeseries.bin      S=14 W=4 off=12          14.287    6.773    7.601    8.471   k=1
+  synth-columnar-align.bin  S=23 W=4 off=2           13.551   -0.000   -0.000   -0.000   k=1
+  synth-drift-stride.bin    S=44 W=8 off=0           12.008   12.875   13.252   13.459   k=0
+
+  SYNTH-ARITH CHECK ù the theory predicts H(d2) exactly.
+    e_i ~ U{-1,0,1}  =>  H(e) = log2 3 = 1.584963
+    H(e_i - e_{i-1}) over alphabet {-2..2} with weights (1,2,3,2,1)/9:
+      = 2.197160 b   <-- compare measured H(d2) above
+    Agreement confirms: d1 is the innovation (integrated process), d2 is a
+    differenced iid sequence and is therefore strictly worse.
+
+========================================================================================================
+(b) DISCOVERED vs TRANSMITTED PARAMETERS
+========================================================================================================
+
+  TRANSMITTED: the wire carries (offset, stride, width, order, length).
+    Cost is a CONSTANT, independent of N:
+      c_param ~ log2(off_range) + log2(stride_range) + log2(#widths)
+                + log2(#orders) + log2(N)
+             ~ 6 + 8 + 2 + 2 + 17  =  ~35 bits for a generous parameter space.
+    Effect on the crossover: it adds c_param to c_s, so
+      N > (c_s + c_param - k h)/(b - h)
+    i.e. it pushes N_min up by roughly c_param/(b-h). At b=32, h=1.585 that is
+    35/30.4 ~ 1.2 values ù NEGLIGIBLE for long lanes. Transmitting is cheap.
+
+  DISCOVERED: no wire cost, but the encoder pays SEARCH. The search must
+    examine (offset, stride, width, order) jointly:
+      naive:   O(|off| * |S| * |W| * |k| * N)
+      smarter: for each (W,k), compute the autocorrelation of the lane once
+               via FFT -> all strides at once, O(|W|*|k|*N log N)
+    With |W|=4 (1,2,4,8), |k|=3, and FFT-based stride search, the search is
+    ~12 * N log N operations per file ù cheap and N-scaling, so it does NOT
+    change the per-lane crossover; it changes the ENCODE SPEED only.
+
+  THE REAL DISTINCTION IS ELSEWHERE: a transmitted parameter lets the encoder
+  pick any (S,W,off,k); a DISCOVERED one must be INFERABLE BY THE DECODER from
+  the already-emitted prefix, or transmitted. Since c_param ~ 35 bits is
+  negligible against any lane of N > ~10, TRANSMIT IT. Discovery is for the
+  ENCODER's benefit (choosing good values), not the wire's.
+
+  Encode-side economics, priced at the measured lambda_frontier (10-40 B/us):
+    search pays iff  (bytes saved) > lambda * (search seconds)
+    A lane of N=8000, W=4, b=32, h=1.585 saves (8000*32 - 8000*1.585)/8
+      = 30,415 B. At lambda = 20 B/us = 20 B per 1e-6 s, that is worth
+      30,415/20 = 1,521 us = 1.5 ms of search. Enormous budget: a full
+      (S,W,off,k) brute-force scan is comfortably affordable on any lane that
+      long. Search cost is NOT the binding constraint on long lanes; it IS on
+      short ones (N < ~64), where the saving is <250 B i.e. <12 us.
+
+========================================================================================================
+HOW MUCH OF datastruct's GAP IS REMOVABLE?
+========================================================================================================
+  file                        their wire     floor       gap   decomposition
+  synth-arith.bin                 17,637    12,705    +4,932
+  synth-telemetry-f64.bin         12,741     5,821    +6,920
+
+  synth-arith: they selected (S=4, W=4, k=2). H(d1)=1.585 < H(d2)=2.197, so
+  k=2 is strictly worse than k=1 by 0.61 b/val. Switching to k=1:
+    8 lanes * (2*32 seeds + 7999*1.585) / 8  = 12,742 B   (their seed convention)
+    8 lanes * (32 + 6.6  + 7999*1.585) / 8   = 12,717 B   (realistic seed)
+  => 17,637 -> 12,742 removes 4,895 of the 4,932 B gap. The residual ~37 B is
+  the pessimistic full-width seed charge. ESSENTIALLY ALL REMOVABLE ù and
+  none of it is intrinsic to per-lane modelling, because on this file the
+  block-wise columns ARE the lanes (stride 4, width 4, aligned).
+
+  synth-telemetry: their (16,8,1) models ts and value as ONE width-8 lane at
+  stride 16. But the two sub-fields want OPPOSITE treatments:
+    ts (u64)   increments by EXACTLY 1000 -> after 2 seeds, ZERO bits.
+    value(f64) is a float; arithmetic differencing of its u64 bit pattern is
+               the WRONG transform. XOR (Gorilla) is the right one.
+  Measured below.
+
+  telemetry: 20,000 records
+    ts: distinct first differences = 1 (values: [1000]) -> H = -0.0000 b/rec; free after 2 seeds
+    value f64: H(arith diff of u64) = 5.0805 b/rec
+               H(XOR consecutive)   = 12.2700 b/rec   <-- Gorilla
+    Gorilla framing on XOR: zero-frac 0.0000, mean lz 24.4, mean tz 1.3, H(mantissa len) 3.194
+      => ~17.194 b/rec = 42,985 B for the value column
+    vs the eps-entropy floor log2(5) = 2.3219 b/rec = 5,805 B
+    => Gorilla-XOR gets within 7.41x of the true floor
+       without discovering the float model at all.

@@ -1,0 +1,70 @@
+=== i9-bwtinv unbwt bench [REF build] reps=7 warmup=1 threads=0 affinity=0 host=Ryzen9-5900X ===
+
+FILE scratch/ratio-first/corpora/silesia/dickens  n=10192446  input_fnv=ee427b5585996957
+  primary=2248121 bwt_fnv=cdf237ce6a025429
+  aux r=1048576   I_entries=10    I_bytes=40     bwt_identity=YES
+  aux r=262144    I_entries=39    I_bytes=156    bwt_identity=YES
+  aux r=65536     I_entries=156   I_bytes=624    bwt_identity=YES
+  aux r=8192      I_entries=1245  I_bytes=4980   bwt_identity=YES
+[mark] variants built: 7
+  variant                     median_ms       MB/s      ns/B  mean_ms      CV%  verify
+  plain_fresh                   493.920       20.6    48.459  521.440    10.3%  ok
+      reps_ms=609.827 484.586 474.442 505.216 481.539 600.553 493.920 
+  plain_reuse                   510.136       20.0    50.050  529.448     8.6%  ok
+      reps_ms=582.537 509.851 528.310 505.173 463.350 606.776 510.136 
+  plain_freq                    514.969       19.8    50.525  509.921     2.8%  ok
+      reps_ms=528.284 501.378 501.363 524.124 483.456 515.873 514.969 
+  aux_r1048576                  188.827       54.0    18.526  189.260     6.3%  ok
+      reps_ms=174.438 188.827 181.960 190.049 204.038 208.264 177.247 
+  aux_r262144                   145.227       70.2    14.249  149.490     7.1%  ok
+      reps_ms=141.127 150.119 143.037 138.580 171.725 156.618 145.227 
+  aux_r65536                    151.758       67.2    14.889  151.499     4.9%  ok
+      reps_ms=152.984 151.758 143.178 142.391 150.446 166.835 152.900 
+  aux_r8192                     146.980       69.3    14.421  149.520     4.8%  ok
+      reps_ms=143.979 141.121 147.913 146.259 163.113 157.273 146.980 
+
+FILE scratch/ratio-first/corpora/silesia/webster  n=41458703  input_fnv=4aa068efd33fc9be
+  primary=1563625 bwt_fnv=b9944ac8dd9b2678
+  aux r=4194304   I_entries=10    I_bytes=40     bwt_identity=YES
+  aux r=1048576   I_entries=40    I_bytes=160    bwt_identity=YES
+  aux r=262144    I_entries=159   I_bytes=636    bwt_identity=YES
+  aux r=32768     I_entries=1266  I_bytes=5064   bwt_identity=YES
+[mark] variants built: 7
+  variant                     median_ms       MB/s      ns/B  mean_ms      CV%  verify
+  plain_fresh                  2258.619       18.4    54.479 2391.735    13.3%  ok
+      reps_ms=2911.061 2147.772 2082.005 2125.753 2830.565 2258.619 2386.370 
+  plain_reuse                  2191.048       18.9    52.849 2389.404    11.7%  ok
+      reps_ms=2570.080 2185.276 2104.863 2191.048 2581.840 2180.868 2911.851 
+  plain_freq                   2225.261       18.6    53.674 2247.246     5.1%  ok
+      reps_ms=2144.359 2225.261 2158.102 2245.876 2407.304 2124.443 2425.375 
+  aux_r4194304                  793.355       52.3    19.136  814.123     8.3%  ok
+      reps_ms=753.668 753.939 793.355 962.937 802.307 785.043 847.613 
+  aux_r1048576                  680.646       60.9    16.417  702.499    11.4%  ok
+      reps_ms=633.794 624.533 680.646 879.044 695.512 669.752 734.213 
+  aux_r262144                   658.035       63.0    15.872  676.206     7.6%  ok
+      reps_ms=622.083 626.832 707.161 782.504 683.636 658.035 653.193 
+  aux_r32768                    646.251       64.2    15.588  695.510    13.0%  ok
+      reps_ms=629.820 656.014 646.251 761.352 645.121 637.025 892.986 
+
+FILE scratch/ratio-first/corpora/enwik8dir/enwik8  n=100000000  input_fnv=20024fa155b84379
+  primary=22481309 bwt_fnv=814881670fd28ead
+  aux r=8388608   I_entries=12    I_bytes=48     bwt_identity=YES
+  aux r=2097152   I_entries=48    I_bytes=192    bwt_identity=YES
+  aux r=524288    I_entries=191   I_bytes=764    bwt_identity=YES
+  aux r=65536     I_entries=1526  I_bytes=6104   bwt_identity=YES
+[mark] variants built: 7
+  variant                     median_ms       MB/s      ns/B  mean_ms      CV%  verify
+  plain_fresh                  5881.126       17.0    58.811 5948.469     6.1%  ok
+      reps_ms=6762.681 6026.512 5582.236 5988.866 5680.818 5717.041 5881.126 
+  plain_reuse                  5774.690       17.3    57.747 5890.692     6.1%  ok
+      reps_ms=5801.097 5736.728 5936.984 5722.561 6726.532 5774.690 5536.255 
+  plain_freq                   6037.285       16.6    60.373 5950.896     4.8%  ok
+      reps_ms=6068.762 6037.285 5787.061 6336.560 6270.536 5555.873 5600.198 
+  aux_r8388608                 1889.264       52.9    18.893 1906.714     3.1%  ok
+      reps_ms=1923.942 2040.307 1850.362 1911.166 1856.716 1875.242 1889.264 
+  aux_r2097152                 1685.061       59.3    16.851 1727.726     5.3%  ok
+      reps_ms=1834.400 1899.166 1652.332 1707.660 1642.117 1673.343 1685.061 
+  aux_r524288                  1657.619       60.3    16.576 1714.732     6.0%  ok
+      reps_ms=1635.341 1915.656 1639.893 1676.082 1649.709 1657.619 1828.828 
+  aux_r65536                   1765.121       56.7    17.651 1783.917     6.7%  ok
+      reps_ms=1757.061 1852.302 1765.121 1617.237 1637.518 1963.156 1895.027 

@@ -1,0 +1,23 @@
+PR-4 v1 attestation -- decode-perf I9 / BWT stage split
+label: i9_bwt_wt
+window_start_utc: 2026-09-12T06:36:48.0692062Z
+window_end_utc: 2026-09-12T06:39:20.2885492Z
+host: JACKSON-PC
+profiler: prototypes/i9-decode-perf/bwt_prof_wt.exe sha256=2205FDFBDC9DA999B9DCD04C06D3EA2AC39E14662C229AC5CC048BEB9F06E29D
+snap_anvil_wt.exe sha256=9751BF63CF8B1C11A2EAB33753ECF6981E2B59969CD96A643743C44BDE08FF34
+HEAD: fc23d9a191d7ab488ebe05be598bfd93c1f840ca
+branch: blocksplit-exp
+snapshot source: WORKING TREE (raw copy: anvil_wt_raw.cpp)
+snapshot taken: 2026-09-12T01:32:49.5606828-05:00
+worktree diff-vs-HEAD (src): src/anvil.cpp | 1403 +++++++++++++++++++++++++++++++++++++++++++++++++++++++-- |  1 file changed, 1355 insertions(+), 48 deletions(-)
+raw copy sha256: 5DB16A1C329D2B215D1123B1E16D54F92DA376EAFE1733A353B20EC831890686
+snapshot (possibly repaired) sha256: 5DB16A1C329D2B215D1123B1E16D54F92DA376EAFE1733A353B20EC831890686
+repair state: NONE - arch's decode_one_block(mode,p,...) fix is present in the raw worktree; snapshot used UNMODIFIED
+api-compat: one-arg decompress = False; extra defs = /DANVIL_SNAPSHOT_NAME=anvil_snapshot_wt.cpp
+command: .\bwt_prof_wt.exe --reps=7 --label=i9_bwt_wt --out=results <containers>
+containers: dickens comp_bytes=2571873 roundtrip=OK src_sha256=B24C37886142E11D0EE687DB6AB06F936207AA7F2EA1FD1D9A36763C7A507E6A | webster comp_bytes=7317361 roundtrip=OK src_sha256=6A68F69B26DAF09F9DD84F7470368553194A0B294FCFA80F1604EFB11143A383
+cpu_sampler: Get-CimInstance Win32_Processor -> LoadPercentage avg, 0.7 Hz loop; samples=87
+cpu_load_pct_median=41 max=94 min=16
+pinning/priority: SetProcessAffinityMask last logical processor, HIGH_PRIORITY_CLASS
+threads: 1 (snapshot HEAD has no parallel decode); libsais_unbwt called single-thread (freq=nullptr)
+bwt_prof_exit_code: 0

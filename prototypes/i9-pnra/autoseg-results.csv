@@ -1,0 +1,40 @@
+file,mode,in_bytes,wire,ratio,roundtrip,header,literals,params,dfirst,startup,main,tail,regions,step_regions,note
+synth-arith.bin,auto-v1,256000,12936,0.050531,PASS,44,32,40,13,16,12791,0,8,8,container v1 (frozen)
+synth-arith.bin,auto-compact,256000,12920,0.050469,PASS,44,32,24,13,16,12791,0,8,8,
+synth-arith.bin,oracle-forced-v1,256000,12936,0.050531,PASS,44,32,40,13,16,12791,0,8,8,
+synth-arith.bin,oracle-forced-compact,256000,12920,0.050469,PASS,44,32,24,13,16,12791,0,8,8,
+synth-arith.bin,literal-control,256000,256048,1.000188,PASS,44,256000,4,0,0,0,0,1,0,
+var_00.bin,auto-compact,106032,5422,0.051136,PASS,44,32,24,15,13,5294,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_00.bin,oracle-forced-compact,106032,5422,0.051136,PASS,44,32,24,15,13,5294,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_01.bin,auto-compact,173116,8856,0.051156,PASS,44,64,48,30,34,8636,0,16,16,truth bnd=15 exact=15 missing=0 spurious=0 split=0
+var_01.bin,oracle-forced-compact,173116,8856,0.051156,PASS,44,64,48,30,34,8636,0,16,16,truth bnd=15 exact=15 missing=0 spurious=0 split=0
+var_02.bin,auto-compact,75576,3899,0.051590,PASS,44,32,24,14,15,3770,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_02.bin,oracle-forced-compact,75576,3899,0.051590,PASS,44,32,24,14,15,3770,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_03.bin,auto-compact,339956,17339,0.051004,PASS,44,128,96,55,51,16965,0,32,32,truth bnd=31 exact=31 missing=0 spurious=0 split=0
+var_03.bin,oracle-forced-compact,339956,17339,0.051004,PASS,44,128,96,55,51,16965,0,32,32,truth bnd=31 exact=31 missing=0 spurious=0 split=0
+var_04.bin,auto-compact,133144,6850,0.051448,PASS,44,64,48,27,26,6641,0,16,16,truth bnd=15 exact=15 missing=0 spurious=0 split=0
+var_04.bin,oracle-forced-compact,133144,6850,0.051448,PASS,44,64,48,27,26,6641,0,16,16,truth bnd=15 exact=15 missing=0 spurious=0 split=0
+var_05.bin,auto-compact,149840,7686,0.051295,PASS,44,64,48,28,26,7476,0,16,16,truth bnd=15 exact=15 missing=0 spurious=0 split=0
+var_05.bin,oracle-forced-compact,149840,7686,0.051295,PASS,44,64,48,28,26,7476,0,16,16,truth bnd=15 exact=15 missing=0 spurious=0 split=0
+var_06.bin,auto-compact,309640,15822,0.051098,PASS,44,128,96,55,48,15451,0,32,32,truth bnd=31 exact=31 missing=0 spurious=0 split=0
+var_06.bin,oracle-forced-compact,309640,15822,0.051098,PASS,44,128,96,55,48,15451,0,32,32,truth bnd=31 exact=31 missing=0 spurious=0 split=0
+var_07.bin,auto-compact,338600,17275,0.051019,PASS,44,128,96,50,65,16892,0,32,32,truth bnd=31 exact=31 missing=0 spurious=0 split=0
+var_07.bin,oracle-forced-compact,338600,17275,0.051019,PASS,44,128,96,50,65,16892,0,32,32,truth bnd=31 exact=31 missing=0 spurious=0 split=0
+var_08.bin,auto-compact,68544,3548,0.051762,PASS,44,32,24,14,15,3419,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_08.bin,oracle-forced-compact,68544,3548,0.051762,PASS,44,32,24,14,15,3419,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_09.bin,auto-compact,90780,4655,0.051278,PASS,44,32,24,13,10,4532,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_09.bin,oracle-forced-compact,90780,4655,0.051278,PASS,44,32,24,13,10,4532,0,8,8,truth bnd=7 exact=7 missing=0 spurious=0 split=0
+var_seamless.bin,auto-compact,16560,881,0.053200,PASS,44,4,3,1,1,828,0,1,1,"declared bnd=5 discovered=0 missing=5 (merge=correct, data homogeneous)"
+var_seamless.bin,forced-declared,16560,923,0.055737,PASS,44,24,18,6,9,822,0,6,6,
+var_out0.bin,auto-compact,80000,4055,0.050688,PASS,44,4,4,1,3,3999,0,1,1,step_regions=1
+var_out5.bin,auto-compact,80000,4099,0.051237,PASS,44,24,18,6,14,3993,0,6,6,step_regions=6
+var_out20.bin,auto-compact,80000,4223,0.052788,PASS,44,84,59,20,40,3976,0,21,20,step_regions=20
+var_jitter2.bin,auto-compact,64000,51656,0.807125,PASS,44,47948,1831,722,670,441,0,915,473,jitter +-2 outside assumption; step_regions=473 step_words=4486
+synth-drift-stride.bin,auto-compact,615376,615424,1.000078,PASS,44,615376,4,0,0,0,0,1,0,
+synth-drift-stride.bin,auto-compact-minstep2,615376,782386,1.271395,PASS,44,306228,153114,322635,365,0,0,76557,76557,
+synth-drift-stride.bin,auto-compact-minstep3,615376,615347,0.999953,PASS,44,608224,3306,3290,483,0,0,1645,822,
+synth-drift-stride.bin,auto-compact-minstep4,615376,614977,0.999352,PASS,44,613904,453,448,128,0,0,225,112,
+synth-drift-stride.bin,auto-compact-minstep5,615376,615217,0.999742,PASS,44,614864,133,128,48,0,0,65,32,
+generated.log,auto-compact,1942280,1942328,1.000025,PASS,44,1942280,4,0,0,0,0,1,0,
+synth-counters.log,auto-compact,1107326,1107374,1.000043,PASS,44,1107324,4,0,0,0,2,1,0,
+random.bin,auto-compact,262144,262192,1.000183,PASS,44,262144,4,0,0,0,0,1,0,

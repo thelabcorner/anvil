@@ -1,0 +1,12 @@
+=== containers\post_enwik8_id1.anv ===
+src=100000000 comp=24181513 ratio=0.2418 post=1 xlen=100000000 (arith O0)
+BASELINE full decode: 10.90 MB/s (med 9176.14 ms CV 4.4% min 9116.89 ms)
+POSTCODER (arith) med=3454.38 ms = 37.6% of e2e (CV 0.6%)
+  setup (ad init + eager models): 0.47 ms = 0.0% of e2e (0.0% of post)
+  token+uvar decode (no MTF/no writes): 0.00 ms = 0.0% of e2e (0.0% of post)
+  MTF list update (no writes): 3159.84 ms = 34.4% of e2e (91.5% of post)
+  output materialization (writes): 294.54 ms = 3.2% of e2e (8.5% of post)
+  counters: tokens=46790161 runs=10129123 run_bytes=63338962 out_bytes=100000000 O1_model_builds=0
+  PROTOTYPE fast_renorm: 3342.70 ms vs full 3454.38 ms -> 1.033x (candidate C=1.012x if this share is removed)
+  model_build_x257: 3306.623 ms per full set (12.8662 ms/model) -> lazy-build est share = 0 * per_model / post_full = 0.0%
+  rank hist (1..15+): 11079446 5430026 3606681 2681308 2094125 1700934 1412969 1195092 1023682 856860 729569 623193 528327 444724 3254102 0

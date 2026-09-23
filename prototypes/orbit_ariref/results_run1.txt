@@ -1,0 +1,145 @@
+ARI-REF Experiment Z harness (token economics; counted/varint wire; NO rANS, NO container)
+file                               orig raw(exact)     ari-tx   ari-impl   ariTok     d_tx%   d_impl%      rt note
+tests/corpus/synth-arith.bin     256000     382148      94847     128326     2086    -75.18    -66.42       y RT-FAIL
+    (forced-literal parse-true wire: 264401; base tokens 63066, ari-parse tokens 3818)
+tests/corpus/synth-timeseries.bin     280000     414264     316080     316166       12    -23.70    -23.68       y RT-FAIL
+    (forced-literal parse-true wire: 414210; base tokens 67132, ari-parse tokens 67105)
+tests/corpus/synth-jitter.bin     974920    1064960     191279     191274        1    -82.04    -82.04       y RT-FAIL
+    (forced-literal parse-true wire: 1064964; base tokens 45020, ari-parse tokens 45022)
+tests/corpus/doc.md                2724       3398       2218       2218        0    -34.73    -34.73       y RT-FAIL
+    (forced-literal parse-true wire: 3398; base tokens 337, ari-parse tokens 337)
+tests/corpus/src.cpp              32512      39778      15984      15984        0    -59.82    -59.82       y RT-FAIL
+    (forced-literal parse-true wire: 39778; base tokens 3631, ari-parse tokens 3631)
+tests/corpus/generated.json      827664     934708     248581     248610        2    -73.41    -73.40       y RT-FAIL
+    (forced-literal parse-true wire: 934704; base tokens 53522, ari-parse tokens 53520)
+tests/corpus/generated.jsonl    2815267    3024218     469170     470211       53    -84.49    -84.45       y RT-FAIL
+    (forced-literal parse-true wire: 3024022; base tokens 100871, ari-parse tokens 100774)
+tests/corpus/generated.log      1942280    2097836     358798     358798        0    -82.90    -82.90       y RT-FAIL
+    (forced-literal parse-true wire: 2097836; base tokens 77778, ari-parse tokens 77778)
+tests/corpus/generated.sqlite    1740800    1951980     491650     491977       29    -74.81    -74.80       y RT-FAIL
+    (forced-literal parse-true wire: 1951899; base tokens 105545, ari-parse tokens 105505)
+tests/corpus/generated.repeat.jsonl     940000     940046        253        253        0    -99.97    -99.97       y rt-ok
+    (forced-literal parse-true wire: 940046; base tokens 22, ari-parse tokens 22)
+tests/corpus/random.bin          262144     395226     347246     347246        0    -12.14    -12.14       y RT-FAIL
+    (forced-literal parse-true wire: 395226; base tokens 66532, ari-parse tokens 66532)
+tests/corpus/anvil.exe           268800     355283     192889     193336       33    -45.71    -45.58       y RT-FAIL
+    (forced-literal parse-true wire: 355071; base tokens 43210, ari-parse tokens 43104)
+tests/corpus/anvil_bench.exe    1929216    2555199    1428660    1435359      194    -44.09    -43.83       y RT-FAIL
+    (forced-literal parse-true wire: 2550071; base tokens 312734, ari-parse tokens 310163)
+
+-- fuzz --
+FUZZ FAIL kind=0 rep=4 len=3736
+FUZZ FAIL kind=0 rep=6 len=3656
+FUZZ FAIL kind=0 rep=7 len=2320
+FUZZ FAIL kind=0 rep=12 len=2168
+FUZZ FAIL kind=0 rep=17 len=1904
+FUZZ FAIL kind=0 rep=21 len=3624
+FUZZ FAIL kind=0 rep=32 len=3828
+FUZZ FAIL kind=0 rep=33 len=3628
+FUZZ FAIL kind=0 rep=37 len=2836
+FUZZ FAIL kind=1 rep=5 len=3048
+FUZZ FAIL kind=1 rep=21 len=2196
+FUZZ FAIL kind=1 rep=27 len=2672
+FUZZ FAIL kind=1 rep=29 len=2348
+FUZZ FAIL kind=1 rep=31 len=3128
+FUZZ FAIL kind=1 rep=37 len=3848
+FUZZ FAIL kind=1 rep=38 len=236
+FUZZ FAIL kind=1 rep=39 len=2532
+FUZZ FAIL kind=2 rep=3 len=2744
+FUZZ FAIL kind=2 rep=4 len=3648
+FUZZ FAIL kind=2 rep=6 len=3120
+FUZZ FAIL kind=2 rep=7 len=816
+FUZZ FAIL kind=2 rep=8 len=1880
+FUZZ FAIL kind=2 rep=9 len=2096
+FUZZ FAIL kind=2 rep=10 len=1192
+FUZZ FAIL kind=2 rep=11 len=3032
+FUZZ FAIL kind=2 rep=13 len=3152
+FUZZ FAIL kind=2 rep=14 len=3344
+FUZZ FAIL kind=2 rep=15 len=2920
+FUZZ FAIL kind=2 rep=17 len=1680
+FUZZ FAIL kind=2 rep=18 len=1768
+FUZZ FAIL kind=2 rep=19 len=3936
+FUZZ FAIL kind=2 rep=20 len=1928
+FUZZ FAIL kind=2 rep=22 len=3936
+FUZZ FAIL kind=2 rep=23 len=3328
+FUZZ FAIL kind=2 rep=24 len=1520
+FUZZ FAIL kind=2 rep=25 len=3776
+FUZZ FAIL kind=2 rep=26 len=3464
+FUZZ FAIL kind=2 rep=27 len=2664
+FUZZ FAIL kind=2 rep=28 len=2952
+FUZZ FAIL kind=2 rep=30 len=3736
+FUZZ FAIL kind=2 rep=31 len=1000
+FUZZ FAIL kind=2 rep=32 len=472
+FUZZ FAIL kind=2 rep=33 len=184
+FUZZ FAIL kind=2 rep=35 len=3848
+FUZZ FAIL kind=2 rep=36 len=2024
+FUZZ FAIL kind=2 rep=37 len=3168
+FUZZ FAIL kind=2 rep=38 len=616
+FUZZ FAIL kind=2 rep=39 len=3896
+FUZZ FAIL kind=3 rep=3 len=1235
+FUZZ FAIL kind=3 rep=5 len=818
+FUZZ FAIL kind=3 rep=6 len=2862
+FUZZ FAIL kind=3 rep=7 len=2046
+FUZZ FAIL kind=3 rep=9 len=3962
+FUZZ FAIL kind=3 rep=10 len=1767
+FUZZ FAIL kind=3 rep=11 len=455
+FUZZ FAIL kind=3 rep=12 len=1382
+FUZZ FAIL kind=3 rep=13 len=3543
+FUZZ FAIL kind=3 rep=15 len=3356
+FUZZ FAIL kind=3 rep=16 len=2761
+FUZZ FAIL kind=3 rep=17 len=3553
+FUZZ FAIL kind=3 rep=18 len=1700
+FUZZ FAIL kind=3 rep=19 len=2002
+FUZZ FAIL kind=3 rep=21 len=1309
+FUZZ FAIL kind=3 rep=22 len=3479
+FUZZ FAIL kind=3 rep=23 len=3497
+FUZZ FAIL kind=3 rep=24 len=967
+FUZZ FAIL kind=3 rep=25 len=3342
+FUZZ FAIL kind=3 rep=27 len=1105
+FUZZ FAIL kind=3 rep=28 len=2067
+FUZZ FAIL kind=3 rep=29 len=1945
+FUZZ FAIL kind=3 rep=30 len=2384
+FUZZ FAIL kind=3 rep=32 len=1319
+FUZZ FAIL kind=3 rep=33 len=3640
+FUZZ FAIL kind=3 rep=34 len=1621
+FUZZ FAIL kind=3 rep=35 len=2709
+FUZZ FAIL kind=3 rep=36 len=2615
+FUZZ FAIL kind=3 rep=38 len=3165
+FUZZ FAIL kind=3 rep=39 len=3194
+FUZZ FAIL kind=5 rep=7 len=3108
+FUZZ FAIL kind=5 rep=12 len=2664
+FUZZ FAIL kind=5 rep=15 len=1748
+FUZZ FAIL kind=5 rep=21 len=2652
+FUZZ FAIL kind=5 rep=22 len=3240
+FUZZ FAIL kind=6 rep=3 len=2267
+FUZZ FAIL kind=6 rep=5 len=2539
+FUZZ FAIL kind=6 rep=6 len=2975
+FUZZ FAIL kind=6 rep=7 len=2192
+FUZZ FAIL kind=6 rep=9 len=2761
+FUZZ FAIL kind=6 rep=12 len=2011
+FUZZ FAIL kind=6 rep=13 len=2425
+FUZZ FAIL kind=6 rep=15 len=2248
+FUZZ FAIL kind=6 rep=16 len=3114
+FUZZ FAIL kind=6 rep=18 len=2531
+FUZZ FAIL kind=6 rep=19 len=926
+FUZZ FAIL kind=6 rep=20 len=1681
+FUZZ FAIL kind=6 rep=23 len=1880
+FUZZ FAIL kind=6 rep=24 len=1238
+FUZZ FAIL kind=6 rep=25 len=1923
+FUZZ FAIL kind=6 rep=26 len=1108
+FUZZ FAIL kind=6 rep=27 len=1396
+FUZZ FAIL kind=6 rep=28 len=2870
+FUZZ FAIL kind=6 rep=29 len=1812
+FUZZ FAIL kind=6 rep=30 len=2005
+FUZZ FAIL kind=6 rep=31 len=1718
+FUZZ FAIL kind=6 rep=32 len=1390
+FUZZ FAIL kind=6 rep=34 len=2276
+FUZZ FAIL kind=6 rep=35 len=2563
+FUZZ FAIL kind=6 rep=36 len=2887
+FUZZ FAIL kind=6 rep=37 len=1974
+FUZZ FAIL kind=6 rep=39 len=2343
+MUTATION FAIL: corrupted wire decoded back to input
+MUTATION FAIL: corrupted wire decoded back to input
+fuzz: 280 roundtrip cases, 110 failures; 199 mutations, 2 silent-accepts
+
+exit 1 (nonzero = correctness failure; density verdicts are data, printed above)

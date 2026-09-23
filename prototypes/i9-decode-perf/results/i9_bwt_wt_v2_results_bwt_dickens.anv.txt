@@ -1,0 +1,12 @@
+=== containers\bwt_dickens.anv ===
+src=10192446 B  comp=2571873 B  ratio=0.2523  transform=0 backend=2 postcoder=2 primary=2248121 xlen=10192446
+BASELINE full decode: 11.2 MB/s (med 913.74 ms, CV 7.4%, min 847.40 ms)
+-- stage split (seconds; shares of end-to-end baseline) --
+  stageA postcoder            med=  401.48 ms  CV=  1.4%  share= 43.9%  (39.39 ns/B-out)
+  B1 alloc out+tmp            med=    5.53 ms  CV=  7.9%  share=  0.6%
+  B2 libsais_unbwt (B1+B2-B1) med=  458.69 ms  (B1+B2 med=  865.70 ms CV=  8.4%)
+  stageC transform inverse    med=    0.83 ms  CV= 35.2%  share=  0.1%
+  crc32 (bytewise, HEAD)      med=    1.88 ms  CV= 25.2%  share=  0.2%
+  memcpy final out            med=    0.00 ms  CV= -0.0%  share=  0.0%
+  residual (container parse+alloc+concat) med=   45.32 ms  share=  5.0%
+  NOTE stageC variant includes A+B1+B2; stage C-only share reported after subtract. Sum check: seq+crc+mem+resid=913.74 ms vs baseline 913.74 ms
