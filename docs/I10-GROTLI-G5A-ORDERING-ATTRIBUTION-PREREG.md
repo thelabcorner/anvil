@@ -1,7 +1,7 @@
 # ANVIL I10 - GROTLI G5A Ordering Attribution Preregistration
 
-**Status:** FROZEN r3 BEFORE ANY G5A BUILD OR D1-D4 / V1 MEASUREMENT  
-**Freeze note:** r3 integrates the independent causal-audit blockers: (a) G5A must compile against the materialized pinned frozen G3 source, not the mutable working-tree file; (b) byte-level canonical token-multiset SHA-256 and common-envelope SHA-256 equality are machine-gated, not only index bijection; (c) a deterministic A0 RANDOM_PERMUTATION null arm is added so A3 can be distinguished from arbitrary-permutation luck; (d) exact Brotli implementation/build identity must be recorded; (e) the charged mode byte is explicitly out-of-band for a materialized pack/unpack selftest, and G5A remains anatomy-only. No G5A build or corpus outcome existed when r3 was frozen.  
+**Status:** FROZEN r4 BEFORE ANY G5A D1-D4 / V1 CORPUS MEASUREMENT  
+**Freeze note:** r4 is the final pre-corpus contract. The original G5A preregistration existed before implementation; r2/r3 then closed edge cases and independent causal-audit blockers using source review plus correctness-only local compile/selftests and tiny synthetic fixtures. No D1-D4 or V1 outcome was observed while changing the arms, thresholds, or gates. r4 supersedes every earlier G5A source/prereg revision for admissible evidence. It requires: (a) compilation against materialized pinned frozen G3 source; (b) byte-level canonical token-multiset and common-envelope SHA-256 equality; (c) deterministic A0 RANDOM_PERMUTATION null control; (d) exact Brotli implementation/build identity; and (e) explicit out-of-band mode-byte pack/unpack verification.  
 **Date:** 2026-09-24  
 **Parent evidence:** G3 `PASS-G3-NARROW`, G4 `NO-GO-G4`  
 **Purpose:** isolate the causal contribution of byte ordering/locality under a fixed structured representation  
@@ -319,7 +319,7 @@ inserted, removed, or reordered outside the token region).
 
 ### I5 - fixed backend
 
-All three bodies use the same Brotli quality/window settings as frozen G3:
+All four bodies use the same Brotli quality/window settings as frozen G3:
 
 - quality 11;
 - lgwin 30 where supported by the existing G3 build contract.
@@ -598,10 +598,11 @@ Those are separate future lanes.
 
 ## 14. Execution discipline
 
-1. commit this preregistration before G5A source exists;
-2. implement a standalone G5A prototype that compiles against the pinned frozen G3
-   source via the section 2.1 frozen-inclusion mechanism;
-3. local workstation work is limited to compile + tiny selftests;
+1. commit this final r4 preregistration before any D1-D4 or V1 corpus measurement;
+   earlier r2/r3 source and tiny correctness fixtures are superseded and are not evidence;
+2. freeze an r4 implementation source commit that conforms exactly to this contract and
+   compiles against the pinned frozen G3 source via section 2.1;
+3. local workstation work is limited to compile + tiny synthetic correctness selftests;
 4. do **not** measure D1-D4 or V1 on the workstation or homelab;
 5. freeze the implementation source SHA;
 6. create a GitHub Actions workflow pinned to that exact implementation and that
