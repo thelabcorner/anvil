@@ -158,7 +158,8 @@ static G5Plan build_g5_plan(const Bytes& src) {
     for (size_t sid = 0; sid < a.shapes.size(); ++sid) {
         const ShapePlan& sh = a.shapes[sid];
         p.canonical_id[sid].resize(sh.members.size());
-        for (auto& row : p.canonical_id[sid]) row.resize(sh.slots.size(), SIZE_MAX);
+        for (auto& row : p.canonical_id[sid])
+            row.resize(sh.slots.size(), std::numeric_limits<size_t>::max());
     }
 
     std::vector<size_t> next_occ(a.shapes.size(), 0);
@@ -175,7 +176,8 @@ static G5Plan build_g5_plan(const Bytes& src) {
             if (occ >= sh.slots[slot].tokens.size())
                 throw std::runtime_error("G5 missing structured token");
             const size_t id = p.canonical.size();
-            if (id == SIZE_MAX) throw std::runtime_error("G5 token id overflow");
+            if (id == std::numeric_limits<size_t>::max())
+                throw std::runtime_error("G5 token id overflow");
             p.canonical.push_back(TokenCoord{
                 static_cast<uint32_t>(sid),
                 static_cast<uint32_t>(occ),
@@ -191,7 +193,8 @@ static G5Plan build_g5_plan(const Bytes& src) {
             throw std::runtime_error("G5 shape occurrence count mismatch");
         for (const auto& row : p.canonical_id[sid])
             for (size_t id : row)
-                if (id == SIZE_MAX) throw std::runtime_error("G5 unassigned canonical token");
+                if (id == std::numeric_limits<size_t>::max())
+                    throw std::runtime_error("G5 unassigned canonical token");
     }
 
     return p;
@@ -500,6 +503,18 @@ static int measure_g5a(const std::string& path) {
         a1.built.body.size() == a2.built.body.size() &&
         a2.built.body.size() == a3.built.body.size();
     if (!same_body_size) throw std::runtime_error("G5 body-size identity failure");
+
+    auto has_common_prefix = [&](const Bytes& body) {
+        return body.size() >= plan.prefix.size() &&
+               std::equal(plan.prefix.begin(), plan.prefix.end(), body.begin());
+    };
+    const bool envelope_identity =
+        has_common_prefix(a1.built.body) &&
+        has_common_prefix(a2.built.body) &&
+        has_common_prefix(a3.built.body);
+    if (!envelope_identity)
+        throw std::runtime_error("G5 common-envelope identity failure");
+
     const bool all_perm =
         a1.built.permutation_ok && a2.built.permutation_ok && a3.built.permutation_ok;
     const bool all_roundtrip = a1.roundtrip && a2.roundtrip && a3.roundtrip;
@@ -531,6 +546,7 @@ static int measure_g5a(const std::string& path) {
               << ",\"structured_token_bytes\":" << plan.structured_token_bytes
               << ",\"common_prefix_bytes\":" << plan.prefix.size()
               << ",\"body_size_identity\":" << (same_body_size ? "true" : "false")
+              << ",\"envelope_identity\":" << (envelope_identity ? "true" : "false")
               << ",\"all_permutations_exact\":" << (all_perm ? "true" : "false")
               << ",\"all_roundtrip\":" << (all_roundtrip ? "true" : "false");
     print_arm_json("a1_source_order", a1);
@@ -552,6 +568,12 @@ static void g5a_fixture(const std::string& s, const char* label) {
 
     if (a1.body.size() != a2.body.size() || a2.body.size() != a3.body.size())
         throw std::runtime_error(std::string(label) + ": body sizes differ");
+    auto has_prefix = [&](const Bytes& body) {
+        return body.size() >= p.prefix.size() &&
+               std::equal(p.prefix.begin(), p.prefix.end(), body.begin());
+    };
+    if (!has_prefix(a1.body) || !has_prefix(a2.body) || !has_prefix(a3.body))
+        throw std::runtime_error(std::string(label) + ": common envelope differs");
     if (!a1.permutation_ok || !a2.permutation_ok || !a3.permutation_ok)
         throw std::runtime_error(std::string(label) + ": permutation invalid");
     if (decode_g5_body(a1.body, G5Order::SourceOrder) != src)
@@ -591,6 +613,11 @@ static void g5a_selftest() {
         "{\"k\":\"same\",\"v\":101}\n"
         "{\"k\":\"same\",\"v\":102}\n",
         "single shape");
+
+    g5a_fixture(
+        "not-json\n"
+        "still-not-json\n",
+        "raw only");
 
     // Exact permutation validator must reject both duplicates and omissions.
     if (validate_permutation({0, 0}, 2))

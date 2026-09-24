@@ -1,6 +1,7 @@
 # ANVIL I10 — GROTLI G5A Ordering Attribution Preregistration
 
-**Status:** FROZEN BEFORE G5A IMPLEMENTATION AND BEFORE ANY G5A D1-D4 OR V1 MEASUREMENT  
+**Status:** FROZEN r2 BEFORE ANY G5A BUILD OR D1-D4 / V1 MEASUREMENT  
+**Freeze note:** r2 closes two outcome-classification edge cases and makes the existing envelope-identity invariant explicitly machine-gated; no corpus outcome had been measured or built when frozen.  
 **Date:** 2026-09-24  
 **Parent evidence:** G3 `PASS-G3-NARROW`, G4 `NO-GO-G4`  
 **Purpose:** isolate the causal contribution of byte ordering/locality under a fixed structured representation  
@@ -363,15 +364,27 @@ Correctness invariants dominate every classification.
 
 If `S3 > S1`, shape-column ordering is worse than source ordering in aggregate.
 
+### ORDER-NEUTRAL
+
+If `S3 == S1`, the aggregate byte effect of shape-column versus source ordering is exactly zero.
+
 ### ORDER-WEAK
 
 If A3 is smaller than A1 but aggregate improvement is less than **1.0%**:
 
 ```
-S3 / S1 > 0.99
+S3 < S1 && S3 / S1 > 0.99
 ```
 
 The effect is real but below the frozen engineering-materiality threshold.
+
+### ORDER-CONCENTRATED
+
+If aggregate improvement is at least **1.0%** but A3 is smaller than A1 on fewer than
+**2 of 4** D1-D4 families, classify the result as `ORDER-CONCENTRATED` rather than
+calling the ordering mechanism broadly material on the frozen discovery set.
+
+This closes the classification surface without weakening the two-family requirement.
 
 ### ORDER-MATERIAL
 
@@ -489,7 +502,7 @@ context, but it may not retroactively change G5A arms or gates.
 
 ## 16. Production disposition
 
-Regardless of whether G5A is ORDER-ADVERSE, ORDER-WEAK, or ORDER-MATERIAL:
+Regardless of whether G5A is ORDER-ADVERSE, ORDER-NEUTRAL, ORDER-WEAK, ORDER-CONCENTRATED, or ORDER-MATERIAL:
 
 - no production transform ID is allocated;
 - no production ANVIL source is changed by G5A;
