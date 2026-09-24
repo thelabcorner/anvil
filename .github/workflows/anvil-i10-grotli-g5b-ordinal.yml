@@ -1,6 +1,6 @@
 name: ANVIL I10 Grotli G5B-ORDINAL probe
 
-# Preregistration: docs/I10-GROTLI-G5B-ORDINAL-PREREG.md
+# Preregistration: docs/I10-GROTLI-G5B-ORDINAL-PREREG.md  (frozen revision r2)
 # Parent evidence:  G5A ORDER-MATERIAL/COLUMN-DOMINANT (run 35985412906),
 #                   G4 NO-GO-G4, G3 PASS-G3-NARROW
 #
@@ -12,43 +12,57 @@ name: ANVIL I10 Grotli G5B-ORDINAL probe
 # Sharp question: does the boundary between exact lexical shapes fragment
 # positional same-ordinal slot locality?
 #
-# Three arms, frozen (deliberately NO B3 in this first freeze):
-#   B0 ORDINAL_NULL    deterministic structure-destroying null draw (one seed)
-#   B1 ORDINAL_FLOOR   EXACT frozen G5A A3 SHAPE_COLUMN (already-spent floor)
-#   B2 ORDINAL_BLOCKED global-ordinal blocked emission (the single treatment)
+# Three arms, frozen (deliberately NO B3 in this first freeze). The carrier body
+# shares the EXACT frozen G5A "G5AO" magic so that B1/FLOOR can be byte-compatible
+# with frozen G5A A3; selector values avoid semantic aliasing with G5A's mode space:
+#   B1 ORDINAL_FLOOR   selector 3  EXACT frozen G5A A3 SHAPE_COLUMN (already-spent floor)
+#   B0 ORDINAL_NULL    selector 4  deterministic structure-destroying null draw (one seed)
+#   B2 ORDINAL_BLOCKED selector 5  global-ordinal blocked emission (the single treatment)
+# Selector bytes 0/1/2 are INVALID in G5B-ORDINAL (they alias G5A A0/A1/A2 on the
+# shared G5AO carrier).
 #
 # Hard invariants that gate every size number (prereg section 6):
-#   I1  exact source roundtrip every arm (body + charged mode byte)
+#   I1  exact source roundtrip every arm (body + charged selector byte)
 #   I2  body length AND envelope length AND token-region length identities
 #   I3  exact permutation + canonical token-multiset SHA-256 identity
 #   I4  common-envelope SHA-256 identity and unchanged raw residuals
 #   I5  same backend: Brotli q11/lgwin30 and same build/provenance identity
 #   I6  no typed leaf / new representation family
-#   I7  exactly one charged selector byte, pack/unpack, invalid selector fails closed
+#   I7  exactly one charged selector byte {3,4,5}, pack/unpack, invalid selector fails closed
 #   I8  compiler/pkg/libbrotli provenance; linked libbrotli SHA-256; BrotliEncoderVersion
 #   I9  deterministic null present and actually reorders on nontrivial fixtures
-#   I10 B1/FLOOR exact reproduction of frozen G5A A3 on D1-D4 vs run 35985412906
+#   I10 B1/FLOOR exact reproduction of frozen G5A A3 on D1-D4 vs run 35985412906,
+#       strengthened per-file facts + backend provenance comparability + a same-run
+#       frozen G5A reference replay control (section 7.3)
 #   I11 liveness/degeneracy: shape_count, max_slots, shared_ordinal_slots,
-#       cross_shape_ordinal_tokens, b1_eq_b2, b2_moved_token_count
+#       cross_shape_ordinal_tokens, b1_eq_b2, b2_moved_token_count; impossible
+#       combinations fail closed
+#   I12 no floor/provenance/invariant failure falls through to a favorable label;
+#       artifact upload is if: always()
 # Any invariant failure => INVALID-G5B-ORDINAL (or INVALID-B1-FLOOR for I10).
 #
 # This workflow:
 #   1. checks out the pinned G5B-ORDINAL implementation SHA and verifies identity;
-#   2. materializes the frozen G3 source and compiles G5B-ORDINAL against those
+#   2. pins the apt libbrotli version and fails closed on backend drift (I5/I8);
+#   3. materializes the frozen G3 source and compiles G5B-ORDINAL against those
 #      exact pinned bytes, warning-clean, then runs the full adversarial selftest;
-#   3. builds a SEPARATE frozen G3 reference from the same materialized source and
+#   4. builds a SEPARATE frozen G3 reference from the same materialized source and
 #      selftests it, proving the imported parser/shape semantics;
-#   4. acquires and verifies the authoritative frozen G5A floor artifact
-#      (run 35985412906) and its per-file A3 facts (I10);
-#   5. fetches and verifies the frozen D1-D4 discovery objects and V1;
-#   6. runs frozen B0/B1/B2 on D1-D4 and on V1 (known-stress anatomy);
-#   7. verifies B1 exact reproduction of the frozen G5A A3 on D1-D4 (I10);
-#   8. applies the frozen section-10/10.1 ruling MECHANICALLY;
-#   9. uploads the complete evidence (JSONL rows, ruling, provenance).
+#   5. acquires and verifies the authoritative frozen G5A floor artifact
+#      (run 35985412906) with exact member-path extraction and pinned digest (I10);
+#   6. fetches and verifies the frozen D1-D4 discovery objects and V1;
+#   7. runs a same-run frozen G5A reference replay on D1-D4 ONLY (control gate, after
+#      corpus identity verification; not a new experiment) and compares its A3 facts
+#      to the archive, so environment drift is diagnosable;
+#   8. runs frozen B0/B1/B2 on D1-D4 and on V1 (known-stress anatomy);
+#   9. verifies B1 exact reproduction of the frozen G5A A3 on D1-D4 (I10);
+#  10. applies the frozen section-10/10.1 ruling MECHANICALLY, fail-closed;
+#  11. uploads the complete evidence with if: always() (invalid evidence preserved).
 #
 # V1 is KNOWN-STRESS / NOT HELD-OUT FOR G5B-ORDINAL. No new held-out corpus is
 # opened. V1 correctness is RE-GATED inside the final ruling; a V1 invariant
-# failure fails closed (never a V1-ORDINAL-* label).
+# failure fails closed (never a V1-ORDINAL-* label). V1 remains a known-stress
+# diagnostic only and MUST be re-gated separately from the discovery ruling.
 # Heavy compression runs ONLY here, never on the workstation.
 # This workflow is NOT dispatched by the freezing worker.
 
@@ -83,12 +97,29 @@ jobs:
       # Authoritative blob/SHA-256 of the frozen G3 source at FROZEN_G3_SHA.
       EXPECTED_G3_SOURCE_BLOB: eedc7b7e6671c4a5fcaf7a5997671bd4be30bdde
       EXPECTED_G3_SOURCE_SHA256: 5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e
-      # Authoritative archived G5A floor evidence (I10).
+      # Authoritative archived G5A floor evidence (I10). Metadata determined
+      # read-only via the GitHub REST API at correction time (2026-09-24):
+      #   artifact id 10801714249, size 15631 bytes,
+      #   digest sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278,
+      #   expired false, expires 2026-10-24T10:11:27Z.
       G5A_REFERENCE_RUN_ID: "35985412906"
       G5A_ARTIFACT_NAME: grotli-g5a-ordering-attribution-35985412906
+      G5A_ARTIFACT_ID: "10801714249"
+      G5A_ARTIFACT_SIZE: "15631"
+      G5A_ARTIFACT_DIGEST: "sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278"
+      # Frozen G5A implementation identity replayed locally as a same-run control.
       G5A_REFERENCE_IMPLEMENTATION_SHA: e6714e81aeff1579c4502f1fd9af4d7f205a8b4b
       G5A_REFERENCE_SOURCE_BLOB: 2772d7eaf0a64be1fdbbb377f5d668d21dab9cbe
+      G5A_REFERENCE_PREREG_BLOB: a84f42a3f414cc987d8c19cc70a578e2d4222467
+      # Frozen expected backend identity. The runner installs this exact apt version
+      # and CI fails closed if the installed version drifts (I5/I8).
+      EXPECTED_LIBBROTLI_PACKAGE_VERSION: 1.1.0-2build2
+      # Frozen BrotliEncoderVersion() integer (1.1.0 -> 0x01001000).
+      EXPECTED_BROTLI_ENCODER_VERSION: "16781312"
+      # Exact expected member paths inside the archived G5A artifact zip (no suffix
+      # or shallowest matching is accepted; decoy members cannot satisfy a path).
       G5A_REQUIRED_FILES: "results/g5a-ruling.json results/g5a-discovery.jsonl"
+      G5A_OPTIONAL_PROVENANCE_FILES: "brotli-package-identity.txt brotli-library-sha256.txt grotli-g5a-implementation-identity.txt grotli-g3-source.blob"
       REPO_SLUG: thelabcorner/anvil
     outputs:
       implementation_sha: ${{ steps.freeze.outputs.sha }}
@@ -105,6 +136,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           if [[ "$FROZEN_IMPLEMENTATION_SHA" == PLACEHOLDER_* ]]; then
             echo "FROZEN_IMPLEMENTATION_SHA is still the placeholder." >&2
             echo "Commit the G5B-ORDINAL source first, then pin the real SHA." >&2
@@ -124,6 +156,10 @@ jobs:
           # measurement can never run against drifted sources.
           ACTUAL_SRC_BLOB="$(git rev-parse HEAD:tools/grotli_g5b_ordinal.cpp)"
           ACTUAL_PRE_BLOB="$(git rev-parse HEAD:docs/I10-GROTLI-G5B-ORDINAL-PREREG.md)"
+          if [[ "$EXPECTED_G5B_SOURCE_BLOB" == PLACEHOLDER_* || "$EXPECTED_G5B_PREREG_BLOB" == PLACEHOLDER_* ]]; then
+            echo "G5B source/prereg blobs are still placeholders." >&2
+            exit 1
+          fi
           test "$ACTUAL_SRC_BLOB" = "$EXPECTED_G5B_SOURCE_BLOB"
           test "$ACTUAL_PRE_BLOB" = "$EXPECTED_G5B_PREREG_BLOB"
           printf 'source_blob=%s\nprereg_blob=%s\nimplementation_sha=%s\n' \
@@ -131,21 +167,39 @@ jobs:
             | tee grotli-g5b-implementation-identity.txt
           uname -a > results-runner.txt
 
-      - name: Install compiler and frozen backend dependencies
+      - name: Install compiler and PINNED frozen backend dependencies
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang-18 libbrotli-dev python3 time
+          # Pin the exact frozen libbrotli apt version when the runner repo exposes
+          # it; otherwise fail closed on drift rather than silently accepting it.
+          if ! sudo apt-get install -y --no-install-recommends \
+                 "libbrotli-dev=${EXPECTED_LIBBROTLI_PACKAGE_VERSION}" \
+                 "libbrotli1=${EXPECTED_LIBBROTLI_PACKAGE_VERSION}"; then
+            echo "Exact libbrotli ${EXPECTED_LIBBROTLI_PACKAGE_VERSION} is not pinnable from this runner repository." >&2
+            echo "Failing closed: silent backend drift is forbidden (I5/I8)." >&2
+            exit 1
+          fi
+          sudo apt-get install -y --no-install-recommends clang-18 python3 time
           clang++-18 --version | tee compiler-identity.txt
           dpkg-query -W -f='${Package}\t${Version}\n' libbrotli1 libbrotli-dev \
             | sort | tee brotli-package-identity.txt
+          # Fail closed if the installed libbrotli version differs from the frozen one.
+          for pkg in libbrotli1 libbrotli-dev; do
+            installed="$(dpkg-query -W -f='${Version}' "$pkg")"
+            if [ "$installed" != "$EXPECTED_LIBBROTLI_PACKAGE_VERSION" ]; then
+              echo "backend drift: $pkg is $installed, expected $EXPECTED_LIBBROTLI_PACKAGE_VERSION" >&2
+              exit 1
+            fi
+          done
 
       - name: Materialize and verify frozen G3 source
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           EXPECTED_BLOB="$(git rev-parse "$FROZEN_G3_SHA:tools/grotli_g3.cpp" 2>/dev/null || true)"
           if [ -z "$EXPECTED_BLOB" ]; then
             echo "Frozen G3 commit not present locally; fetching it explicitly."
@@ -170,6 +224,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
             -I. '-DG5B_FROZEN_G3_HEADER="frozen-grotli_g3.cpp"' \
             -MMD -MF grotli-g5b.d -MT grotli_g5b_ordinal \
@@ -178,17 +233,23 @@ jobs:
           grep -Fq 'frozen-grotli_g3.cpp' grotli-g5b.d
           sha256sum grotli_g5b_ordinal | tee grotli-g5b-binary.sha256
           ./grotli_g5b_ordinal selftest
-          # I8 additive provenance: hash the actually linked libbrotli .so's.
+          # I8 additive provenance: hash the actually linked libbrotli .so's and
+          # fail closed if any is missing (an empty list must not pass silently).
           ldd grotli_g5b_ordinal | awk '/libbrotli/ {print $3}' \
             | while read -r so; do
                 real="$(readlink -f "$so")"
                 printf '%s  %s\n' "$(sha256sum "$real" | awk '{print $1}')" "$real"
               done | sort | tee brotli-library-sha256.txt
+          test -s brotli-library-sha256.txt
+          grep -Fq 'libbrotlienc' brotli-library-sha256.txt
+          grep -Fq 'libbrotlidec' brotli-library-sha256.txt
+          grep -Fq 'libbrotlicommon' brotli-library-sha256.txt
 
       - name: Build and self-test separate frozen G3 reference
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
             frozen-grotli_g3.cpp \
             -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3
@@ -199,17 +260,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p floor_evidence
+          mkdir -p results floor_evidence
           # Fetch the authoritative archived G5A run + artifact read-only via the
           # GitHub REST API using the workflow GITHUB_TOKEN (actions: read). The
           # worker that froze this experiment did NOT dispatch anything; this step
           # runs only when the operator dispatches the frozen workflow.
           python3 - <<'PY'
-          import json, os, pathlib, urllib.request, zipfile, io
+          import hashlib, io, json, os, pathlib, urllib.request, zipfile
 
           repo = os.environ["REPO_SLUG"]
           run_id = os.environ["G5A_REFERENCE_RUN_ID"]
           want_artifact = os.environ["G5A_ARTIFACT_NAME"]
+          want_id = os.environ["G5A_ARTIFACT_ID"]
+          want_size = int(os.environ["G5A_ARTIFACT_SIZE"])
+          want_digest = os.environ["G5A_ARTIFACT_DIGEST"]
           token = os.environ.get("GITHUB_TOKEN", "")
           api = "https://api.github.com"
 
@@ -221,7 +285,8 @@ jobs:
                   req.add_header("Authorization", f"Bearer {token}")
               return urllib.request.urlopen(req, timeout=300)
 
-          pathlib.Path("floor_evidence").mkdir(exist_ok=True)
+          floor = pathlib.Path("floor_evidence")
+          floor.mkdir(exist_ok=True)
 
           # 1. Verify the reference run exists and is the expected run.
           run = json.load(get(f"{api}/repos/{repo}/actions/runs/{run_id}"))
@@ -230,10 +295,9 @@ jobs:
           if run.get("conclusion") != "success":
               raise SystemExit(f"G5A run {run_id} conclusion is {run.get('conclusion')}")
           head_sha = run.get("head_sha", "")
-          pathlib.Path("floor_evidence/g5a-run.json").write_text(
-              json.dumps(run, indent=2) + "\n")
+          (floor / "g5a-run.json").write_text(json.dumps(run, indent=2) + "\n")
 
-          # 2. Find the expected artifact.
+          # 2. Find the expected artifact by name AND id, verify metadata.
           arts = json.load(get(
               f"{api}/repos/{repo}/actions/runs/{run_id}/artifacts"))["artifacts"]
           match = [a for a in arts if a["name"] == want_artifact]
@@ -241,39 +305,52 @@ jobs:
               raise SystemExit(
                   f"G5A artifact {want_artifact}: found {len(match)} matching")
           art = match[0]
+          if str(art.get("id")) != want_id:
+              raise SystemExit(f"G5A artifact id mismatch: {art.get('id')} != {want_id}")
+          if int(art.get("size_in_bytes", -1)) != want_size:
+              raise SystemExit(
+                  f"G5A artifact size mismatch: {art.get('size_in_bytes')} != {want_size}")
           if art.get("expired"):
               raise SystemExit("G5A reference artifact has expired")
-          pathlib.Path("floor_evidence/g5a-artifact.json").write_text(
-              json.dumps(art, indent=2) + "\n")
+          api_digest = art.get("digest")
+          if not api_digest:
+              raise SystemExit("G5A artifact has no API digest to verify against")
+          if api_digest != want_digest:
+              raise SystemExit(
+                  f"G5A artifact API digest mismatch: {api_digest} != {want_digest}")
+          (floor / "g5a-artifact.json").write_text(json.dumps(art, indent=2) + "\n")
 
-          # 3. Download the artifact zip and record its digest.
+          # 3. Download the artifact zip and verify its digest against the pinned one.
           url = art["archive_download_url"]
           req = urllib.request.Request(url)
           req.add_header("Accept", "application/vnd.github+json")
           if token:
               req.add_header("Authorization", f"Bearer {token}")
           data = urllib.request.urlopen(req, timeout=600).read()
-          pathlib.Path("floor_evidence").joinpath(
-              "g5a-artifact.zip").write_bytes(data)
-          import hashlib
-          pathlib.Path("floor_evidence/g5a-artifact.sha256").write_text(
-              hashlib.sha256(data).hexdigest() + "  g5a-artifact.zip\n")
+          (floor / "g5a-artifact.zip").write_bytes(data)
+          zip_digest = "sha256:" + hashlib.sha256(data).hexdigest()
+          (floor / "g5a-artifact.sha256").write_text(
+              zip_digest + "  g5a-artifact.zip\n")
+          if zip_digest != want_digest:
+              raise SystemExit(
+                  f"downloaded G5A zip digest mismatch: {zip_digest} != {want_digest}")
 
-          # 4. Extract the two required authoritative objects.
+          # 4. Extract the required authoritative objects requiring EXACT member
+          #    paths (no suffix / shallowest matching: a decoy member cannot satisfy
+          #    a required path).
           zf = zipfile.ZipFile(io.BytesIO(data))
-          names = zf.namelist()
+          names = set(zf.namelist())
           for rel in os.environ["G5A_REQUIRED_FILES"].split():
-              hits = [n for n in names if n == rel or n.endswith("/" + rel)]
-              if not hits:
-                  raise SystemExit(f"G5A artifact missing required file {rel}")
-              # take the shallowest match
-              hits.sort(key=len)
-              pathlib.Path("floor_evidence", pathlib.Path(rel).name).write_bytes(
-                  zf.read(hits[0]))
+              if rel not in names:
+                  raise SystemExit(f"G5A artifact missing required exact member {rel}")
+              (floor / pathlib.Path(rel).name).write_bytes(zf.read(rel))
+          # Verify any provenance files the archive exposes (best effort, recorded).
+          for rel in os.environ.get("G5A_OPTIONAL_PROVENANCE_FILES", "").split():
+              if rel in names:
+                  (floor / pathlib.Path(rel).name).write_bytes(zf.read(rel))
 
           # 5. Verify frozen provenance facts inside the ruling.
-          ruling = json.loads(
-              pathlib.Path("floor_evidence/g5a-ruling.json").read_text())
+          ruling = json.loads((floor / "g5a-ruling.json").read_text())
           if ruling.get("implementation_sha") != os.environ[
                   "G5A_REFERENCE_IMPLEMENTATION_SHA"]:
               raise SystemExit("G5A ruling implementation_sha mismatch")
@@ -288,12 +365,13 @@ jobs:
           if ruling.get("invariants_ok") is not True:
               raise SystemExit("G5A ruling invariants_ok is not true")
           print("G5A floor provenance verified: run", run_id,
-                "head", head_sha, "artifact", want_artifact)
+                "head", head_sha, "artifact", want_artifact, "digest", zip_digest)
           PY
 
       - name: Fetch and verify frozen discovery + known-stress corpora
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p corpus results
           python3 - <<'PY'
           import hashlib, json, os, pathlib, urllib.request
@@ -340,6 +418,7 @@ jobs:
                            "role": ("known-stress-not-held-out"
                                     if name.startswith("V1") else "discovery")})
               print(name, len(data), blob, sha256)
+          pathlib.Path("results").mkdir(exist_ok=True)
           pathlib.Path("results/discovery-provenance.json").write_text(
               json.dumps({"schema": 1,
                           "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
@@ -349,10 +428,55 @@ jobs:
           )
           PY
 
+      - name: Same-run frozen G5A reference replay on D1-D4 (control gate, I10)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results g5a_replay
+          # Materialize and compile the PINNED frozen G5A implementation identity and
+          # the frozen G3 source, then run ONLY on the D1-D4 discovery objects after
+          # corpus identity verification (the corpora were verified above). This is a
+          # control / reproduction gate, NOT a new experiment: it changes no arm,
+          # threshold, or corpus. If its A3 facts do not reproduce the archive, the
+          # environment has drifted and the run is INVALID-B1-FLOOR (checked below).
+          git cat-file -e "$G5A_REFERENCE_IMPLEMENTATION_SHA^{commit}" 2>/dev/null || \
+            git fetch --no-tags --depth 1 origin "$G5A_REFERENCE_IMPLEMENTATION_SHA"
+          REPLAY_SRC_BLOB="$(git rev-parse "$G5A_REFERENCE_IMPLEMENTATION_SHA:tools/grotli_g5a_ordering.cpp")"
+          test "$REPLAY_SRC_BLOB" = "$G5A_REFERENCE_SOURCE_BLOB"
+          git show "$G5A_REFERENCE_IMPLEMENTATION_SHA:tools/grotli_g5a_ordering.cpp" \
+            > g5a_replay/grotli_g5a_ordering.cpp
+          cp frozen-grotli_g3.cpp g5a_replay/frozen-grotli_g3.cpp
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -I. -Ig5a_replay '-DG5A_FROZEN_G3_HEADER="frozen-grotli_g3.cpp"' \
+            -MMD -MF g5a_replay/grotli-g5a.d -MT grotli_g5a_ordering \
+            g5a_replay/grotli_g5a_ordering.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o g5a_replay/grotli_g5a_ordering
+          grep -Fq 'frozen-grotli_g3.cpp' g5a_replay/grotli-g5a.d
+          g5a_replay/grotli_g5a_ordering selftest
+          : > results/g5a-replay-discovery.jsonl
+          for f in corpus/D*.ndjson; do
+            g5a_replay/grotli_g5a_ordering measure "$f" >> results/g5a-replay-discovery.jsonl
+          done
+          python3 - <<'PY'
+          import json, pathlib
+          rows = [json.loads(x) for x in
+                  pathlib.Path("results/g5a-replay-discovery.jsonl").read_text().splitlines()
+                  if x.strip()]
+          if len(rows) != 4:
+              raise SystemExit(f"expected four G5A replay D1-D4 rows, got {len(rows)}")
+          for r in rows:
+              if not (r["body_size_identity"] and r["envelope_identity"] and
+                      r["invariant_hashes_identical"] and r["all_permutations_exact"] and
+                      r["all_mode_pack_unpack"] and r["all_roundtrip"]):
+                  raise SystemExit(f"G5A replay invariants failed on {r['file']}")
+          print("same-run frozen G5A replay produced four invariant-clean D1-D4 rows")
+          PY
+
       - name: Run G5B-ORDINAL arms on discovery corpus (D1-D4)
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           : > results/g5b-discovery.jsonl
           for f in corpus/D*.ndjson; do
             base="$(basename "$f")"
@@ -366,6 +490,9 @@ jobs:
           if len(rows) != 4:
               raise SystemExit(f"expected four D1-D4 rows, got {len(rows)}")
           arm_keys = ("b0_ordinal_null", "b1_ordinal_floor", "b2_ordinal_blocked")
+          # Frozen selector bytes: B1/FLOOR == 3, B0/NULL == 4, B2/BLOCKED == 5 (I7).
+          want_selector = {"b1_ordinal_floor": 3, "b0_ordinal_null": 4,
+                           "b2_ordinal_blocked": 5}
           for r in rows:
               if not (r["body_size_identity"] and r["envelope_len_identity"] and
                       r["token_region_len_identity"] and r["envelope_identity"] and
@@ -380,6 +507,13 @@ jobs:
                   raise SystemExit(f"INVALID-G5B-ORDINAL missing liveness on {r['file']}")
               if "b1_eq_b2" not in r or "b2_moved_token_count" not in r:
                   raise SystemExit(f"INVALID-G5B-ORDINAL missing degeneracy on {r['file']}")
+              # Fail closed on impossible liveness combinations (I11).
+              if r["shared_ordinal_slots"] > r["max_slots"]:
+                  raise SystemExit(f"INVALID-G5B-ORDINAL shared>max ordinals on {r['file']}")
+              if (r["b1_eq_b2"] != (r["b2_moved_token_count"] == 0)):
+                  raise SystemExit(f"INVALID-G5B-ORDINAL b1_eq_b2/n_moved contradiction on {r['file']}")
+              if bool(r["b1_eq_b2"]) and r["shared_ordinal_slots"] != 0:
+                  raise SystemExit(f"INVALID-G5B-ORDINAL degenerate/shared-ordinal contradiction on {r['file']}")
               env_hash = r["envelope_sha256"]
               multiset_hash = r["canonical_token_multiset_sha256"]
               if len(env_hash) != 64 or len(multiset_hash) != 64:
@@ -388,6 +522,8 @@ jobs:
                   arm = r[key]
                   if not (arm["roundtrip"] and arm["permutation_ok"] and arm["mode_pack_unpack_ok"]):
                       raise SystemExit(f"INVALID-G5B-ORDINAL {key} correctness on {r['file']}")
+                  if arm["mode_byte"] != want_selector[key]:
+                      raise SystemExit(f"INVALID-G5B-ORDINAL {key} selector byte on {r['file']}")
                   if arm["envelope_sha256"] != env_hash:
                       raise SystemExit(f"INVALID-G5B-ORDINAL {key} envelope hash on {r['file']}")
                   if arm["canonical_token_multiset_sha256"] != multiset_hash:
@@ -402,6 +538,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           f=corpus/V1-sino-us-drugqa-all.jsonl
           /usr/bin/time -v -o results/g5b-V1.time.txt \
             ./grotli_g5b_ordinal measure "$f" | tee results/g5b-v1.jsonl
@@ -415,10 +552,14 @@ jobs:
               raise SystemExit("INVALID-G5B-ORDINAL top-level invariants on V1")
           env_hash = r["envelope_sha256"]
           multiset_hash = r["canonical_token_multiset_sha256"]
+          want_selector = {"b1_ordinal_floor": 3, "b0_ordinal_null": 4,
+                           "b2_ordinal_blocked": 5}
           for key in ("b0_ordinal_null", "b1_ordinal_floor", "b2_ordinal_blocked"):
               arm = r[key]
               if not (arm["roundtrip"] and arm["permutation_ok"] and arm["mode_pack_unpack_ok"]):
                   raise SystemExit(f"INVALID-G5B-ORDINAL {key} correctness on V1")
+              if arm["mode_byte"] != want_selector[key]:
+                  raise SystemExit(f"INVALID-G5B-ORDINAL {key} selector byte on V1")
               if (arm["envelope_sha256"] != env_hash or
                       arm["canonical_token_multiset_sha256"] != multiset_hash):
                   raise SystemExit(f"INVALID-G5B-ORDINAL {key} hash identity on V1")
@@ -432,60 +573,150 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p results
           python3 - <<'PY'
           import json, os, pathlib
 
-          rows = [json.loads(x) for x in
-                  pathlib.Path("results/g5b-discovery.jsonl").read_text().splitlines()
-                  if x.strip()]
-          b1 = {}
-          for r in rows:
-              b1[pathlib.Path(r["file"]).name] = r
+          def load(path):
+              return [json.loads(x) for x in pathlib.Path(path).read_text().splitlines()
+                      if x.strip()]
 
-          g5a = [json.loads(x) for x in
-                 pathlib.Path("floor_evidence/g5a-discovery.jsonl").read_text().splitlines()
-                 if x.strip()]
-          g5a_by_name = {pathlib.Path(r["file"]).name: r for r in g5a}
-
-          def fail(msg):
+          def fail(msg, extra=None):
+              payload = {"ok": False, "reason": msg}
+              if extra:
+                  payload.update(extra)
               pathlib.Path("results/floor-check.json").write_text(
-                  json.dumps({"ok": False, "reason": msg}, indent=2) + "\n")
+                  json.dumps(payload, indent=2) + "\n")
               raise SystemExit("INVALID-B1-FLOOR: " + msg)
 
-          if len(g5a_by_name) != 4:
-              fail(f"archived G5A discovery rows != 4 ({len(g5a_by_name)})")
+          rows = load("results/g5b-discovery.jsonl")
+          b1 = {pathlib.Path(r["file"]).name: r for r in rows}
+
+          g5a = {pathlib.Path(r["file"]).name: r for r in
+                 load("floor_evidence/g5a-discovery.jsonl")}
+          if len(g5a) != 4:
+              fail(f"archived G5A discovery rows != 4 ({len(g5a)})")
+
+          replay = {pathlib.Path(r["file"]).name: r for r in
+                    load("results/g5a-replay-discovery.jsonl")}
+          if len(replay) != 4:
+              fail(f"same-run G5A replay rows != 4 ({len(replay)})")
+
+          # ---- Backend provenance comparability (I10), authoritative which is which.
+          ruling = json.loads(pathlib.Path("floor_evidence/g5a-ruling.json").read_text())
+          g5a_versions = {(v["integer"], v["dotted"]) for v in
+                          ruling["backend"]["brotli_encoder_versions"]}
+          g5a_packages = set(ruling["backend"]["package_identity"])
+          # Archived linked-libbrotli digests, when the archive exposes them.
+          g5a_lib = {}
+          lib_path = pathlib.Path("floor_evidence/brotli-library-sha256.txt")
+          if lib_path.exists():
+              for line in lib_path.read_text().splitlines():
+                  parts = line.split()
+                  if len(parts) >= 2:
+                      g5a_lib[pathlib.Path(parts[-1]).name] = parts[0]
+          # This-run linked-libbrotli digests.
+          run_lib = {}
+          for line in pathlib.Path("brotli-library-sha256.txt").read_text().splitlines():
+              parts = line.split()
+              if len(parts) >= 2:
+                  run_lib[pathlib.Path(parts[-1]).name] = parts[0]
 
           checked = []
           for name in sorted(b1):
-              if name not in g5a_by_name:
+              if name not in g5a:
                   fail(f"archived G5A has no row for {name}")
-              a3 = g5a_by_name[name]["a3_shape_column"]
+              if name not in replay:
+                  fail(f"same-run G5A replay has no row for {name}")
+              a3 = g5a[name]["a3_shape_column"]
+              a3_top = g5a[name]
               b1_arm = b1[name]["b1_ordinal_floor"]
-              # I10 complete-byte equality (per file).
+              # (a) complete-byte equality (per file).
               if b1_arm["complete_bytes"] != a3["complete_bytes"]:
                   fail(f"{name}: B1 complete {b1_arm['complete_bytes']} != "
                        f"G5A A3 {a3['complete_bytes']}")
-              # I10 available envelope/multiset facts (per file).
-              env = g5a_by_name[name].get("envelope_sha256")
-              ms = g5a_by_name[name].get("canonical_token_multiset_sha256")
-              if env and b1[name]["envelope_sha256"] != env:
-                  fail(f"{name}: B1 envelope sha256 != archived G5A")
-              if ms and b1[name]["canonical_token_multiset_sha256"] != ms:
-                  fail(f"{name}: B1 multiset sha256 != archived G5A")
-              # token_region_len identity when available in the archive.
-              tr = a3.get("token_region_len")
-              if tr is not None and b1_arm.get("token_region_len") != tr:
+              # (b) envelope facts.
+              if a3["envelope_sha256"] != a3_top["envelope_sha256"]:
+                  fail(f"{name}: archived A3/top envelope sha256 disagree")
+              if b1_arm["envelope_sha256"] != a3["envelope_sha256"]:
+                  fail(f"{name}: B1 envelope sha256 != archived G5A A3")
+              if b1_arm["envelope_len"] != a3["envelope_len"]:
+                  fail(f"{name}: B1 envelope_len != archived G5A A3")
+              # (c) body length.
+              if b1_arm["body_bytes"] != a3["body_bytes"]:
+                  fail(f"{name}: B1 body_bytes != archived G5A A3")
+              # (d) token-region length.
+              if b1_arm["token_region_len"] != a3["token_region_len"]:
                   fail(f"{name}: B1 token_region_len != archived G5A A3")
+              # (e) canonical multiset (supporting invariant, not sufficient alone).
+              if b1_arm["canonical_token_multiset_sha256"] != \
+                      a3["canonical_token_multiset_sha256"]:
+                  fail(f"{name}: B1 multiset sha256 != archived G5A A3")
+              # (f) carrier parameters.
+              if a3.get("carrier_quality") != 11 or a3.get("carrier_window") != 30:
+                  fail(f"{name}: archived G5A A3 carrier parameters unexpected")
+              if b1_arm.get("carrier_quality") != 11 or \
+                      b1_arm.get("carrier_window") != 30:
+                  fail(f"{name}: B1 carrier parameters != 11/30")
+              # (g) archived structural counts where stable/useful.
+              for key in ("shape_count", "token_chunk_count", "frame_count",
+                          "structured_frame_count", "raw_frame_count"):
+                  if key in a3_top and key in b1[name]:
+                      if a3_top[key] != b1[name][key]:
+                          fail(f"{name}: B1 {key} != archived G5A")
+              if "structured_token_bytes" in a3_top and \
+                      "structured_token_bytes" in b1[name]:
+                  if a3_top["structured_token_bytes"] != b1[name]["structured_token_bytes"]:
+                      fail(f"{name}: B1 structured_token_bytes != archived G5A")
+              # (h) same-run replay must reproduce the archived A3 facts.
+              ra3 = replay[name]["a3_shape_column"]
+              if ra3["complete_bytes"] != a3["complete_bytes"]:
+                  fail(f"{name}: same-run G5A replay A3 complete_bytes drift "
+                       f"({ra3['complete_bytes']} != {a3['complete_bytes']}) - "
+                       f"environment drift")
+              if ra3["envelope_sha256"] != a3["envelope_sha256"]:
+                  fail(f"{name}: same-run G5A replay A3 envelope drift")
+              if ra3["canonical_token_multiset_sha256"] != \
+                      a3["canonical_token_multiset_sha256"]:
+                  fail(f"{name}: same-run G5A replay A3 multiset drift")
               checked.append(name)
+
+          # (i) backend provenance comparability (authoritative G5A vs this run).
+          run_versions = set()
+          for r in rows:
+              run_versions.add((r["brotli_encoder_version"],
+                                r["brotli_encoder_version_dotted"]))
+          if run_versions != g5a_versions:
+              fail(f"BrotliEncoderVersion mismatch: run {sorted(run_versions)} != "
+                   f"archived {sorted(g5a_versions)}")
+          run_packages = set(pathlib.Path("brotli-package-identity.txt")
+                             .read_text().splitlines())
+          if not g5a_packages.issubset(run_packages):
+              fail(f"libbrotli package version mismatch: archived {sorted(g5a_packages)} "
+                   f"not a subset of run {sorted(run_packages)}")
+          for lib, digest in g5a_lib.items():
+              if lib in run_lib and run_lib[lib] != digest:
+                  fail(f"linked libbrotli {lib} sha256 mismatch: run {run_lib[lib]} "
+                       f"!= archived {digest}")
+              elif lib not in run_lib:
+                  fail(f"linked libbrotli {lib} missing from this run's provenance")
 
           pathlib.Path("results/floor-check.json").write_text(
               json.dumps({"ok": True, "checked_files": checked,
                           "g5a_run": os.environ["G5A_REFERENCE_RUN_ID"],
+                          "g5a_artifact_id": os.environ["G5A_ARTIFACT_ID"],
+                          "g5a_artifact_digest": os.environ["G5A_ARTIFACT_DIGEST"],
                           "g5a_implementation_sha":
                               os.environ["G5A_REFERENCE_IMPLEMENTATION_SHA"],
-                          "g5a_source_blob": os.environ["G5A_REFERENCE_SOURCE_BLOB"]},
+                          "g5a_source_blob": os.environ["G5A_REFERENCE_SOURCE_BLOB"],
+                          "same_run_replay": True,
+                          "backend_versions": sorted(
+                              [{"integer": v[0], "dotted": v[1]} for v in run_versions],
+                              key=lambda x: (x["integer"], x["dotted"])),
+                          "linked_libbrotli": run_lib},
                          indent=2) + "\n")
-          print("I10 B1/FLOOR exact reproduction verified for", checked)
+          print("I10 B1/FLOOR exact reproduction + provenance + replay verified for",
+                checked)
           PY
           echo "floor_ok=true" >> "$GITHUB_OUTPUT"
 
@@ -494,6 +725,7 @@ jobs:
         if: ${{ always() }}
         shell: bash
         run: |
+          mkdir -p results || true
           python3 - <<'PY'
           import json, os, pathlib
 
@@ -509,6 +741,12 @@ jobs:
               return [json.loads(x) for x in pathlib.Path(path).read_text().splitlines()
                       if x.strip()]
 
+          def write_ruling(payload, classification):
+              pathlib.Path("results/g5b-ruling.json").write_text(
+                  json.dumps(payload, indent=2) + "\n")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  f.write(f"classification={classification}\n")
+
           # ---- B1 floor gate (I10) takes precedence -------------------------
           floor_ok = False
           floor_path = pathlib.Path("results/floor-check.json")
@@ -516,12 +754,9 @@ jobs:
               floor_ok = bool(json.loads(floor_path.read_text()).get("ok"))
           if not floor_ok:
               classification = "INVALID-B1-FLOOR"
-              pathlib.Path("results/g5b-ruling.json").write_text(
-                  json.dumps({"schema": 1, "classification": classification,
-                              "reason": "B1/FLOOR mismatch or missing floor evidence",
-                              "b2_interpretation_prohibited": True}, indent=2) + "\n")
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-                  f.write(f"classification={classification}\n")
+              write_ruling({"schema": 1, "classification": classification,
+                            "reason": "B1/FLOOR mismatch, provenance mismatch, replay drift, or missing floor evidence",
+                            "b2_interpretation_prohibited": True}, classification)
               print("INVALID-B1-FLOOR: B2 interpretation prohibited")
               raise SystemExit(0)
 
@@ -538,6 +773,13 @@ jobs:
                       r["all_mode_pack_unpack"] and r["all_roundtrip"]):
                   invariants_ok = False
               if r["carrier_quality"] != 11 or r["carrier_window"] != 30:
+                  invariants_ok = False
+              # I11 fail-closed liveness consistency.
+              if r["shared_ordinal_slots"] > r["max_slots"]:
+                  invariants_ok = False
+              if r["b1_eq_b2"] != (r["b2_moved_token_count"] == 0):
+                  invariants_ok = False
+              if r["b1_eq_b2"] and r["shared_ordinal_slots"] != 0:
                   invariants_ok = False
               backend_versions.add((r["brotli_encoder_version"],
                                     r["brotli_encoder_version_dotted"]))
@@ -560,7 +802,6 @@ jobs:
 
           b2_vs_b1_bytes = B1 - B2
           b2_vs_b0_bytes = B0 - B2
-          decomposition_ok = True  # single-component comparison; no decomposition claimed
 
           # Non-degenerate families (I11): B2 < B1 AND not b1_eq_b2.
           b2_smaller_nondegenerate = sum(
@@ -589,7 +830,8 @@ jobs:
               return (num / den) if den else None
 
           # V1 diagnostic (known-stress; not a held-out test). Fail closed first.
-          v1 = load("results/g5b-v1.jsonl")[-1]
+          v1_rows = load("results/g5b-v1.jsonl")
+          v1 = v1_rows[-1]
           v1_ok = bool(
               v1["body_size_identity"] and v1["envelope_len_identity"] and
               v1["token_region_len_identity"] and v1["envelope_identity"] and
@@ -605,7 +847,15 @@ jobs:
               if a["envelope_sha256"] != v1_env or a["canonical_token_multiset_sha256"] != v1_ms:
                   v1_ok = False
           if not v1_ok:
-              v1_label = "V1-INVALID-G5B-ORDINAL"
+              pathlib.Path("results/g5b-ruling.json").write_text(
+                  json.dumps({"schema": 1,
+                              "classification": classification,
+                              "v1_known_stress": {"label": "V1-INVALID-G5B-ORDINAL",
+                                                  "role": "known-stress-not-held-out"},
+                              "reason": "V1 invariants failed; no V1-ORDINAL-* label permitted",
+                              "b2_interpretation_prohibited": True}, indent=2) + "\n")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  f.write(f"classification={classification}\n")
               raise SystemExit(
                   "FAIL CLOSED: V1 invariants failed; no V1-ORDINAL-* label permitted")
 
@@ -625,6 +875,10 @@ jobs:
               "g5b_source_sha256": os.environ.get("G5B_SOURCE_SHA256", ""),
               "frozen_g3_sha": os.environ["FROZEN_G3_SHA"],
               "prereg": "docs/I10-GROTLI-G5B-ORDINAL-PREREG.md",
+              "prereg_revision": "r2",
+              "selector_bytes": {"b1_ordinal_floor": 3, "b0_ordinal_null": 4,
+                                 "b2_ordinal_blocked": 5},
+              "carrier_magic": "G5AO",
               "thresholds": {
                   "ordinal_material_aggregate_ratio": ORDINAL_MATERIAL_AGG,
                   "material_nondegenerate_files_min": MATERIAL_NONDEGEN_MIN,
@@ -690,7 +944,8 @@ jobs:
               "",
               f"- implementation SHA: `{ruling['implementation_sha']}`",
               f"- G5B-ORDINAL source sha256: `{ruling['g5b_source_sha256']}`",
-              f"- B1/FLOOR reproduced frozen G5A A3 (run "
+              f"- carrier magic: `G5AO`  selector bytes B1/B0/B2: 3/4/5",
+              f"- B1/FLOOR reproduced frozen G5A A3 + provenance + replay (run "
               f"{os.environ['G5A_REFERENCE_RUN_ID']}): **{floor_ok}**",
               f"- invariants ok: **{invariants_ok}**",
               f"- D1-D4 B0/B1/B2: **{B0}** / **{B1}** / **{B2}**",
@@ -717,7 +972,7 @@ jobs:
           print(json.dumps(ruling, indent=2))
           PY
           if [ -f results/g5b-ruling.md ]; then
-            cat results/g5b-ruling.md >> "$GITHUB_STEP_SUMMARY"
+            cat results/g5b-ruling.md >> "$GITHUB_STEP_SUMMARY" || true
           fi
 
       - name: Upload G5B-ORDINAL evidence
@@ -728,6 +983,7 @@ jobs:
           path: |
             results/
             floor_evidence/
+            g5a_replay/
             grotli-g5b-binary.sha256
             grotli-g5b-prereg.sha256
             grotli-g5b.d

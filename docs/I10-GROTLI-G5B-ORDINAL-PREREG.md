@@ -1,12 +1,25 @@
 # ANVIL I10 - GROTLI G5B-ORDINAL Preregistration
 
 **Status:** FROZEN BEFORE ANY G5B-ORDINAL D1-D4 / V1 CORPUS MEASUREMENT
+**Revision:** r2 (pre-outcome audit correction; supersedes the unrun r1 text)
 **Date:** 2026-09-24
 **Parent evidence:** G5A `ORDER-MATERIAL / COLUMN-DOMINANT` (run `35985412906`),
 G4 `NO-GO-G4`, G3 `PASS-G3-NARROW`
 **Purpose:** sharply causal interstitial probe - does the boundary between exact
 lexical shapes fragment positional same-ordinal slot locality?
 **Production authorization:** none
+
+> **Pre-outcome correction (r1 -> r2).** The initial, unrun G5B-ORDINAL
+> implementation commit (`661b534`) carried a **carrier-magic contradiction**: it
+> claimed an "EXACT frozen G5A common carrier body" while using a distinct `G5BO`
+> magic, which makes the mandatory B1/FLOOR reproduction of frozen G5A A3 byte-for-byte
+> impossible (the envelope bytes, and therefore the envelope SHA-256 and complete-byte
+> totals, cannot match). This was found by audit **before any G5B-ORDINAL D1-D4 or V1
+> measurement was run** and is corrected in this revision (r2). No threshold, arm,
+> corpus, or treatment outcome has been observed: **no D1-D4/V1 G5B-ORDINAL
+> measurement has been run locally, in CI, or by any other means**, and no G5B-ORDINAL
+> ruling exists. r1 was never dispatched. The original **semantic** G5B lane remains
+> **OPEN**.
 
 > **No D1-D4 or V1 outcome was observed before this freeze.** This preregistration
 > and the frozen source and workflow it pins were written using only source
@@ -71,6 +84,8 @@ For every input, all three arms must have:
 - identical canonical token-multiset SHA-256 (machine-gated, section 6 I3);
 - identical common-envelope SHA-256 (machine-gated, section 6 I4);
 - identical body length, envelope length, and token-region length;
+- an envelope byte-identical to frozen G5A A3 (magic `G5AO`, version 1, same prefix
+  grammar), so the B1/FLOOR carrier body reproduces the archived G5A A3 body;
 - identical Brotli implementation and parameters (quality 11, lgwin 30);
 - no dictionary, integer, float, RLE, FSST, predictor, or other leaf transform;
 - no new metadata and no representation-family change.
@@ -86,6 +101,15 @@ version, source/frame/group counts, `frame_group`, group descriptors, raw-residu
 section, then exactly N `(token_len, token_bytes)` chunks). G5B-ORDINAL adds **no**
 new field to that grammar. Only the permutation of the identical token chunks
 changes between arms.
+
+**Byte-compatibility requirement (r2 correction).** The carrier magic is the frozen
+G5A magic `G5AO` and the version is `1`, exactly as in the frozen G5A carrier
+(section 2.2 below). A distinct `G5BO` magic is **forbidden**: because the envelope
+(`carrier_body[0 .. prefix_len)`) is hashed and because B1/FLOOR is required (I10) to
+reproduce frozen G5A A3 byte-for-byte, a distinct magic would make that reproduction
+impossible by construction. Only the arm selector changes, and it is out-of-band
+(section 2.3). Consequence, pinned as an open item: the G5B-ORDINAL carrier body is
+shared with frozen G5A, so `G5AO` + selector 3 is exactly a frozen G5A A3 record.
 
 ---
 
@@ -130,7 +154,7 @@ Conceptually (identical to frozen G5A; the `coordinate label map` in section 4 i
 experimental bookkeeping and is NOT serialized):
 
 ```
-magic = "G5BO"          # value 0x4735_424F ; 4 bytes G5BO
+magic = "G5AO"          # value 0x4735_414F ; 4 bytes G5AO (EXACT frozen G5A magic)
 version                 # 1 byte, value 1
 source_len              # uvar
 frame_count             # uvar
@@ -181,16 +205,32 @@ The charged byte is out-of-band; G5B-ORDINAL makes no wire-format claim and
 allocates no production transform ID. The source MUST materialize the mode byte in
 a tiny deterministic pack/unpack round-trip selftest (section 6 I7).
 
+**Frozen selector values (r2 correction).** Because the carrier body now shares the
+frozen G5A `G5AO` envelope, the selector values are chosen to avoid semantic aliasing
+between the G5B-ORDINAL arms and the G5A A0/A1/A2/A3 modes:
+
+- `B1 ORDINAL_FLOOR` = **3**, exactly the frozen G5A A3 `SHAPE_COLUMN` selector, so
+  that `G5AO` + selector 3 is a byte-identical reproduction of a frozen G5A A3 record;
+- `B0 ORDINAL_NULL` = **4** (new; disjoint from G5A's 0..3 selector space);
+- `B2 ORDINAL_BLOCKED` = **5** (new; disjoint from G5A's 0..3 selector space).
+
+Selector bytes 0, 1, and 2 are deliberately **unused and invalid** in G5B-ORDINAL: on
+a shared `G5AO` carrier they would alias G5A A0/A1/A2 and could be misread as a G5A
+record. Every arm still pays exactly one selector byte, the selector value is never
+passed to Brotli, and the selector is `uint8`.
+
 ---
 
 ## 3. Frozen arms (exactly three)
 
-There are exactly **three** B-arms. There is no B3 in this freeze.
+There are exactly **three** B-arms. There is no B3 in this freeze. Each arm has a
+frozen out-of-band selector byte (section 2.3): B0 = 4, B1 = 3, B2 = 5.
 
 ### B0 - ORDINAL_NULL (deterministic null)
 
 A deterministic pseudo-random permutation of the same canonical chunk-index list:
 
+- **selector byte:** `4` (new; disjoint from G5A's 0..3 selector space);
 - derived solely from a fixed frozen seed and the canonical chunk index; no score,
   no input content, and no observed byte ever influences it;
 - concrete rule: sort canonical indices by
@@ -208,20 +248,25 @@ permutation".
 ### B1 - ORDINAL_FLOOR (EXACT frozen G5A A3 SHAPE_COLUMN)
 
 This is the **already-spent floor**, not a treatment. It must be the **exact**
-frozen G5A A3 semantics:
+frozen G5A A3 semantics, including the A3 selector byte:
 
+- **selector byte:** `3` (EXACTLY the frozen G5A A3 `SHAPE_COLUMN` selector);
 - for sid in frozen first-appearance shape order;
 - for slot j increasing (`0 .. slots(sid)-1`);
 - for occurrence increasing (`0 .. members(sid)-1`);
 - emit `canonical_id[sid][occ][j]`.
 
-B1 is byte-for-byte the same permutation G5A A3 used, so that (section 6 I10) its
-D1-D4 complete bytes must exactly reproduce the archived authoritative G5A run.
+B1 is byte-for-byte the same permutation G5A A3 used, **and** its carrier envelope is
+the exact frozen G5A `G5AO` envelope (r2 correction), so that (section 6 I10) its
+D1-D4 complete bytes must exactly reproduce the archived authoritative G5A run. With
+selector 3 and the shared `G5AO` carrier, a B1 record is byte-identical to a frozen
+G5A A3 record.
 
 ### B2 - ORDINAL_BLOCKED (the single treatment)
 
 Let `D = max over shapes of slots(shape)` (the maximum structured slot count).
 
+- **selector byte:** `5` (new; disjoint from G5A's 0..3 selector space);
 - for j = 0 .. D-1:
   - for sid in frozen first-appearance shape order, with `j < slots(sid)`:
     - for occurrence increasing (`0 .. members(sid)-1`):
@@ -374,8 +419,12 @@ are the payload. No new representation family and no new metadata are introduced
 
 The charged one-byte mode field is included in every reported complete-byte number
 and is materialized in a pack/unpack selftest. The selector byte must be validated
-against exactly the three frozen `G5BOrdinal` values `{0,1,2}` before it is
-accepted; any other selector byte must be rejected deterministically (fail closed).
+against exactly the three frozen `G5BOrdinal` values `{3,4,5}` (B1=3, B0=4, B2=5;
+section 2.3) before it is accepted; any other selector byte must be rejected
+deterministically (fail closed). In particular selector bytes 0, 1, and 2 are
+INVALID in G5B-ORDINAL because on the shared `G5AO` carrier they alias G5A A0/A1/A2.
+The selftest must additionally assert that the B1/FLOOR selector is exactly 3 and
+that the B0/B2 selectors do not alias G5A's 0..3 selector space.
 
 ### I8 - compiler / package / libbrotli provenance
 
@@ -392,19 +441,64 @@ does not satisfy I1-I8, is INVALID-G5B-ORDINAL.
 
 ### I10 - B1/FLOOR exact reproduction of frozen G5A A3 (CI-mandatory)
 
-B1 must be the exact frozen G5A A3 SHAPE_COLUMN permutation. CI MUST verify, per
-D1-D4 file, B1 against the authoritative archived G5A run `35985412906`:
+B1 must be the exact frozen G5A A3 SHAPE_COLUMN permutation and the exact frozen G5A
+`G5AO` carrier envelope (r2 correction). CI MUST verify, per D1-D4 file, B1 against
+the authoritative archived G5A run `35985412906`, and MUST fail closed as
+**INVALID-B1-FLOOR** on any required comparable fact that differs. The comparison is
+**per file** and uses the *authoritative archived* A3/per-file facts (not a re-derived
+or locally-inferred baseline). The strengthened minimum fact set is:
 
-- **complete bytes**: `B1_complete == G5A A3 complete_bytes` for each of D1-D4;
-- **available facts**: where the archived G5A artifact provides per-file envelope
-  SHA-256, canonical token multiset SHA-256, and body/token-region facts, those
-  must match B1 exactly.
+- **complete bytes**: `B1_complete == G5A A3 complete_bytes`;
+- **envelope facts**: `B1 envelope_sha256 == G5A A3 envelope_sha256` and
+  `B1 envelope_len == G5A A3 envelope_len`;
+- **body length**: `B1 body_bytes == G5A A3 body_bytes`;
+- **token-region length**: `B1 token_region_len == G5A A3 token_region_len`;
+- **canonical multiset**: `B1 canonical_token_multiset_sha256 == G5A A3`
+  `canonical_token_multiset_sha256`;
+- **carrier parameters**: `B1 carrier_quality == 11` and `B1 carrier_window == 30`
+  and equal to the archived G5A row's values;
+- **archived structural counts where stable/useful**: `shape_count`,
+  `token_chunk_count`, `frame_count`, `structured_frame_count`, `raw_frame_count`,
+  and `structured_token_bytes` must equal the archived G5A row when the archived row
+  provides them.
 
-If the archived G5A floor artifact cannot be obtained/decoded, or if the archived
-facts are not comparable (e.g. implementation/build provenance demonstrably
-differs), the run must emit **INVALID-B1-FLOOR** and must prohibit B2
-interpretation. A floor that fails on actual bytes is **INVALID-B1-FLOOR** (a
-correctness problem), distinct from a generic INVALID-G5B-ORDINAL.
+The multiset identity and the body/token-region **length** facts are supporting
+invariants only and are explicitly **NOT sufficient proof** by themselves: two
+different carrier bodies can share a multiset and a length, so byte-level envelope
+identity, complete-byte equality, and the archived provenance comparison below are
+also required.
+
+**Backend / build provenance comparability (mandatory).** B1's recorded backend
+provenance must match the archived G5A provenance where the archive provides it:
+
+- `BrotliEncoderVersion()` integer **and** dotted form;
+- the `libbrotli` dpkg package version (`libbrotli-dev` and `libbrotli1`);
+- the SHA-256 of the actually linked libbrotli shared libraries
+  (`libbrotlienc.so.1.1.0`, `libbrotlidec.so.1.1.0`, `libbrotlicommon.so.1.1.0`).
+
+If any required comparable provenance fact differs (for example a different
+`BrotliEncoderVersion`, dpkg version, or linked-library SHA-256), the run MUST emit
+**INVALID-B1-FLOOR before any treatment interpretation** — the archived facts are not
+comparable. A compiler-binary hash is recorded for the record but is **not** itself a
+comparability requirement, because it does not change the Brotli backend; the linked
+Brotli identity and encoder version ARE required.
+
+**Same-run control replay (mandatory).** In addition to reading the archived facts,
+CI MUST run a same-run **frozen G5A reference replay** (section 7.3): it materializes
+and compiles the pinned frozen G5A implementation identity and the frozen G3 source,
+runs on D1-D4 **only after** corpus identity verification, and compares its A3
+per-file facts to the archived run and to B1. This makes environment drift (e.g. a
+newer libbrotli on a newer runner image) **diagnosable** rather than silently
+mis-scored: if the replayed A3 facts do not reproduce the archive, the environment
+itself has drifted and the run is **INVALID-B1-FLOOR**. The replay is a control / gate,
+not a new experiment, and it does not change any arm.
+
+If the archived G5A floor artifact cannot be obtained/decoded, or if a required
+archived fact is missing or not comparable, or if the same-run replay does not
+reproduce the archived A3 facts, the run must emit **INVALID-B1-FLOOR** and must
+prohibit B2 interpretation. A floor that fails on actual bytes is
+**INVALID-B1-FLOOR** (a correctness problem), distinct from a generic
+INVALID-G5B-ORDINAL.
 
 ### I11 - liveness / degeneracy
 
@@ -412,16 +506,34 @@ CI MUST emit `shape_count`, `max_slots`, `shared_ordinal_slots`,
 `cross_shape_ordinal_tokens`, `b1_eq_b2`, `b2_moved_token_count` (section 5). If
 `b1_eq_b2`, the file is DEGENERATE and cannot count toward breadth. A `MATERIAL`
 ruling is impossible unless B2 is smaller on **>= 2 NON-DEGENERATE D1-D4 files**.
+The definitions of `shared_ordinal_slots` and `cross_shape_ordinal_tokens` are the
+precise ones in section 5, and the implementation must **fail closed on impossible
+combinations**:
+
+- `shared_ordinal_slots <= max_slots` (each ordinal counted at most once);
+- a single-shape file (`shape_count < 2`) must have `shared_ordinal_slots == 0`;
+- `b1_eq_b2 == (b2_moved_token_count == 0)` (the two must agree; a contradiction is
+  an implementation bug and must never fall through to a favorable classification);
+- a DEGENERATE file (`b1_eq_b2`) cannot have `shared_ordinal_slots != 0`.
+
+### I12 - no failure falls through to a favorable classification
+
+Any floor, provenance, invariant, or liveness failure MUST be routed to
+**INVALID-B1-FLOOR** or **INVALID-G5B-ORDINAL**, and artifact upload MUST use
+`if: always()` so invalid evidence is preserved. `V1` remains a known-stress
+diagnostic only and is separately re-gated (section 10.1); a `V1` invariant failure
+fails closed and emits no `V1-ORDINAL-*` label. A failure in any gate may never be
+allowed to fall through to a favorable classification.
 
 ### Fail-closed additions
 
 The implementation may add any necessary fail-closed invariants discovered during
-implementation, but must not weaken, relax, or retune I1-I11, the arms, the
+implementation, but must not weaken, relax, or retune I1-I12, the arms, the
 thresholds, the corpus, or the classification precedence.
 
-Any I1-I11 failure -> **INVALID-G5B-ORDINAL** (or **INVALID-B1-FLOOR** for an I10
-floor failure), fix correctness, rerun from a newly frozen implementation. No size
-interpretation is permitted.
+Any I1-I12 failure -> **INVALID-G5B-ORDINAL** (or **INVALID-B1-FLOOR** for an I10
+floor / provenance / replay failure), fix correctness, rerun from a newly frozen
+implementation. No size interpretation is permitted.
 
 ---
 
@@ -455,12 +567,53 @@ invariant failure the run fails closed and emits no `V1-ORDINAL-*` label.
 ### 7.3 Frozen G5A floor artifact (mandatory reproduction reference)
 
 The authoritative G5A evidence is the published CI run `35985412906`, artifact
-`grotli-g5a-ordering-attribution-35985412906`. CI obtains it read-only via the
-GitHub API and verifies it against the frozen expected identities in the workflow
-(workflow run id, artifact name, artifact id, artifact size, artifact SHA-256/digest,
-frozen implementation SHA, G5A source blob, frozen G3 identity, and the archived
-per-file A3/envelope/multiset facts). If G5A floor evidence cannot be obtained or
-is not comparable, the run emits INVALID-B1-FLOOR (I10).
+`grotli-g5a-ordering-attribution-35985412906`.
+
+**Artifact metadata (determined read-only at correction time, via the GitHub REST
+API on 2026-09-24).** The GitHub API **does** expose a stable artifact `digest`, so it
+is pinned:
+
+- run id: `35985412906`; run conclusion: `success` (= `head_sha`
+  `996c2dbe67736c42288287abba7ed6f3307a0b34`);
+- artifact id: `10801714249`;
+- artifact name: `grotli-g5a-ordering-attribution-35985412906`;
+- artifact size: `15631` bytes;
+- artifact `digest` (GitHub-exposed):
+  `sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278`;
+- artifact `expired`: `false`, `expires_at`: `2026-10-24T10:11:27Z` (retention 30
+  days from `2026-09-24T10:11:28Z`);
+- artifact created: `2026-09-24T10:11:28Z`.
+
+The independently recomputed SHA-256 of the downloaded archive zip was
+`4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278`, which equals
+the GitHub-exposed `digest`. Both the archive-zip digest and the API `digest` are
+pinned; extraction MUST require the **exact** expected member paths (see below), and
+the run MUST fail closed if the artifact is expired or the digest differs.
+
+CI obtains the artifact read-only via the GitHub API and verifies it against the
+frozen expected identities in the workflow (workflow run id, artifact name, artifact
+id, artifact size, artifact SHA-256/digest, frozen implementation SHA, G5A source
+blob, frozen G3 identity, and the archived per-file A3/envelope/multiset/body facts).
+**Extraction requires exact expected member paths** (e.g.
+`results/g5a-discovery.jsonl`, `results/g5a-ruling.json`), **not** suffix or
+shallowest-path matching, so a decoy member cannot satisfy a required path. If the
+archive contains provenance files (e.g. `brotli-package-identity.txt`,
+`brotli-library-sha256.txt`, `grotli-g5a-implementation-identity.txt`,
+`grotli-g3-source.blob`), their **digests/contents are verified**, and the archived
+G5A backend provenance (BrotliEncoderVersion integer+dotted, dpkg package version,
+linked libbrotli SHA-256) is compared against the G5B run's provenance (I10).
+
+In addition, CI MUST run a **same-run frozen G5A reference replay** on CI D1-D4 only
+(after corpus identity verification): it materializes and compiles the pinned frozen
+G5A implementation identity and the frozen G3 source, runs ONLY the D1-D4 discovery
+arms there, and compares that replay's A3 per-file facts to the archive and to G5B
+B1. This control gate exists to make environment drift (e.g. a newer runner image or
+libbrotli) diagnosable: if the replayed A3 facts differ from the archive, the
+environment has drifted and the run is INVALID-B1-FLOOR. The replay is **not** a new
+experiment and does **not** change the arms, thresholds, or corpus.
+
+If G5A floor evidence cannot be obtained or is not comparable, or if the same-run
+replay does not reproduce the archived A3 facts, the run emits INVALID-B1-FLOOR (I10).
 
 ---
 
@@ -516,8 +669,8 @@ Correctness invariants dominate every classification. Apply in this exact order;
 the first matching rule wins:
 
 ```
-INVALID-B1-FLOOR         if the B1 archived G5A floor or provenance is a mismatch (I10)
-INVALID-G5B-ORDINAL      if any invariant / corpus / backend / ruling-integrity failure
+INVALID-B1-FLOOR         if the B1 archived G5A floor / provenance / replay is a mismatch (I10)
+INVALID-G5B-ORDINAL      if any invariant (incl. selector byte I7) / corpus / backend / ruling-integrity failure
 ORDINAL-ADVERSE          if S2 > S1
 ORDINAL-NEUTRAL          if S2 == S1
 ORDINAL-UNSUPPORTED-BY-NULL  if S2 < S1 and S2 >= S0
@@ -530,7 +683,7 @@ Explicit precedence form:
 
 ```
 INVALID-B1-FLOOR      if B1 floor/provenance mismatch
-INVALID-G5B-ORDINAL   if invariants/corpus/backend/ruling fail
+INVALID-G5B-ORDINAL   if invariants/selector/corpus/backend/ruling fail
 ADVERSE               if S2 > S1
 NEUTRAL               if S2 == S1
 UNSUPPORTED-BY-NULL   if S2 < S1 and S2 >= S0
@@ -667,18 +820,25 @@ Those are separate future lanes.
    2.1;
 3. local workstation work is limited to compile + tiny synthetic correctness
    selftests (no D1-D4/V1, no heavy benchmarks);
-4. freeze the implementation source SHA;
+4. freeze the implementation source SHA in a **first** commit, then pin that SHA (and
+   the source/prereg blobs) in the workflow in a **second** commit, so the workflow
+   never has to reference its own commit's SHA;
 5. create a GitHub Actions workflow pinned to that exact implementation that
    materializes and verifies the pinned frozen G3 source before building;
 6. CI verifies frozen G3 source identity and records compiler/package/libbrotli
-   provenance;
+   provenance (compiler hash recorded; linked Brotli identity and encoder version
+   required for comparability);
 7. CI fetches and verifies D1-D4 + V1 corpus identities remotely;
-8. CI acquires and verifies the frozen G5A floor evidence (run `35985412906`) and
-   verifies B1 exact reproduction on D1-D4 (I10);
-9. CI runs B0/B1/B2 on D1-D4 (discovery) and on V1 (known-stress);
-10. CI applies the frozen section-10/10.1 ruling mechanically;
-11. CI uploads complete evidence;
-12. only then is a source-of-record result written.
+8. CI acquires and verifies the frozen G5A floor evidence (run `35985412906`, artifact
+   id `10801714249`, pinned digest) with exact member-path extraction, verifies the
+   archived provenance, and verifies B1 exact reproduction on D1-D4 (I10);
+9. CI runs a same-run frozen G5A reference replay on D1-D4 only (section 7.3) and
+   compares its A3 per-file facts to the archive and to B1; the replay control gate
+   makes environment drift diagnosable;
+10. CI runs B0/B1/B2 on D1-D4 (discovery) and on V1 (known-stress);
+11. CI applies the frozen section-10/10.1 ruling mechanically, fail-closed (I12);
+12. CI uploads complete evidence with `if: always()`;
+13. only then is a source-of-record result written.
 
 No post-outcome threshold, arm, or gate changes are allowed. This worker does NOT
 dispatch the workflow.
@@ -702,12 +862,21 @@ G5B-ORDINAL non-pass closes only the ordinal proxy, not semantic hierarchy.
 
 Authoritative frozen identities for the CI run:
 
-- frozen implementation SHA: pinned in the workflow (this commit)
-- G5B-ORDINAL source blob: pinned in the workflow
-- G5B-ORDINAL prereg blob: pinned in the workflow
+- frozen implementation SHA: pinned in the workflow in a **second, follow-up commit**
+  (staged two-commit pinning plan; the freezing commit cannot pin its own SHA);
+- G5B-ORDINAL source blob: pinned in the workflow (second commit);
+- G5B-ORDINAL prereg blob: pinned in the workflow (second commit);
 - frozen G3 SHA `1a3d18fed76adb6fb33264e1994f9c357306b3fa`, blob
   `eedc7b7e6671c4a5fcaf7a5997671bd4be30bdde`, SHA-256
-  `5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e`
-- G5A floor reference run: `35985412906`
-- backend: libbrotli as provisioned by Ubuntu 24.04 (pinned in workflow), q11 /
-  lgwin30
+  `5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e`;
+- G5A floor reference run: `35985412906`;
+- G5A floor artifact: id `10801714249`, name
+  `grotli-g5a-ordering-attribution-35985412906`, size `15631`, digest
+  `sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278`,
+  expired `false`, expires `2026-10-24T10:11:27Z`;
+- frozen G5A implementation identity (for the same-run replay): commit
+  `e6714e81aeff1579c4502f1fd9af4d7f205a8b4b`, source blob
+  `2772d7eaf0a64be1fdbbb377f5d668d21dab9cbe`, prereg blob
+  `a84f42a3f414cc987d8c19cc70a578e2d4222467`;
+- backend: libbrotli `1.1.0-2build2` (Ubuntu 24.04), `BrotliEncoderVersion()` =
+  `16781312` (`1.1.0`), q11 / lgwin30.

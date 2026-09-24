@@ -10,13 +10,13 @@
 // chunks before the same Brotli q11/lgwin30 backend.
 //
 // Preregistration:
-//   docs/I10-GROTLI-G5B-ORDINAL-PREREG.md  (freeze revision r1)
+//   docs/I10-GROTLI-G5B-ORDINAL-PREREG.md  (freeze revision r2)
 //
-// The carrier grammar is the EXACT frozen G5A common carrier body, with a distinct
-// magic ("G5BO", not "G5AO"). Three arms only:
-//   B0 ORDINAL_NULL     deterministic structure-destroying null (one draw)
-//   B1 ORDINAL_FLOOR    EXACT frozen G5A A3 SHAPE_COLUMN (already-spent floor)
-//   B2 ORDINAL_BLOCKED  global-ordinal blocked emission (the single treatment)
+// The carrier grammar is the EXACT frozen G5A common carrier body: magic "G5AO",
+// version 1, and the same prefix grammar. B1/FLOOR must be byte-compatible with
+// frozen G5A A3, so the shared A3 body bytes (and therefore the envelope SHA-256
+// and complete-byte totals) are identical; only the out-of-band charged selector
+// byte and the prereg revision differ. Three arms only:
 // There is deliberately NO B3 in this first freeze.
 //
 // FROZEN-INCLUSION (prereg section 2.1): CI compiles G5B-ORDINAL against the
@@ -157,11 +157,15 @@ static std::string hex(const Bytes& in) { return hex(hash(in)); }
 
 } // namespace sha256
 
-// The three frozen G5B-ORDINAL arms. Values are the charged selector bytes.
+// The three frozen G5B-ORDINAL arms. Values are the charged out-of-band selector
+// bytes. The carrier body now shares frozen G5A's "G5AO" magic, so selector values
+// are chosen to AVOID semantic aliasing between the two grammars: B1/FLOOR is
+// EXACTLY 3 so that it is byte-identical to frozen G5A A3 SHAPE_COLUMN (which used
+// selector 3), while B0 NULL and B2 ORDINAL_BLOCKED take new, non-colliding values.
 enum class G5BOrdinal : uint8_t {
-    OrdinalNull = 0,     // B0 deterministic null
-    OrdinalFloor = 1,    // B1 EXACT frozen G5A A3 SHAPE_COLUMN
-    OrdinalBlocked = 2,  // B2 global-ordinal blocked (the single treatment)
+    OrdinalFloor = 3,    // B1 EXACT frozen G5A A3 SHAPE_COLUMN (= G5A A3 selector 3)
+    OrdinalNull = 4,     // B0 deterministic null (new, non-colliding with G5A 0..3)
+    OrdinalBlocked = 5,  // B2 global-ordinal blocked, the single treatment
 };
 
 static const char* arm_name(G5BOrdinal m) {
@@ -174,7 +178,10 @@ static const char* arm_name(G5BOrdinal m) {
 }
 
 static constexpr uint8_t kG5BVersion = 1;
-static constexpr std::array<uint8_t, 4> kG5BMagic = {'G','5','B','O'};
+// EXACT frozen G5A carrier magic. B1/FLOOR must reproduce frozen G5A A3 byte-for-byte
+// on the shared carrier body, which is only possible if the envelope bytes (including
+// this magic) are the frozen G5A bytes rather than a distinct G5B magic.
+static constexpr std::array<uint8_t, 4> kG5BMagic = {'G','5','A','O'};
 
 // Single shared definition of the B0 null seed. BOTH the encoder
 // (`permutation_for`) and the decoder (`decode_g5b_body`) hash exactly these
@@ -183,11 +190,14 @@ static constexpr std::array<uint8_t, 4> kG5BMagic = {'G','5','B','O'};
 // This is a NEW literal, distinct from G5A's A0 seed.
 static constexpr const char* kG5BNullSeed = "G5B-ORDINAL-NULL-SEED-v1";
 
-// The three frozen arm selectors are exactly 0..2. Any other selector byte is
-// malformed and must be rejected deterministically (prereg I7).
+// The three frozen arm selectors are exactly {3,4,5}. Any other selector byte is
+// malformed and must be rejected deterministically (prereg I7). The set deliberately
+// excludes G5A's 0/1/2 selectors so the shared "G5AO" carrier cannot be silently
+// confused with a G5A A0/A1/A2 mode; selector 3 is reserved for the exact frozen
+// G5A A3 floor.
 static bool is_valid_g5b_selector(uint8_t s) {
-    return s == static_cast<uint8_t>(G5BOrdinal::OrdinalNull) ||
-           s == static_cast<uint8_t>(G5BOrdinal::OrdinalFloor) ||
+    return s == static_cast<uint8_t>(G5BOrdinal::OrdinalFloor) ||
+           s == static_cast<uint8_t>(G5BOrdinal::OrdinalNull) ||
            s == static_cast<uint8_t>(G5BOrdinal::OrdinalBlocked);
 }
 
@@ -382,6 +392,14 @@ static G5BPlan build_g5b_plan(const Bytes& src) {
             if (j < a.shapes[sid].slots.size()) ++present;
         if (present >= 2) ++p.shared_ordinal_slots;
     }
+    // Fail-closed liveness sanity (prereg I11 / section 5.1): shared ordinals are
+    // each counted once, no file can share more ordinals than it has slots, and a
+    // single shape can never share an ordinal with itself (shared_ordinal_slots == 0).
+    if (p.shared_ordinal_slots > p.max_slots)
+        throw std::runtime_error("G5B shared_ordinal_slots exceeds max_slots");
+    if (a.shapes.size() < 2 && p.shared_ordinal_slots != 0)
+        throw std::runtime_error("G5B single shape cannot share an ordinal");
+
 
     // Byte-level invariant hashes (prereg I3/I4), computed once per file.
     p.envelope_sha256 = sha256::hex(p.prefix);
@@ -448,7 +466,7 @@ static std::vector<size_t> permutation_for(const G5BPlan& p, G5BOrdinal mode) {
 }
 
 struct BuiltArm {
-    G5BOrdinal mode = G5BOrdinal::OrdinalFloor;
+    G5BOrdinal mode = G5BOrdinal::OrdinalFloor;  // selector 3
     Bytes body;
     std::vector<size_t> permutation;
     bool permutation_ok = false;
@@ -901,6 +919,16 @@ static int measure_g5b(const std::string& path) {
     const bool b1_eq_b2 = (b1.built.permutation == b2.built.permutation);
     const uint64_t b2_moved_token_count =
         moved_token_count(b1.built.permutation, b2.built.permutation);
+    // Fail closed on the impossible/contradictory combination (prereg I11): when the
+    // B1 and B2 permutations are identical the moved-token count is exactly zero, and
+    // when they are distinct it is strictly positive. A measurement violating this is
+    // an implementation bug and must never fall through to a favorable classification.
+    if (b1_eq_b2 != (b2_moved_token_count == 0))
+        throw std::runtime_error("G5B b1_eq_b2 / b2_moved_token_count contradiction");
+    // b1_eq_b2 means the treatment changed nothing on this file (DEGENERATE, section
+    // 5.1). A degenerate file cannot share a positional ordinal across distinct shapes.
+    if (b1_eq_b2 && plan.shared_ordinal_slots != 0)
+        throw std::runtime_error("G5B degenerate file has shared ordinal slots");
 
     // Raw Brotli is context only and does not enter the B0/B1/B2 causal gate.
     const Bytes raw_br = brotli_encode(src);
@@ -965,6 +993,37 @@ static void g5b_fixture(const std::string& s, const char* label) {
     const BuiltArm b0 = build_arm(p, G5BOrdinal::OrdinalNull);
     const BuiltArm b1 = build_arm(p, G5BOrdinal::OrdinalFloor);
     const BuiltArm b2 = build_arm(p, G5BOrdinal::OrdinalBlocked);
+
+    // Carrier-envelope contract: every arm body must begin with the EXACT frozen G5A
+    // carrier magic "G5AO" and version 1 (byte-compat requirement). B0/B2 share it
+    // because the arm selector is out-of-band.
+    static const std::array<uint8_t, 4> kExpectedMagic = {'G','5','A','O'};
+    for (const auto* a : {&b0, &b1, &b2}) {
+        if (a->body.size() < 5 ||
+            !std::equal(kExpectedMagic.begin(), kExpectedMagic.end(), a->body.begin()) ||
+            a->body[4] != kG5BVersion)
+            throw std::runtime_error(std::string(label) +
+                ": carrier body is not exact frozen G5A G5AO version 1");
+    }
+    // Charge/pack round-trip: the materialized selector byte must be B1==3 and must
+    // not collide with G5A's 0..3 selector space for the non-floor arms.
+    for (const auto* a : {&b0, &b1, &b2}) {
+        Bytes packed;
+        packed.push_back(static_cast<uint8_t>(a->mode));
+        packed.insert(packed.end(), a->body.begin(), a->body.end());
+        if (packed.size() != a->body.size() + 1)
+            throw std::runtime_error(std::string(label) + ": selector packing size");
+        if (packed.front() != static_cast<uint8_t>(a->mode) ||
+            !is_valid_g5b_selector(packed.front()))
+            throw std::runtime_error(std::string(label) + ": selector not charged/valid");
+        const Bytes unpacked(packed.begin() + 1, packed.end());
+        if (unpacked != a->body)
+            throw std::runtime_error(std::string(label) + ": selector pack/unpack body drift");
+    }
+    if (static_cast<uint8_t>(b1.mode) != 3)
+        throw std::runtime_error(std::string(label) + ": B1/FLOOR selector is not 3");
+    if (static_cast<uint8_t>(b0.mode) == 3 || static_cast<uint8_t>(b2.mode) == 3)
+        throw std::runtime_error(std::string(label) + ": B0/B2 selector aliases A3 (3)");
 
     if (b0.body.size() != b1.body.size() || b1.body.size() != b2.body.size())
         throw std::runtime_error(std::string(label) + ": body sizes differ");
@@ -1124,14 +1183,26 @@ static void g5b_selftest() {
 
     // Selector-byte validation (prereg I7): only the three frozen arm values
     // are valid; any other byte must be rejected deterministically.
-    for (uint8_t s : {static_cast<uint8_t>(0), static_cast<uint8_t>(1),
-                      static_cast<uint8_t>(2)})
+    for (uint8_t s : {static_cast<uint8_t>(3), static_cast<uint8_t>(4),
+                      static_cast<uint8_t>(5)})
         if (!is_valid_g5b_selector(s))
             throw std::runtime_error("G5B valid selector rejected");
-    for (uint8_t s : {static_cast<uint8_t>(3), static_cast<uint8_t>(4),
+    for (uint8_t s : {static_cast<uint8_t>(0), static_cast<uint8_t>(1),
+                      static_cast<uint8_t>(2), static_cast<uint8_t>(6),
                       static_cast<uint8_t>(0x7f), static_cast<uint8_t>(0xff)})
         if (is_valid_g5b_selector(s))
             throw std::runtime_error("G5B invalid selector accepted");
+    // The carrier now shares frozen G5A's "G5AO" magic. Assert the frozen G5A A3
+    // selector 3 is exactly the B1/FLOOR selector, so "G5AO" + selector 3 is a
+    // byte-identical G5A A3 carrier, and assert the B0/B2 selectors do not alias
+    // G5A's 0..3 selector space.
+    if (static_cast<uint8_t>(G5BOrdinal::OrdinalFloor) != 3)
+        throw std::runtime_error("G5B B1/FLOOR selector is not the frozen G5A A3 value 3");
+    if (static_cast<uint8_t>(G5BOrdinal::OrdinalNull) <= 3 ||
+        static_cast<uint8_t>(G5BOrdinal::OrdinalBlocked) <= 3)
+        throw std::runtime_error("G5B B0/B2 selector aliases the G5A 0..3 selector space");
+    if (kG5BMagic != std::array<uint8_t, 4>{'G','5','A','O'})
+        throw std::runtime_error("G5B carrier magic is not frozen G5A \"G5AO\"");
     {
         Bytes body = bytes("payload");
         Bytes packed;
