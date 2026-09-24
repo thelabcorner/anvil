@@ -10,13 +10,16 @@
 // chunks before the same Brotli q11/lgwin30 backend.
 //
 // Preregistration:
-//   docs/I10-GROTLI-G5B-ORDINAL-PREREG.md  (freeze revision r2)
+//   docs/I10-GROTLI-G5B-ORDINAL-PREREG.md  (freeze revision r3)
 //
 // The carrier grammar is the EXACT frozen G5A common carrier body: magic "G5AO",
-// version 1, and the same prefix grammar. B1/FLOOR must be byte-compatible with
-// frozen G5A A3, so the shared A3 body bytes (and therefore the envelope SHA-256
-// and complete-byte totals) are identical; only the out-of-band charged selector
-// byte and the prereg revision differ. Three arms only:
+// version 1, and the same prefix grammar. B1/FLOOR is byte/accounting-identical to
+// frozen G5A A3 INCLUDING the charged out-of-band selector byte 3 (the frozen G5A
+// A3 SHAPE_COLUMN selector): the shared A3 bytes, and therefore the envelope
+// SHA-256 and complete-byte totals, are identical. B0/B2 use new out-of-band
+// charged selector bytes 4/5, disjoint from G5A's 0..3 mode space, while B1
+// preserves the A3 selector 3; the prereg revision is non-serialized. Three arms
+// only:
 // There is deliberately NO B3 in this first freeze.
 //
 // FROZEN-INCLUSION (prereg section 2.1): CI compiles G5B-ORDINAL against the

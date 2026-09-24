@@ -41,13 +41,18 @@ name: ANVIL I10 Grotli G5B-ORDINAL probe
 #       b1_eq_b2 <=> b2_moved_token_count==0). A multi-shape file whose shapes
 #       each have one slot is legitimately DEGENERATE with shared_ordinal_slots>0.
 #   I12 no floor/provenance/invariant failure falls through to a favorable label;
-#       a V1 re-gate failure routes the source-of-record classification to
-#       INVALID-G5B-ORDINAL and prohibits B2 interpretation; artifact upload is
-#       if: always()
+#       the ruling routes fail-closed on EXACT step success (I12 r3 correction):
+#       discovery step not successful => INVALID-G5B-ORDINAL (floor validity
+#       cannot be established, so it is NOT INVALID-B1-FLOOR); floor step not
+#       successful or floor-check.json missing/invalid/ok!=true => INVALID-B1-FLOOR
+#       (outranks V1); V1 step not successful or a V1 in-ruling re-gate failure =>
+#       INVALID-G5B-ORDINAL; B2 interpretation prohibited on every invalid path;
+#       artifact upload is if: always()
 # Any invariant failure => INVALID-G5B-ORDINAL (or INVALID-B1-FLOOR for I10).
 #
 # This workflow:
-#   1. checks out the pinned G5B-ORDINAL implementation SHA and verifies identity;
+#   1. fails closed on the placeholder implementation pin BEFORE checkout, then
+#      checks out the pinned G5B-ORDINAL implementation SHA and verifies identity;
 #   2. pins the apt libbrotli version and fails closed on backend drift (I5/I8);
 #   3. materializes the frozen G3 source and compiles G5B-ORDINAL against those
 #      exact pinned bytes, warning-clean, then runs the full adversarial selftest;
@@ -60,16 +65,23 @@ name: ANVIL I10 Grotli G5B-ORDINAL probe
 #      corpus identity verification; not a new experiment) and compares its A3 facts
 #      to the archive, so environment drift is diagnosable;
 #   8. runs frozen B0/B1/B2 on D1-D4 and on V1 (known-stress anatomy);
-#   9. verifies B1 exact reproduction of the frozen G5A A3 on D1-D4 (I10);
-#  10. applies the frozen section-10/10.1 ruling MECHANICALLY, fail-closed;
+#   9. verifies B1 exact reproduction of the frozen G5A A3 on D1-D4 (I10); this
+#      floor gate runs even when the V1 diagnostic step failed (it depends on
+#      discovery/G5A evidence, not V1) and is skipped only when the discovery
+#      measurement itself did not succeed;
+#  10. applies the frozen section-10/10.1 ruling MECHANICALLY, fail-closed, with
+#      step-outcome routing: discovery failure => INVALID-G5B-ORDINAL; floor
+#      failure/missing evidence => INVALID-B1-FLOOR (outranks V1); V1 step failure
+#      or any in-ruling invariant failure => INVALID-G5B-ORDINAL; never favorable;
 #  11. uploads the complete evidence with if: always() (invalid evidence preserved).
 #
 # V1 is KNOWN-STRESS / NOT HELD-OUT FOR G5B-ORDINAL. No new held-out corpus is
 # opened. V1 correctness is RE-GATED inside the final ruling; a V1 invariant
 # failure fails closed (never a V1-ORDINAL-* label) AND routes the source-of-record
 # classification to INVALID-G5B-ORDINAL with B2 interpretation prohibited (I12).
-# V1 remains a known-stress diagnostic only and MUST be re-gated separately from
-# the discovery ruling.
+# A V1 step failure (before the re-gate) routes the same way and retains only safe
+# diagnostic facts. V1 remains a known-stress diagnostic only and MUST be re-gated
+# separately from the discovery ruling.
 # Heavy compression runs ONLY here, never on the workstation.
 # This workflow is NOT dispatched by the freezing worker.
 
@@ -141,6 +153,28 @@ jobs:
       classification: ${{ steps.ruling.outputs.classification }}
 
     steps:
+      # Pre-checkout placeholder guard: actions/checkout would try the placeholder
+      # ref first and fail with an unclear git error, so fail explicitly here
+      # BEFORE checkout on a pre-pin accidental dispatch. The three G5B-ORDINAL
+      # self-pin values are intentionally still placeholders until the follow-up
+      # pin commit; a pre-pin dispatch must fail closed and clearly.
+      - name: Pre-check frozen pins (placeholder guard)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$FROZEN_IMPLEMENTATION_SHA" == PLACEHOLDER_* ]]; then
+            echo "::error::FROZEN_IMPLEMENTATION_SHA is still the placeholder; re-pin the frozen G5B-ORDINAL implementation commit before dispatch." >&2
+            exit 1
+          fi
+          if [[ "$EXPECTED_G5B_SOURCE_BLOB" == PLACEHOLDER_* ]]; then
+            echo "::error::EXPECTED_G5B_SOURCE_BLOB is still the placeholder; re-pin the frozen G5B-ORDINAL source blob before dispatch." >&2
+            exit 1
+          fi
+          if [[ "$EXPECTED_G5B_PREREG_BLOB" == PLACEHOLDER_* ]]; then
+            echo "::error::EXPECTED_G5B_PREREG_BLOB is still the placeholder; re-pin the frozen G5B-ORDINAL prereg blob before dispatch." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.FROZEN_IMPLEMENTATION_SHA }}
@@ -525,6 +559,7 @@ jobs:
           PY
 
       - name: Run G5B-ORDINAL arms on discovery corpus (D1-D4)
+        id: discovery
         shell: bash
         run: |
           set -euo pipefail
@@ -594,6 +629,7 @@ jobs:
           PY
 
       - name: Run G5B-ORDINAL arms on known-stress V1 (diagnostic only)
+        id: v1
         shell: bash
         run: |
           set -euo pipefail
@@ -632,6 +668,10 @@ jobs:
 
       - name: Verify B1/FLOOR exact reproduction of frozen G5A A3 (I10)
         id: floor
+        # The floor gate depends on discovery/G5A evidence, NOT on V1, so it must
+        # still run after a V1 failure. It is skipped only when the discovery
+        # measurement itself did not succeed (there would be nothing to verify).
+        if: ${{ always() && steps.discovery.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -794,10 +834,19 @@ jobs:
         id: ruling
         if: ${{ always() }}
         shell: bash
+        env:
+          # Step-outcome routing inputs (I12 r3 correction). `outcome` is a step's
+          # result BEFORE continue-on-error is applied; no step in this workflow
+          # uses continue-on-error, so outcome == conclusion here. A skipped or
+          # cancelled step yields "skipped"/"cancelled", never "success": anything
+          # other than the exact string "success" is treated as invalid/fail-closed.
+          DISCOVERY_OUTCOME: ${{ steps.discovery.outcome }}
+          V1_OUTCOME: ${{ steps.v1.outcome }}
+          FLOOR_OUTCOME: ${{ steps.floor.outcome }}
         run: |
           mkdir -p results || true
           python3 - <<'PY'
-          import json, os, pathlib
+          import json, os, pathlib, sys, traceback
 
           # ---- Frozen thresholds (verbatim from the G5B-ORDINAL prereg) ------
           ORDINAL_MATERIAL_AGG = 0.99    # S2/S1 <= 0.99  (>= 1.0% aggregate)
@@ -807,32 +856,151 @@ jobs:
                        "D3-gharchive-10mb.ndjson", "D4-crovia-dpi-receipts.ndjson"}
           ARM_KEYS = ("b0_ordinal_null", "b1_ordinal_floor", "b2_ordinal_blocked")
 
+          # Step-outcome routing inputs (I12 r3 correction). `outcome` is a step's
+          # result BEFORE continue-on-error is applied; no step in this workflow
+          # uses continue-on-error, so outcome == conclusion here. A skipped or
+          # cancelled step yields "skipped"/"cancelled", never "success": anything
+          # other than the exact string "success" is treated as invalid/fail-closed.
+          DISCOVERY_OUTCOME = os.environ.get("DISCOVERY_OUTCOME", "")
+          V1_OUTCOME = os.environ.get("V1_OUTCOME", "")
+          FLOOR_OUTCOME = os.environ.get("FLOOR_OUTCOME", "")
+
           def load(path):
               return [json.loads(x) for x in pathlib.Path(path).read_text().splitlines()
                       if x.strip()]
 
           def write_ruling(payload, classification):
+              pathlib.Path("results").mkdir(parents=True, exist_ok=True)
               pathlib.Path("results/g5b-ruling.json").write_text(
                   json.dumps(payload, indent=2) + "\n")
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
                   f.write(f"classification={classification}\n")
 
-          # ---- B1 floor gate (I10) takes precedence -------------------------
-          floor_ok = False
-          floor_path = pathlib.Path("results/floor-check.json")
-          if floor_path.exists():
-              floor_ok = bool(json.loads(floor_path.read_text()).get("ok"))
-          if not floor_ok:
-              classification = "INVALID-B1-FLOOR"
-              write_ruling({"schema": 1, "classification": classification,
-                            "reason": "B1/FLOOR mismatch, provenance mismatch, replay drift, or missing floor evidence",
-                            "b2_interpretation_prohibited": True}, classification)
-              print("INVALID-B1-FLOOR: B2 interpretation prohibited")
-              raise SystemExit(0)
+          def record_invalid(classification, reason, extra=None):
+              # Write the invalid source-of-record ruling FIRST, from step outcomes
+              # only: a missing/malformed result JSONL must never prevent evidence
+              # classification (I12 r3 correction). B2 interpretation is always
+              # prohibited on these paths.
+              payload = {"schema": 1, "classification": classification,
+                         "reason": reason, "b2_interpretation_prohibited": True,
+                         "implementation_sha":
+                             os.environ.get("FROZEN_IMPLEMENTATION_SHA", "")}
+              if extra:
+                  payload.update(extra)
+              write_ruling(payload, classification)
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  try:
+                      with open(summary, "a", encoding="utf-8") as f:
+                          f.write(f"## G5B-ORDINAL: {classification}\n\n"
+                                  f"- {reason}\n"
+                                  f"- B2 interpretation prohibited\n")
+                  except Exception:
+                      pass
+              print(f"{classification}: {reason}")
+              print(f"{classification}: B2 interpretation prohibited")
 
-          discs = {pathlib.Path(r["file"]).name: r for r in load("results/g5b-discovery.jsonl")}
+          def invalid(classification, reason, extra=None):
+              record_invalid(classification, reason, extra)
+              raise SystemExit(f"FAIL CLOSED: {classification}")
+
+          def last_resort(exc_type, exc, tb):
+              # Safety net: an unexpected exception after step-outcome routing must
+              # still produce an invalid source-of-record ruling, never no ruling.
+              # A specific invalid verdict already written (e.g. INVALID-B1-FLOOR)
+              # is preserved; only a missing or non-invalid ruling is replaced.
+              traceback.print_exception(exc_type, exc, tb)
+              try:
+                  keep = False
+                  ruling_path = pathlib.Path("results/g5b-ruling.json")
+                  if ruling_path.exists():
+                      try:
+                          keep = str(json.loads(ruling_path.read_text()).get(
+                              "classification", "")).startswith("INVALID-")
+                      except Exception:
+                          keep = False
+                  if not keep:
+                      record_invalid("INVALID-G5B-ORDINAL",
+                                     f"unexpected ruling failure: "
+                                     f"{exc_type.__name__}: {exc}")
+              except Exception:
+                  pass
+
+          sys.excepthook = last_resort
+
+          # ---- 0. Fail-closed step-outcome routing (I12 r3 correction) --------
+          # Precedence: discovery, then floor (I10 outranks V1), then V1.
+          if DISCOVERY_OUTCOME != "success":
+              # No discovery measurement => source-of-record INVALID-G5B-ORDINAL.
+              # This is NOT INVALID-B1-FLOOR: with no discovery measurement there
+              # is nothing for the floor to verify, so floor/provenance validity
+              # cannot meaningfully be established.
+              invalid("INVALID-G5B-ORDINAL",
+                      "discovery measurement step did not succeed "
+                      f"(outcome={DISCOVERY_OUTCOME!r}); floor/provenance validity "
+                      "cannot be established from a missing discovery measurement",
+                      {"discovery_step_outcome": DISCOVERY_OUTCOME})
+
+          # ---- 1. B1 floor gate (I10) takes precedence over V1 -----------------
+          floor_ok = False
+          floor_detail = None
+          try:
+              floor_path = pathlib.Path("results/floor-check.json")
+              if floor_path.exists():
+                  floor_detail = json.loads(floor_path.read_text())
+                  floor_ok = floor_detail.get("ok") is True
+          except Exception as exc:
+              floor_detail = {"ok": False,
+                              "unreadable": f"{type(exc).__name__}: {exc}"}
+          if FLOOR_OUTCOME != "success" or not floor_ok:
+              invalid("INVALID-B1-FLOOR",
+                      "B1/FLOOR verification did not succeed or floor-check.json "
+                      "is missing/invalid/ok!=true: B1 floor, provenance, or "
+                      "same-run replay mismatch",
+                      {"floor_step_outcome": FLOOR_OUTCOME,
+                       "floor_check": floor_detail})
+
+          # ---- 2. V1 known-stress step outcome (I12 r3 correction) -------------
+          if V1_OUTCOME != "success":
+              # A V1 measurement failure routes the source-of-record classification
+              # to INVALID-G5B-ORDINAL. Only safe diagnostic facts are retained when
+              # a V1 row happens to be readable; a missing or malformed row must
+              # never crash the ruling.
+              v1_diag = {"v1_step_outcome": V1_OUTCOME, "v1_row_present": False}
+              try:
+                  v1_rows = load("results/g5b-v1.jsonl")
+                  if v1_rows:
+                      v1_diag["v1_row_present"] = True
+                      safe = {}
+                      for key in ARM_KEYS:
+                          arm = v1_rows[-1].get(key)
+                          if isinstance(arm, dict) and \
+                                  isinstance(arm.get("complete_bytes"), int):
+                              safe[key] = arm["complete_bytes"]
+                      if safe:
+                          v1_diag["v1_complete_bytes"] = safe
+              except Exception as exc:
+                  v1_diag["v1_row_error"] = type(exc).__name__
+              invalid("INVALID-G5B-ORDINAL",
+                      "V1 known-stress measurement step did not succeed "
+                      f"(outcome={V1_OUTCOME!r}); source-of-record routed to "
+                      "INVALID-G5B-ORDINAL (I12)",
+                      {"v1_known_stress_diagnostic": v1_diag})
+
+          # ---- 3. Ordinary frozen r3 path: every step outcome is exact success --
+          # Re-gate discovery invariants inside the ruling (existing I5/I8/I11
+          # fail-closed re-gates), then the V1 re-gate, then the frozen B0/B1/B2
+          # classification precedence.
+          try:
+              discs = {pathlib.Path(r["file"]).name: r
+                       for r in load("results/g5b-discovery.jsonl")}
+          except Exception as exc:
+              invalid("INVALID-G5B-ORDINAL",
+                      "discovery result JSONL missing/malformed at ruling time: "
+                      f"{type(exc).__name__}")
           if set(discs) != DISCOVERY:
-              raise SystemExit(f"unexpected discovery rows: {sorted(discs)}")
+              invalid("INVALID-G5B-ORDINAL",
+                      f"unexpected discovery rows: {sorted(discs)}")
 
           invariants_ok = True
           backend_versions = set()
@@ -906,8 +1074,17 @@ jobs:
               return (num / den) if den else None
 
           # V1 diagnostic (known-stress; not a held-out test). Fail closed first.
-          v1_rows = load("results/g5b-v1.jsonl")
-          v1 = v1_rows[-1]
+          # Defensive load: a missing/malformed row at ruling time must classify as
+          # INVALID-G5B-ORDINAL, never crash the ruling (I12 r3 correction).
+          try:
+              v1_rows = load("results/g5b-v1.jsonl")
+              if not v1_rows:
+                  raise ValueError("V1 result JSONL has no rows")
+              v1 = v1_rows[-1]
+          except Exception as exc:
+              invalid("INVALID-G5B-ORDINAL",
+                      "V1 result JSONL missing/malformed at ruling time: "
+                      f"{type(exc).__name__}")
           v1_ok = bool(
               v1["body_size_identity"] and v1["envelope_len_identity"] and
               v1["token_region_len_identity"] and v1["envelope_identity"] and
@@ -1018,8 +1195,7 @@ jobs:
                       "token_chunk_count": discs[n]["token_chunk_count"],
                   } for n in sorted(DISCOVERY)
               },
-              "floor_verification": json.loads(
-                  pathlib.Path("results/floor-check.json").read_text()),
+              "floor_verification": floor_detail,
               "classification": classification,
               "v1_known_stress": {
                   "B0": v1_b0, "B1": v1_b1, "B2": v1_b2,
@@ -1065,6 +1241,11 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write(f"classification={classification}\n")
           print(json.dumps(ruling, indent=2))
+          if classification.startswith("INVALID-"):
+              # Fail closed at the run level too: an invalid source-of-record verdict
+              # must never leave the ruling step green. Evidence (ruling JSON/MD and
+              # the classification output) is already written above.
+              raise SystemExit(f"FAIL CLOSED: {classification}")
           PY
           if [ -f results/g5b-ruling.md ]; then
             cat results/g5b-ruling.md >> "$GITHUB_STEP_SUMMARY" || true
