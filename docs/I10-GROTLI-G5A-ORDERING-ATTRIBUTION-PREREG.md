@@ -1,7 +1,7 @@
 # ANVIL I10 — GROTLI G5A Ordering Attribution Preregistration
 
-**Status:** FROZEN r2 BEFORE ANY G5A BUILD OR D1-D4 / V1 MEASUREMENT  
-**Freeze note:** r2 closes two outcome-classification edge cases and makes the existing envelope-identity invariant explicitly machine-gated; no corpus outcome had been measured or built when frozen.  
+**Status:** FROZEN r4 BEFORE ANY G5A D1-D4 / V1 CORPUS MEASUREMENT  
+**Freeze note:** r4 is the final pre-corpus contract. The original G5A preregistration existed before implementation; r2/r3 then closed edge cases and independent causal-audit blockers using source review plus correctness-only local compile/selftests and tiny synthetic fixtures. No D1-D4 or V1 outcome was observed while changing the arms, thresholds, or gates. r4 supersedes every earlier G5A source/prereg revision for admissible evidence. It requires: (a) compilation against materialized pinned frozen G3 source; (b) byte-level canonical token-multiset and common-envelope SHA-256 equality; (c) deterministic A0 RANDOM_PERMUTATION null control; (d) exact Brotli implementation/build identity; and (e) explicit out-of-band mode-byte pack/unpack verification.  
 **Date:** 2026-09-24  
 **Parent evidence:** G3 `PASS-G3-NARROW`, G4 `NO-GO-G4`  
 **Purpose:** isolate the causal contribution of byte ordering/locality under a fixed structured representation  
@@ -32,11 +32,11 @@ This is an attribution experiment, not a new codec family and not a planner expe
 
 ## 1. Non-negotiable causal constraint
 
-The three G5A structured arms must differ in exactly one mechanism:
+The four G5A structured arms must differ in exactly one mechanism:
 
 > **the permutation of the same structured scalar chunks.**
 
-For every input, all three arms must have:
+For every input, all four arms must have:
 
 - identical parser and frame split;
 - identical structured/raw frame classification;
@@ -47,6 +47,8 @@ For every input, all three arms must have:
 - identical structured scalar token bytes;
 - identical scalar token length framing;
 - identical structured scalar chunk multiset;
+- identical canonical token-multiset SHA-256 (machine-gated, section 6 I3);
+- identical common-envelope SHA-256 (machine-gated, section 6 I4);
 - identical uncompressed carrier-body byte count;
 - identical Brotli implementation and parameters;
 - no dictionary, integer, float, RLE, FSST, predictor, or other leaf transform.
@@ -65,8 +67,25 @@ G5A imports the exact G3 parsing/shape semantics from frozen G3 public SHA:
 
 `1a3d18fed76adb6fb33264e1994f9c357306b3fa`
 
-The implementation must include or compile against the frozen G3 source and the CI
-workflow must verify the exact frozen source identity before measurement.
+### 2.1 Frozen-inclusion requirement (audit blocker 1)
+
+G5A must compile against a **materialized pinned frozen G3 source**, not the
+mutable working-tree `tools/grotli_g3.cpp`.
+
+The CI workflow must, before building G5A:
+
+1. materialize `frozen-grotli_g3.cpp` from `$FROZEN_G3_SHA` and verify its git blob;
+2. build G5A in a way that includes that **exact materialized file** (e.g. compile
+   with `-DG5A_FROZEN_G3_HEADER=\"frozen-grotli_g3.cpp\"` and have the source
+   `#include G5A_FROZEN_G3_HEADER`);
+3. additionally assert that the materialized blob equals the blob of the G3 source
+   the G5A source would otherwise include, so the two cannot silently diverge.
+
+A separate frozen-G3 reference binary is built as well, but **it is not a
+substitute** for G5A itself compiling against the pinned source.
+
+The local build (no CI) may include the working-tree `tools/grotli_g3.cpp`; the
+requirement is that the CI path provably compiles the pinned bytes.
 
 Frozen semantics include:
 
@@ -137,13 +156,26 @@ Thus:
 complete_bytes = 1 + brotli(common_body_with_arm_permutation).size()
 ```
 
-The one charged byte is equal-cost across all three arms. Brotli sees no arm tag.
+The one charged byte is equal-cost across all four arms. Brotli sees no arm tag.
+
+### 3.2 Mode byte is out-of-band, and materialized in a pack/unpack selftest (audit blocker 5)
+
+G5A is an **anatomy experiment**, not a wire format. The one-byte order-mode field is
+explicitly **out-of-band**:
+
+- it is **not** part of the Brotli-compressed body;
+- G5A makes **no wire-format claim** and allocates **no production transform ID**;
+- to keep the accounting honest, the source MUST materialize the mode byte in a
+tiny deterministic pack/unpack round-trip selftest: pack `(mode_byte, body)` and
+  unpack it, verifying the recovered mode selects the correct decoder permutation.
+
+This makes the charged byte concrete without weakening the ordering-only comparison.
 
 ---
 
 ## 4. Frozen arms
 
-Exactly three structured order arms exist.
+Exactly four structured order arms exist.
 
 ### A1 — SOURCE_ORDER
 
@@ -182,6 +214,36 @@ Within each shape:
 
 This is the pure corresponding-placeholder / column-local ordering arm.
 
+### A0 — RANDOM_PERMUTATION (deterministic null; audit blocker 3)
+
+A deterministic pseudo-random permutation of the **same** canonical chunk list:
+
+- the permutation is derived solely from a fixed frozen seed and the canonical
+  chunk index; no score, no input content, and no observed byte ever influences it;
+- the concrete rule: sort canonical indices by
+  `SHA-256(canonical_bytes(seed_string) || 0x1F || index_le_u64)` compared as an
+  unsigned big-endian 256-bit integer, ties by lower index;
+- the seed string is frozen as the ASCII literal `G5A-RANDOM-PERMUTATION-SEED-v1`;
+- A0 uses the same envelope, the same chunk multiset, the same body length, and the
+  same backend as A1/A2/A3.
+
+A0's scientific role is a **null**: it destroys structural locality while preserving
+everything else, so A3's effect can be separated from "Brotli happens to like some
+permutation".
+
+### 4.1 A0 is a single deterministic null draw, not a p-value
+
+Brotli's output is order-sensitive and non-monotone, so ONE random permutation is a
+single point in the null distribution, not a test statistic. Therefore:
+
+- A0 is frozen as exactly one deterministic draw (one seed);
+- G5A must **not** use p-value, significance, or "random is worse on average"
+  language from a single draw;
+- A3's locality claim is only supported when A3 also beats A0 on the frozen
+  comparison (section 10.1); otherwise the claim is unsupported even if A3 beats A1;
+- adding more random draws is a **separate** future lane and may not be added after
+  seeing D1-D4.
+
 There are no other G5A arms.
 
 ---
@@ -196,7 +258,9 @@ The CI result may report, as clearly labeled context:
 Those objects do **not** share the G5A common envelope and therefore cannot be used
 to attribute ordering effect.
 
-The G5A causal gate compares only A1/A2/A3.
+The G5A causal gate compares only A1/A2/A3, with A0 as the frozen null reference
+(section 10.1). Context objects (raw Brotli, frozen G3 `REGION_RAW`) are never
+compared to A1/A2/A3 for attribution.
 
 ---
 
@@ -215,35 +279,75 @@ original source.
 len(A1_body) == len(A2_body) == len(A3_body)
 ```
 
-### I3 — exact permutation coverage
+### I3 — exact permutation coverage AND canonical token-multiset identity
 
 The implementation must construct a canonical list of structured scalar chunk
 identities and prove that each arm's token-stream order is a permutation containing
-every canonical chunk index exactly once.
+every canonical chunk index exactly once. No duplicate, omission, or synthetic chunk
+is allowed.
 
-No duplicate, omission, or synthetic chunk is allowed.
+Index bijection alone is tautological and is **not** sufficient. Additionally, for
+every arm, the implementation MUST compute and emit a byte-level **canonical
+token-multiset SHA-256** defined as:
 
-### I4 — envelope identity
+```
+record_i = uvar(len(token_bytes_i)) || token_bytes_i     (decode-visible framing)
+multiset_sha256 = SHA-256( sort_lexicographically_ascending(record_1, ..., record_N)
+                           joined with no separator )
+```
+
+The multiset SHA-256 must be **identical across A0/A1/A2/A3** for every measured
+file. Any difference is an INVALID-G5A implementation defect.
+
+### I4 — envelope identity (byte-level)
 
 Before the structured token stream, the carrier-body prefix must be byte-identical
-across A1/A2/A3. The raw-residual section must also be byte-identical.
+across A0/A1/A2/A3, and the raw-residual section must be byte-identical. This is
+machine-gated by a byte-level **envelope SHA-256**:
+
+```
+envelope_bytes = carrier_body[0 .. prefix_len)
+envelope_sha256 = SHA-256(envelope_bytes)
+```
+
+The envelope SHA-256 must be identical across A0/A1/A2/A3 for every measured file,
+and must equal the SHA-256 of the stored plan prefix. Any difference is INVALID-G5A.
+
+Additionally the implementation must prove that each arm's body equals the common
+envelope followed immediately by the arm's token-permutation region (no bytes are
+inserted, removed, or reordered outside the token region).
 
 ### I5 — fixed backend
 
-All three bodies use the same Brotli quality/window settings as frozen G3:
+All four bodies use the same Brotli quality/window settings as frozen G3:
 
 - quality 11;
 - lgwin 30 where supported by the existing G3 build contract.
 
 ### I6 — no typed leaves
 
-No G2/G3 typed leaf encoder is allowed in A1/A2/A3. The exact lexical scalar bytes
+No G2/G3 typed leaf encoder is allowed in A0/A1/A2/A3. The exact lexical scalar bytes
 are the payload.
 
 ### I7 — complete accounting
 
 The charged one-byte mode field is included in every reported G5A complete-byte
-number.
+number, and is materialized in the pack/unpack selftest of section 3.2.
+
+### I8 — backend implementation identity (audit blocker 4)
+
+All arms must use the same Brotli implementation **build**, not merely the same
+quality/window parameters. Each result row MUST record:
+
+- `BrotliEncoderVersion()` (the linked library version integer and its dotted form);
+- the Brotli library identity as reported by the CI build (package version);
+- quality 11 and lgwin 30.
+
+The CI workflow must record the Brotli library package identity it linked against.
+
+### I9 — A0 null arm is required
+
+A measurement that omits A0, or whose A0 does not satisfy I1-I8, is INVALID-G5A.
 
 Any invariant failure -> **INVALID-G5A**, fix correctness, rerun from a newly frozen
 implementation. No size interpretation is permitted.
@@ -302,14 +406,19 @@ For each file and each arm report:
 - raw frame count;
 - shape count;
 - Brotli encode time as diagnostic only;
-- carrier construction time as diagnostic only.
+- carrier construction time as diagnostic only;
+- `canonical_token_multiset_sha256` (identical across all arms);
+- `envelope_sha256` (identical across all arms);
+- `brotli_encoder_version` (integer and dotted form; identical across all arms).
 
-Derived deterministic byte effects:
+Derived deterministic byte effects (with A0 as the frozen null; A0 complete bytes
+reported for every file):
 
 ```
 shape_grouping_bytes = A1_complete - A2_complete
 column_increment_bytes = A2_complete - A3_complete
 total_order_bytes = A1_complete - A3_complete
+random_null_bytes = A0_complete - A3_complete   # > 0 means A3 beats the null
 
 shape_grouping_pct = (A2_complete / A1_complete - 1) * 100
 column_increment_pct = (A3_complete / A2_complete - 1) * 100
@@ -409,6 +518,24 @@ saving; report the signed shares exactly.
 
 These labels describe D1-D4 anatomy only. They do not authorize production.
 
+### 10.1 Null-control requirement (audit blocker 3)
+
+Let `S0 = sum(A0_complete)` over D1-D4 (the deterministic random-permutation null).
+
+An `ORDER-MATERIAL` classification additionally requires:
+
+```
+S3 < S0        # A3 beats the single frozen null draw in aggregate
+```
+
+If `S3 >= S0`, the classification is downgraded to **ORDER-UNSUPPORTED-BY-NULL**: the
+shape-column ordering did not beat a structure-destroying permutation of the same
+chunks, so any A1-vs-A3 improvement is not attributable to the specific locality
+mechanism. A0 comparison uses ONE deterministic draw and MUST NOT be reported as a
+significance test.
+
+Report `random_null_bytes = S0 - S3` in the ruling.
+
 ---
 
 ## 11. V1 diagnostic classification
@@ -434,6 +561,7 @@ G5A may conclude only:
 
 - whether exact byte ordering is materially causal on D1-D4;
 - whether shape grouping or column grouping contributes more to that effect;
+- whether A3 beats a deterministic structure-destroying null permutation;
 - whether known V1 reacts favorably or adversely to the same frozen permutations.
 
 G5A may **not** conclude:
@@ -470,17 +598,20 @@ Those are separate future lanes.
 
 ## 14. Execution discipline
 
-1. commit this preregistration before G5A source exists;
-2. implement a standalone G5A prototype;
-3. local workstation work is limited to compile + tiny selftests;
+1. commit this final r4 preregistration before any D1-D4 or V1 corpus measurement;
+   earlier r2/r3 source and tiny correctness fixtures are superseded and are not evidence;
+2. freeze an r4 implementation source commit that conforms exactly to this contract and
+   compiles against the pinned frozen G3 source via section 2.1;
+3. local workstation work is limited to compile + tiny synthetic correctness selftests;
 4. do **not** measure D1-D4 or V1 on the workstation or homelab;
 5. freeze the implementation source SHA;
-6. create a GitHub Actions workflow pinned to that exact implementation;
-7. verify frozen G3 source identity;
+6. create a GitHub Actions workflow pinned to that exact implementation and that
+   materializes and verifies the pinned frozen G3 source before building G5A;
+7. verify frozen G3 source identity and record Brotli build identity;
 8. fetch and verify corpus identities remotely;
-9. run D1-D4 attribution remotely;
+9. run D1-D4 attribution remotely (A0/A1/A2/A3);
 10. run V1 as known-stress anatomy remotely;
-11. apply the frozen classification mechanically;
+11. apply the frozen classification mechanically (including the A0 null gate);
 12. upload complete evidence;
 13. write source-of-record results;
 14. only then proceed to G5B.
@@ -502,7 +633,7 @@ context, but it may not retroactively change G5A arms or gates.
 
 ## 16. Production disposition
 
-Regardless of whether G5A is ORDER-ADVERSE, ORDER-NEUTRAL, ORDER-WEAK, ORDER-CONCENTRATED, or ORDER-MATERIAL:
+Regardless of whether G5A is ORDER-ADVERSE, ORDER-NEUTRAL, ORDER-WEAK, ORDER-CONCENTRATED, ORDER-UNSUPPORTED-BY-NULL, or ORDER-MATERIAL:
 
 - no production transform ID is allocated;
 - no production ANVIL source is changed by G5A;
