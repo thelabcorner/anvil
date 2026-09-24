@@ -6,7 +6,7 @@
 // scalar chunks before the same Brotli backend.
 //
 // Preregistration:
-//   docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md  (freeze revision r5)
+//   docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md  (freeze revision r6)
 //
 // FROZEN-INCLUSION (prereg section 2.1): CI compiles G5A against the materialized
 // pinned frozen G3 source, NOT the mutable working-tree file, by defining
