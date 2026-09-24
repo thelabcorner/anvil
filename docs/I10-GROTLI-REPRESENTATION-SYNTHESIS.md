@@ -1781,3 +1781,91 @@ Parallel research:
 No source-format change is justified until the GROTLI-ANVIL-0 experiment proves
 that the representation layer retains Grotli's advantage on real, independently
 sourced structured data.
+
+---
+
+## 26. Measured G0/G1 outcome — representation value is real but specialist
+
+The original execution order above is retained as the historical preregistration
+logic. The measured program has now advanced through two causal gates.
+
+### G0 — padded row-major vXOR
+
+Closed **NO-GO**.
+
+The exact reversible carrier lost badly to raw Brotli on all measured real
+NDJSON families. The failure was not merely metadata: positional XOR destroyed
+literal/dictionary structure that Brotli already exploited well.
+
+Source of record:
+
+- [I10-GROTLI-G0-RESULTS.md](I10-GROTLI-G0-RESULTS.md)
+
+### G1 — exact lexical shape separation + raw value columns
+
+Closed broad **NO-GO-G1-DISCOVERY**, but with a strong specialist signal.
+
+Frozen run 35937406182, public implementation
+b82d9c83c9c8528861eb65595fface6605cf0e7a:
+
+- D1 Amazon: SHAPE_COLUMN **-1.4853%** versus raw Brotli;
+- D2 CDISC: raw Brotli wins; best structured arm **+2.4971%**;
+- D3 frozen GH Archive excerpt: structured candidate unavailable under the
+  byte-exact parser, so raw fallback;
+- D4 CROVIA receipts: SHAPE_COLUMN **-21.7717%** versus raw Brotli.
+
+The four-family routed portfolio is **-1.6564%** versus raw Brotli, below the
+frozen -3% aggregate gate and with only one >=5% family.
+
+Source of record:
+
+- [I10-GROTLI-G1-RESULTS.md](I10-GROTLI-G1-RESULTS.md)
+
+### The causal lesson from G1
+
+D4 separates the mechanism unusually cleanly.
+
+The row carrier already deduplicates almost 1.5 MB of repeated lexical
+structure, yet improves final Brotli bytes by only **0.4804%**.
+
+With the same templates, values and metadata, changing only value serialization
+from row-major to corresponding-placeholder/column-major improves final bytes by
+**21.7717%** versus raw Brotli.
+
+Therefore the strongest measured mechanism is:
+
+> **homogeneous semantic-position locality changes the statistical/match problem
+> seen by the downstream codec enough that the same Brotli implementation can
+> beat itself materially.**
+
+D2 is the equally important negative control: its structured carrier is
+10.5225% smaller than the original source *before* Brotli but 2.4971% worse
+after Brotli. This directly validates the architecture rule that ANVIL must
+score real downstream candidate bytes rather than transformed size, H0, zero
+density, or semantic elegance.
+
+### Current next step
+
+Do not integrate G1 into production ANVIL.
+
+The next structured experiment should be a separately preregistered **G2 typed
+column expert**, retaining:
+
+- raw Brotli as permanent fallback;
+- the exact G1 lexical/shape reconstruction contract;
+- actual final Brotli arbitration;
+- the still-unspent Sino-US DrugQA corpus as held-out validation.
+
+The first typed basis should remain deliberately small and attributable:
+
+1. raw lexical column;
+2. exact-token dictionary/enum;
+3. canonical integer FOR/delta/DoD;
+4. default/null bitmap only where it is a genuine column property.
+
+Do not add float specialization, FSST, cross-column prediction, replay, or a
+large combinatorial planner until this basis earns them.
+
+The goal of G2 is not to rescue every G1 loss. It is to test whether a **small
+basis of known cheap experts plus routing** can turn the observed class-specific
+representation win into a broader structured-data portfolio win.

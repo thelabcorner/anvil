@@ -659,6 +659,62 @@ Pareto experiment rather than a free optimization.
 I10-1B starts from a new branch/checkpoint only after the I10-1A hardened result
 is tagged. No DEFLATE-replay source may be mixed into the I10-1A branch.
 
+#### I10-1C — Grotli-derived representation compiler — **G1 CLOSED / SPECIALIST SIGNAL; G2 NEXT**
+
+This lane tests whether ANVIL can beat a mature backend by changing the
+representation presented to that same backend.
+
+G0:
+
+- padded row-major positional vXOR + the same Brotli q11/lgwin30;
+- **closed NO-GO** on real NDJSON;
+- source of record: `docs/I10-GROTLI-G0-RESULTS.md`.
+
+G1:
+
+- byte-exact lexical shape dictionary;
+- SHAPE_ROW versus SHAPE_COLUMN;
+- same Brotli q11/lgwin30 for raw and structured candidates;
+- no typed value codec;
+- frozen public implementation:
+  `b82d9c83c9c8528861eb65595fface6605cf0e7a`;
+- remote run: `35937406182`.
+
+Measured G1 discovery:
+
+- D1 Amazon: SHAPE_COLUMN **-1.4853%** versus raw Brotli;
+- D2 CDISC: raw Brotli wins; best structured arm **+2.4971%**;
+- D3 frozen GH Archive excerpt: structured candidate unavailable -> raw fallback;
+- D4 CROVIA receipts: SHAPE_COLUMN **-21.7717%** versus raw Brotli;
+- four-family routed aggregate: **-1.6564%** versus raw Brotli.
+
+Frozen G1 gate required two >=5% wins and >=3% aggregate improvement, so the
+broad untyped base is **NO-GO-G1-DISCOVERY**.
+
+However, D4 is a clean same-backend class-specific crossing. The row/column
+ablation shows that homogeneous semantic-position locality, not merely repeated
+syntax removal, is the dominant mechanism on that family.
+
+Source of record:
+
+- `docs/I10-GROTLI-G1-RESULTS.md`.
+
+The G1 held-out Sino-US DrugQA corpus was not opened and remains available.
+
+Next:
+
+- preregister **G2 typed column expert**;
+- keep raw Brotli permanent fallback;
+- retain exact final-Brotli arbitration;
+- start with only raw lexical, exact-token dictionary/enum, canonical integer
+  FOR/delta/DoD, and narrowly justified default/null coding;
+- do not integrate into `src/anvil.cpp` before G2 closes.
+
+This lane is adopt/architecture research. DataCortex, CLP, LogPrism, BtrBlocks,
+FastLanes, ALP, Pcodec, FSST and historical columnar encodings are close prior
+art for individual mechanisms. Novelty, if any, must live at a higher
+explanation/compiler mechanism level and must not be claimed from G1.
+
 ### I10-2 — build information-attribution oracles
 
 Order:
