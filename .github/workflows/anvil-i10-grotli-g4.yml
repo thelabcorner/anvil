@@ -1,0 +1,964 @@
+name: ANVIL I10 Grotli G4 planner fidelity discovery
+
+# Preregistration: docs/I10-GROTLI-G4-PLANNER-FIDELITY-PREREG.md
+#                  freeze revision r5 (2026-09-24)
+# Parent evidence: G3 discovery PASS only (workflow run 35947013432).
+#
+# Architected as a strict Cartesian product:
+#   ranking surfaces  P in { O11, S0, S1, S2 }
+#   family portfolios F in { RAW, DICT, INT, MIXED }
+# O11 is a REFERENCE planner, never an assumed optimum. S3 is NOT a ranking
+# surface: it is a bounded, fixed complete-carrier finalist portfolio assembled
+# purely by CONSUMING already-measured (P,F) results.
+#
+# G4 asks two separable questions and must answer them separately:
+#   Q1 proxy fidelity   (C_region(f,P) versus C_region(f,O11), plus calls/speed)
+#   Q2 separability     (bounded outcome-blind pairwise probe on O11 MIXED)
+# A NONSEPARABLE Q2 blocks production adoption even when a proxy matches O11.
+#
+# This workflow:
+#   1. checks out the pinned G4 implementation SHA and verifies identity;
+#   2. builds the G4 planner warning-clean and runs its full adversarial
+#      selftest (which re-runs the frozen G3 suite inside the same TU);
+#   3. builds a SEPARATE frozen G3 reference from $FROZEN_G3_SHA and verifies
+#      its source identity and selftest;
+#   4. builds the frozen G2 control (diagnostic context only, never an S3
+#      finalist and never part of C_region);
+#   5. fetches and verifies the frozen D1-D4 discovery corpus identities;
+#   6. runs G4 `measure` on every discovery file and the separate frozen G3
+#      reference on every discovery file;
+#   7. FAILS CLOSED unless, for every D1-D4 file and every portfolio:
+#        - G4 O11 complete bytes equal the separately built frozen G3 measure;
+#        - the instrumentation-only frozen-G3 hashref harness reproduces those
+#          same complete bytes and dumps the exact frozen carrier bytes; and
+#        - hashlib.sha256(exact dumped frozen-G3 carrier bytes) equals the G4 O11
+#          carrier_sha256 (a REAL hash equality, not merely a hash being present);
+#      and every C(f,P,RAW) equals C(f,O11,RAW) with identical carrier hashes.
+#   8. runs the bounded outcome-blind Q2 probe and applies the r5 10.6 gate;
+#   9. applies the r5 Q1 gates (G8.1-G8.6), the G8.10/G8.11 DSTAR/ISTAR
+#      selection, the S3 finalist arbitration, and the section 12 decision
+#      matrix MECHANICALLY. No threshold is invented here;
+#  10. uploads the full artifact set (JSONL, per-file rows, ruling, provenance)
+#      even when the scientific ruling is NO-GO.
+#
+# Every threshold below is transcribed verbatim from the frozen r5 prereg. G4
+# opens NO new validation corpus and consumes NO G3 V1 result. Heavy compression
+# runs ONLY here, never on the workstation.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-i10-grotli-g4-planner-fidelity
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      # Frozen public G4 implementation source commit. The workflow lands after it.
+      # This preserves a reviewed source-only implementation freeze.
+      FROZEN_IMPLEMENTATION_SHA: 6c556dc522112aff4b3566990965e000418c5a57
+      # Frozen G3 reference source identity (frozen G3 implementation SHA).
+      FROZEN_G3_SHA: 1a3d18fed76adb6fb33264e1994f9c357306b3fa
+      # Frozen G2 control source identity (diagnostic context only).
+      FROZEN_G2_SHA: c34b291f40db4037ae114a39dae181644260dfff
+    outputs:
+      implementation_sha: ${{ steps.freeze.outputs.sha }}
+      decision: ${{ steps.ruling.outputs.decision }}
+      q1_verdict: ${{ steps.ruling.outputs.q1_verdict }}
+      q2_verdict: ${{ steps.q2.outputs.q2_verdict }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FROZEN_IMPLEMENTATION_SHA }}
+          fetch-depth: 0
+
+      - name: Freeze implementation identity
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$FROZEN_IMPLEMENTATION_SHA" = "PLACEHOLDER_G4_IMPLEMENTATION_SHA" ]; then
+            echo "FROZEN_IMPLEMENTATION_SHA is still the placeholder." >&2
+            echo "Commit the G4 source first, then pin the real SHA." >&2
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$FROZEN_IMPLEMENTATION_SHA"
+          echo "sha=$FROZEN_IMPLEMENTATION_SHA" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain)"
+          git show -s --format='%H %s' HEAD
+          sha256sum tools/grotli_g4_planner.cpp
+          G4_SOURCE_SHA256="$(sha256sum tools/grotli_g4_planner.cpp | awk '{print $1}')"
+          echo "G4_SOURCE_SHA256=$G4_SOURCE_SHA256" >> "$GITHUB_OUTPUT"
+          echo "G4_SOURCE_SHA256=$G4_SOURCE_SHA256" >> "$GITHUB_ENV"
+          uname -a > results-runner.txt
+
+      - name: Install compiler and Brotli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 libbrotli-dev python3 time
+
+      - name: Build and self-test G4 planner (warning-clean)
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            -Werror \
+            tools/grotli_g4_planner.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g4_planner
+          sha256sum grotli_g4_planner | tee grotli-g4-binary.sha256
+          ./grotli_g4_planner selftest
+
+      - name: Build frozen G3 reference and verify its source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BLOB="$(git rev-parse "$FROZEN_G3_SHA:tools/grotli_g3.cpp" 2>/dev/null || true)"
+          if [ -z "$EXPECTED_BLOB" ]; then
+            echo "Frozen G3 commit not present locally; fetching it explicitly."
+            git fetch --no-tags --depth 1 origin "$FROZEN_G3_SHA"
+            EXPECTED_BLOB="$(git rev-parse "$FROZEN_G3_SHA:tools/grotli_g3.cpp")"
+          fi
+          test -n "$EXPECTED_BLOB"
+          git show "$FROZEN_G3_SHA:tools/grotli_g3.cpp" > frozen-grotli_g3.cpp
+          ACTUAL_BLOB="$(git hash-object frozen-grotli_g3.cpp)"
+          test "$ACTUAL_BLOB" = "$EXPECTED_BLOB"
+          echo "$ACTUAL_BLOB" | tee grotli-g3-source.blob
+          sha256sum frozen-grotli_g3.cpp | tee grotli-g3-source.sha256
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            frozen-grotli_g3.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3
+          sha256sum grotli_g3 | tee grotli-g3-binary.sha256
+          ./grotli_g3 selftest
+
+          # ---- Instrumentation-only frozen-G3 carrier hash reference harness ----
+          # The frozen G3 tool emits COMPLETE BYTES but not carrier hashes. r5 §14
+          # requires carrier_sha256(f,O11,F) == carrier_sha256(f,frozen G3,F), so
+          # this tiny wrapper INCLUDES the exact frozen-grotli_g3.cpp (whose blob
+          # was just verified) in the SAME translation unit and drives its own
+          # internal codec/parser/carrier functions DIRECTLY. It copies NO codec,
+          # parser, carrier, selection, or scoring logic: every semantic comes
+          # from the frozen source included below. It only dumps each arm's exact
+          # ArmResult.carrier bytes so Python can hash them.
+          cat > frozen-grotli_g3_hashref.cpp <<'CPP'
+          #define main frozen_grotli_g3_original_main
+          #include "frozen-grotli_g3.cpp"
+          #undef main
+
+          #include <cstdio>
+          #include <iostream>
+
+          int main(int argc, char** argv) {
+              if (argc != 3) {
+                  std::cerr << "usage: grotli_g3_hashref INPUT OUTPUT_DIR\n";
+                  return 2;
+              }
+              const std::string input = argv[1];
+              const std::string outdir = argv[2];
+              const Bytes src = read_file(input);
+
+              RegionAnalysis a = analyze_regions(src);
+              build_structured_candidates(a);
+
+              struct ArmSpec { const char* name; std::vector<LeafId> mask; };
+              const std::vector<ArmSpec> arms = {
+                  {"RAW",   {LeafId::RawLex}},
+                  {"DICT",  {LeafId::RawLex, LeafId::ExactDict}},
+                  {"INT",   {LeafId::RawLex, LeafId::IntFor,
+                              LeafId::IntDeltaFor, LeafId::IntDodFor}},
+                  {"MIXED", {LeafId::RawLex, LeafId::ExactDict, LeafId::IntFor,
+                              LeafId::IntDeltaFor, LeafId::IntDodFor}},
+              };
+
+              std::cout << "{\"file\":\"" << json_escape(input) << "\"";
+              std::cout << ",\"arms\":[";
+              bool first = true;
+              for (const ArmSpec& arm : arms) {
+                  const std::vector<std::vector<LeafId>> sel =
+                      local_selection(a, arm.mask);
+                  const ArmResult r =
+                      evaluate_region_arm(arm.name, src, a, sel);
+                  if (!r.roundtrip)
+                      throw std::runtime_error(std::string("hashref roundtrip failed: ") +
+                                               arm.name);
+                  const std::string path =
+                      outdir + "/" + arm.name + ".carrier";
+                  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+                  if (!out) throw std::runtime_error("hashref cannot open " + path);
+                  out.write(reinterpret_cast<const char*>(r.carrier.data()),
+                            static_cast<std::streamsize>(r.carrier.size()));
+                  out.close();
+                  if (!first) std::cout << ",";
+                  first = false;
+                  std::cout << "{\"arm\":\"" << arm.name
+                            << "\",\"complete\":" << r.complete
+                            << ",\"carrier_size\":" << r.carrier.size()
+                            << ",\"carrier_path\":\"" << json_escape(path)
+                            << "\"}";
+              }
+              std::cout << "]}\n";
+              return 0;
+          }
+          CPP
+          sha256sum frozen-grotli_g3_hashref.cpp | tee grotli-g3-hashref-source.sha256
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            frozen-grotli_g3_hashref.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3_hashref
+          sha256sum grotli_g3_hashref | tee grotli-g3-hashref-binary.sha256
+
+      - name: Build frozen G2 control (diagnostic context only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BLOB="$(git rev-parse "$FROZEN_G2_SHA:tools/grotli_g2.cpp" 2>/dev/null || true)"
+          if [ -z "$EXPECTED_BLOB" ]; then
+            git fetch --no-tags --depth 1 origin "$FROZEN_G2_SHA"
+            EXPECTED_BLOB="$(git rev-parse "$FROZEN_G2_SHA:tools/grotli_g2.cpp")"
+          fi
+          git show "$FROZEN_G2_SHA:tools/grotli_g2.cpp" > frozen-grotli_g2.cpp
+          test "$(git hash-object frozen-grotli_g2.cpp)" = "$EXPECTED_BLOB"
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            frozen-grotli_g2.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g2
+          sha256sum grotli_g2 | tee grotli-g2-binary.sha256
+          ./grotli_g2 selftest
+
+      - name: Fetch and verify frozen discovery corpora
+        shell: bash
+        run: |
+          mkdir -p corpus results
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+
+          rows = [
+              ("D1-amazon-cellphones.ndjson",
+               "https://raw.githubusercontent.com/simdjson/simdjson-data/4197c425e857f0ec38e89822fdd0bd9ea21f4daf/jsonexamples/amazon_cellphones.ndjson",
+               277673, "9cbb6a071eaa2a10c24d9b4d1729dca501f2f72b"),
+              ("D2-cdisc-adae.ndjson",
+               "https://raw.githubusercontent.com/cdisc-org/DataExchange-DatasetJson/a379f49a3f43c2aaed63bdeca761bdb7140df2c3/examples/adam/adae.ndjson",
+               615350, "4bb9ef50f650767967fc3f0a663c73d33c57c608"),
+              ("D3-gharchive-10mb.ndjson",
+               "https://raw.githubusercontent.com/rushikeshmore/DataCortex/9bf63551499974e7398b87b45d1a9d4b50936566/corpus/json-bench/gharchive-10mb.ndjson",
+               10485760, "59d1d00825053e9894a7895fcea0665912524ec8"),
+              ("D4-crovia-dpi-receipts.ndjson",
+               "https://raw.githubusercontent.com/croviatrust/crovia-core/1798a9c9138c6efc3fcaf487ac5e9833008f6ad9/demo_dpi_2025-11/data/dpi_royalty_receipts.ndjson",
+               3585053, "24020a024a05a68731a2d4de4536bd7ca3eb8576"),
+          ]
+          prov = []
+          for name, url, expected_n, expected_blob in rows:
+              data = urllib.request.urlopen(url, timeout=240).read()
+              if len(data) != expected_n:
+                  raise SystemExit(f"{name}: size {len(data)} != {expected_n}")
+              blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              if blob != expected_blob:
+                  raise SystemExit(f"{name}: blob {blob} != {expected_blob}")
+              sha256 = hashlib.sha256(data).hexdigest()
+              pathlib.Path("corpus", name).write_bytes(data)
+              prov.append({"name": name, "bytes": len(data), "git_blob": blob, "sha256": sha256})
+              print(name, len(data), blob, sha256)
+          pathlib.Path("results/discovery-provenance.json").write_text(
+              json.dumps({"schema": 5,
+                          "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
+                          "frozen_g3_sha": os.environ["FROZEN_G3_SHA"],
+                          "files": prov}, indent=2) + "\n"
+          )
+          PY
+
+      - name: Measure frozen G2 diagnostic control on discovery corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in corpus/*; do
+            base="$(basename "$f")"
+            ./grotli_g2 measure "$f" > "results/g2row-$base.json"
+          done
+
+      - name: Replay G4 planner on discovery corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > results/discovery.jsonl
+          for f in corpus/*; do
+            base="$(basename "$f")"
+            /usr/bin/time -v -o "results/g4-$base.time.txt" \
+              ./grotli_g4_planner measure "$f" --g2-result "results/g2row-$base.json" \
+              | tee -a results/discovery.jsonl
+          done
+          python3 - <<'PY'
+          import json, pathlib
+          expected = {
+              "D1-amazon-cellphones.ndjson", "D2-cdisc-adae.ndjson",
+              "D3-gharchive-10mb.ndjson", "D4-crovia-dpi-receipts.ndjson",
+          }
+          seen = {}
+          for line in pathlib.Path("results/discovery.jsonl").read_text().splitlines():
+              if not line.strip():
+                  continue
+              row = json.loads(line)
+              name = pathlib.Path(row["file"]).name
+              if name in seen:
+                  raise SystemExit(f"duplicate G4 row: {name}")
+              seen[name] = row
+          if set(seen) != expected:
+              raise SystemExit(f"unexpected discovery files: {sorted(seen)}")
+          for name, row in seen.items():
+              pathlib.Path("results", f"g4row-{name}.json").write_text(
+                  json.dumps(row, separators=(",", ":")) + "\n")
+          print("four G4 rows present:", sorted(seen))
+          PY
+
+      - name: Frozen G3 reference carriers and complete bytes on D1-D4
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results/g3-carriers
+          : > results/g3-reference.jsonl
+          : > results/g3-carrier-reference.jsonl
+          for f in corpus/*; do
+            base="$(basename "$f")"
+            test -s "results/g2row-$base.json"
+            ./grotli_g3 measure "$f" --g2-result "results/g2row-$base.json" \
+              | tee -a results/g3-reference.jsonl
+            # Instrumentation-only: dump the EXACT frozen G3 carrier bytes per
+            # arm so the identity gate can hash them and compare to G4 O11.
+            mkdir -p "results/g3-carriers/$base"
+            ./grotli_g3_hashref "$f" "results/g3-carriers/$base" \
+              | tee -a results/g3-carrier-reference.jsonl
+          done
+
+      - name: Hard identity gate (O11 == frozen G3; RAW planner-independent)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+
+          PORTFOLIOS = ["RAW", "DICT", "INT", "MIXED"]
+          G3_KEY = {
+              "RAW": "g3_region_raw",
+              "DICT": "g3_region_dict",
+              "INT": "g3_region_int",
+              "MIXED": "g3_region_mixed",
+          }
+          EXPECTED = {
+              "D1-amazon-cellphones.ndjson", "D2-cdisc-adae.ndjson",
+              "D3-gharchive-10mb.ndjson", "D4-crovia-dpi-receipts.ndjson",
+          }
+
+          def load(path):
+              out = {}
+              for line in pathlib.Path(path).read_text().splitlines():
+                  if line.strip():
+                      r = json.loads(line)
+                      out[pathlib.Path(r["file"]).name] = r
+              return out
+
+          g4 = load("results/discovery.jsonl")
+          g3 = load("results/g3-reference.jsonl")
+          g3ref = load("results/g3-carrier-reference.jsonl")
+          if set(g4) != EXPECTED or set(g3) != EXPECTED or set(g3ref) != EXPECTED:
+              raise SystemExit(
+                  f"file set mismatch: G4 {sorted(g4)} G3 {sorted(g3)} "
+                  f"G3-hashref {sorted(g3ref)}")
+
+          checks = []
+          failures = []
+          hash_equalities = 0
+          for name in sorted(EXPECTED):
+              a, b, h = g4[name], g3[name], g3ref[name]
+              if not a.get("region_ok"):
+                  failures.append(f"{name}: G4 region_ok=false on frozen discovery corpus")
+                  checks.append({"file": name, "region_ok": False, "match": False})
+                  continue
+              # G4 emits per-P-F rows O11_REGION_*, S0_REGION_*, ... at top level.
+              def pf(p, f):
+                  return a[f"{p}_REGION_{f}"]
+
+              # Hashref arms keyed by label; each carries the exact dumped bytes.
+              href = {arm["arm"]: arm for arm in h.get("arms", [])}
+              if set(href) != set(PORTFOLIOS):
+                  failures.append(f"{name}: hashref arms {sorted(href)} != {PORTFOLIOS}")
+                  continue
+
+              file_entry = {"file": name, "region_ok": True, "portfolios": {}}
+              for f in PORTFOLIOS:
+                  cell = pf("O11", f)
+                  got_bytes = cell["complete_bytes"]
+                  got_sha = cell["carrier_sha256"]
+                  g3_bytes = b[f"{G3_KEY[f]}_complete_bytes"]
+                  ref_bytes = href[f]["complete"]
+
+                  # (1) G4 O11 complete bytes == original frozen G3 measure.
+                  if got_bytes != g3_bytes:
+                      failures.append(f"{name}/{f}: C(O11)={got_bytes} != G3-measure {g3_bytes}")
+                  # (2) hashref complete bytes == original frozen G3 measure.
+                  if ref_bytes != g3_bytes:
+                      failures.append(
+                          f"{name}/{f}: hashref complete={ref_bytes} != G3-measure {g3_bytes}")
+
+                  # (3) REAL carrier SHA-256 equality over the exact dumped bytes.
+                  cpath = pathlib.Path(href[f]["carrier_path"])
+                  if not cpath.is_file():
+                      failures.append(f"{name}/{f}: missing carrier file {cpath}")
+                      continue
+                  raw = cpath.read_bytes()
+                  ref_sha = hashlib.sha256(raw).hexdigest()
+                  if not isinstance(got_sha, str) or len(got_sha) != 64:
+                      failures.append(f"{name}/{f}: malformed carrier_sha256 {got_sha!r}")
+                  elif ref_sha != got_sha:
+                      failures.append(
+                          f"{name}/{f}: carrier_sha256(O11)={got_sha} != frozen-G3 sha256={ref_sha}")
+                  else:
+                      hash_equalities += 1
+                  # (4) carrier length equality when G4 exposes it.
+                  if "carrier_bytes" in cell and cell["carrier_bytes"] != len(raw):
+                      failures.append(
+                          f"{name}/{f}: carrier_bytes={cell['carrier_bytes']} != "
+                          f"frozen-G3 len={len(raw)}")
+                  if href[f].get("carrier_size") != len(raw):
+                      failures.append(
+                          f"{name}/{f}: hashref carrier_size={href[f].get('carrier_size')} "
+                          f"!= dumped len={len(raw)}")
+
+                  file_entry["portfolios"][f] = {
+                      "complete_bytes": got_bytes,
+                      "g3_measure_complete_bytes": g3_bytes,
+                      "hashref_complete_bytes": ref_bytes,
+                      "g4_o11_carrier_sha256": got_sha,
+                      "frozen_g3_carrier_sha256": ref_sha,
+                      "carrier_bytes": len(raw),
+                      "sha_equal": (ref_sha == got_sha),
+                  }
+              checks.append(file_entry)
+
+              # (5) REGION_RAW is planner-independent by construction.
+              for p in ["S0", "S1", "S2"]:
+                  if pf(p, "RAW")["complete_bytes"] != pf("O11", "RAW")["complete_bytes"]:
+                      failures.append(f"{name}: C({p},RAW) != C(O11,RAW)")
+                  if pf(p, "RAW")["carrier_sha256"] != pf("O11", "RAW")["carrier_sha256"]:
+                      failures.append(f"{name}: carrier_sha256({p},RAW) != O11 RAW")
+
+              # Deterministic call budget invariants.
+              if a.get("ranking_q11_calls") != 0:
+                  failures.append(f"{name}: ranking_q11_calls={a.get('ranking_q11_calls')} (must be 0)")
+              if a.get("ranking_q1_calls") != a.get("candidates_enumerated"):
+                  failures.append(
+                      f"{name}: ranking_q1_calls={a.get('ranking_q1_calls')} != "
+                      f"candidates_enumerated={a.get('candidates_enumerated')}")
+              if a.get("pf_verifier_q11_calls") != 16:
+                  failures.append(
+                      f"{name}: pf_verifier_q11_calls={a.get('pf_verifier_q11_calls')} (must be 16)")
+              if a.get("raw_brotli_q11_calls") != 1:
+                  failures.append(
+                      f"{name}: raw_brotli_q11_calls={a.get('raw_brotli_q11_calls')} (must be 1)")
+
+          out = {
+              "schema": 5,
+              "gate": "carrier_sha256_exact_equality",
+              "hash_equalities": hash_equalities,
+              "expected_hash_equalities": 16,
+              "checks": checks,
+              "failures": failures,
+          }
+          pathlib.Path("results/identity-gate.json").write_text(json.dumps(out, indent=2) + "\n")
+          if failures:
+              print(json.dumps(out, indent=2))
+              raise SystemExit("IDENTITY GATE FAILED: " + "; ".join(failures[:8]))
+          if hash_equalities != 16:
+              raise SystemExit(
+                  f"IDENTITY GATE FAILED: only {hash_equalities}/16 carrier SHA-256 equalities")
+          print(json.dumps(out, indent=2))
+          print("IDENTITY GATE PASSED (O11 complete bytes AND carrier SHA-256 equal the "
+                "separately built frozen G3 reference for all four portfolios; "
+                "C(f,P,RAW) == C(f,O11,RAW) with identical carrier hashes)")
+          PY
+
+      - name: Q2 separability probe (O11 REGION_MIXED only)
+        id: q2
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > results/q2-probe.jsonl
+          for f in corpus/*; do
+            ./grotli_g4_planner probe "$f" | tee -a results/q2-probe.jsonl
+          done
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          EXPECTED = {
+              "D1-amazon-cellphones.ndjson", "D2-cdisc-adae.ndjson",
+              "D3-gharchive-10mb.ndjson", "D4-crovia-dpi-receipts.ndjson",
+          }
+          rows = [json.loads(x) for x in
+                  pathlib.Path("results/q2-probe.jsonl").read_text().splitlines() if x.strip()]
+          if len(rows) != 4:
+              raise SystemExit(f"expected four Q2 rows, got {len(rows)}")
+          by_name = {pathlib.Path(r["file"]).name: r for r in rows}
+          if set(by_name) != EXPECTED:
+              raise SystemExit(f"unexpected Q2 files: {sorted(by_name)}")
+
+          MAX_PAIR_GAIN = 0.50    # r5 10.6
+          AGG_PAIR_GAIN = 0.25    # r5 10.6
+          infeasible = []
+          max_gain = 0.0
+          pairs_seen = 0
+          sum_indep = 0.0
+          sum_pair = 0.0
+          for name in sorted(EXPECTED):
+              r = by_name[name]
+              if r.get("verdict") not in ("SEPARABLE-ENOUGH", "NONSEPARABLE"):
+                  infeasible.append({"file": name, "verdict": r.get("verdict")})
+                  continue
+              if r.get("sampled_column_count", 0) == 0:
+                  continue
+              max_gain = max(max_gain, r.get("max_pair_gain_pct", 0.0))
+              pairs_seen += r.get("pair_count", 0)
+              for p in r["pairs"]:
+                  sum_indep += r["c_indep_mixed_complete_bytes"]
+                  sum_pair += p["c_pair_complete_bytes"]
+          agg_gain = ((sum_indep - sum_pair) / sum_indep * 100.0) if sum_indep > 0 else 0.0
+
+          if infeasible:
+              verdict = "INCONCLUSIVE-INFRA"
+          elif max_gain > MAX_PAIR_GAIN or agg_gain > AGG_PAIR_GAIN:
+              verdict = "NONSEPARABLE"
+          else:
+              verdict = "SEPARABLE-ENOUGH"
+
+          trigger = ("max_pair_gain" if max_gain > MAX_PAIR_GAIN else
+                     "agg_pair_gain" if agg_gain > AGG_PAIR_GAIN else "none")
+          out = {
+              "schema": 5,
+              "basis": "O11 REGION_MIXED",
+              "max_pair_gain": max_gain,
+              "agg_pair_gain": agg_gain,
+              "max_pair_gain_threshold": MAX_PAIR_GAIN,
+              "agg_pair_gain_threshold": AGG_PAIR_GAIN,
+              "triggering_number": trigger,
+              "pairs_measured": pairs_seen,
+              "infeasible": infeasible,
+              "verdict": verdict,
+          }
+          pathlib.Path("results/q2-ruling.json").write_text(json.dumps(out, indent=2) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"q2_verdict={verdict}\n")
+          print(json.dumps(out, indent=2))
+          PY
+          cat results/q2-ruling.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Discovery ruling (frozen gates, DSTAR/ISTAR, S3, matrix)
+        id: ruling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          # ---- Frozen thresholds (verbatim from r5; none invented here) ------
+          AGG_REGRET_MAX    = 0.0025   # G8.2
+          FILE_REGRET_MAX   = 0.0050   # G8.3
+          WEIGHTED_AGREE    = 0.95     # G8.4 (a required gate)
+          SPEEDUP_MANDATORY = 5.0      # G8.6
+          SPEEDUP_TARGET    = 10.0     # G8.6
+          DICT_AGG_MAX      = 1.0025   # G8.10
+          DICT_FILE_MAX     = 0.0050   # G8.10
+          INT_AGG_MAX       = 1.0025   # G8.11
+          INT_FILE_MAX      = 0.0050   # G8.11
+
+          PORTFOLIOS = ["RAW", "DICT", "INT", "MIXED"]
+          PROXIES = ["S0", "S1", "S2"]
+          S3_FINALIST_LABELS = [
+              "RAW_BROTLI",
+              "ISTAR_REGION_INT",
+              "DSTAR_REGION_DICT",
+              "ISTAR_REGION_MIXED",
+              "DSTAR_REGION_MIXED",
+          ]
+          EXPECTED = {
+              "D1-amazon-cellphones.ndjson", "D2-cdisc-adae.ndjson",
+              "D3-gharchive-10mb.ndjson", "D4-crovia-dpi-receipts.ndjson",
+          }
+
+          def load(path):
+              out = {}
+              for line in pathlib.Path(path).read_text().splitlines():
+                  if line.strip():
+                      r = json.loads(line)
+                      out[pathlib.Path(r["file"]).name] = r
+              return out
+
+          rows = load("results/discovery.jsonl")
+          if set(rows) != EXPECTED:
+              raise SystemExit(f"unexpected discovery files: {sorted(rows)}")
+          q2 = json.loads(pathlib.Path("results/q2-ruling.json").read_text())
+          identity = json.loads(pathlib.Path("results/identity-gate.json").read_text())
+
+          def surf(r):
+              return {k.replace("_surface", ""): v for k, v in r.items()
+                      if k.endswith("_surface")}
+
+          def pf(r):
+              return {k: v for k, v in r.items() if "_REGION_" in k}
+
+          # ---- Correctness (G8.1) ----------------------------------------
+          correctness_ok = True
+          correctness_detail = []
+          for name in sorted(EXPECTED):
+              r = rows[name]
+              if not r.get("region_ok"):
+                  correctness_ok = False
+                  correctness_detail.append({"file": name, "region_ok": False})
+                  continue
+              if not r.get("raw_roundtrip"):
+                  correctness_ok = False
+                  correctness_detail.append({"file": name, "raw_roundtrip": False})
+              for label, cell in pf(r).items():
+                  if not cell.get("roundtrip"):
+                      correctness_ok = False
+                      correctness_detail.append(
+                          {"file": name, "label": label, "roundtrip": False})
+          if identity.get("failures"):
+              correctness_ok = False
+              correctness_detail.append({"identity_gate": identity["failures"][:4]})
+
+          # ---- Per-surface fidelity numbers -------------------------------
+          o11_region = {n: surf(rows[n])["O11"]["c_region_bytes"] for n in EXPECTED}
+          sum_o11 = sum(o11_region.values())
+
+          proxy_facts = {}
+          for p in PROXIES:
+              per = {}
+              for name in sorted(EXPECTED):
+                  r = rows[name]
+                  if not r.get("region_ok"):
+                      per[name] = {"region_ok": False}
+                      continue
+                  s = surf(r)[p]
+                  cells = {f: pf(r)[f"{p}_REGION_{f}"] for f in PORTFOLIOS}
+                  per[name] = {
+                      "region_ok": True,
+                      "c_region": s["c_region_bytes"],
+                      "selected_family": s["selected_family"],
+                      "per_file_regret": (s["c_region_bytes"] - o11_region[name]) / o11_region[name],
+                      "complete_bytes": {f: cells[f]["complete_bytes"] for f in PORTFOLIOS},
+                      "weighted_agreement_mixed": s.get("mixed_agreement_weighted_agreement"),
+                      "weighted_agreement_available": s.get("mixed_agreement_weighted_agreement_available"),
+                      "raw_agreement_mixed": s.get("mixed_agreement_raw_agreement"),
+                      "dict_agreement": s.get("dict_agreement_weighted_agreement"),
+                      "int_agreement": s.get("int_agreement_weighted_agreement"),
+                      "near_tie_slots": s.get("mixed_agreement_near_tie_slots"),
+                      "ranking_score_ms": s.get("ranking_score_ms"),
+                      "selection_ms": s.get("selection_ms"),
+                      "ranking_score_ms_with_selection": s.get("ranking_score_ms_with_selection"),
+                      "candidate_planner_ms": s.get("candidate_planner_ms"),
+                      "q11_rank_calls": s.get("q11_rank_calls"),
+                      "q1_rank_calls": s.get("q1_rank_calls"),
+                      "final_q11_carrier_calls": s.get("final_q11_carrier_calls"),
+                  }
+              sum_proxy = sum(v["c_region"] for v in per.values() if v.get("region_ok"))
+              agg_regret = (sum_proxy - sum_o11) / sum_o11 if sum_o11 else 0.0
+              max_file_regret = max((v["per_file_regret"] for v in per.values()
+                                     if v.get("region_ok")), default=0.0)
+              proxy_facts[p] = {
+                  "per_file": per,
+                  "aggregate_regret": agg_regret,
+                  "max_file_regret": max_file_regret,
+              }
+
+          # G8.6 speedup uses the gated rank/selection cost only. The shared
+          # structural/materialization terms and the four paid final q11 verifier
+          # calls are excluded from both numerator and denominator.
+          speedup = {}
+          for p in PROXIES:
+              proxy_ms = sum((proxy_facts[p]["per_file"][n]["ranking_score_ms_with_selection"] or 0.0)
+                             for n in EXPECTED if proxy_facts[p]["per_file"][n].get("region_ok"))
+              o11_ms = sum((surf(rows[n])["O11"].get("ranking_score_ms_with_selection") or 0.0)
+                           for n in EXPECTED if rows[n].get("region_ok"))
+              speedup[p] = (o11_ms / proxy_ms) if proxy_ms > 0 else None
+
+          # ---- Gate evaluation (G8.1-G8.6) ---------------------------------
+          gates = {}
+          for p in PROXIES:
+              f = proxy_facts[p]
+              g8_1 = correctness_ok
+              g8_2 = f["aggregate_regret"] <= AGG_REGRET_MAX
+              g8_3 = f["max_file_regret"] <= FILE_REGRET_MAX
+              agree_vals = [f["per_file"][n]["weighted_agreement_mixed"]
+                            for n in EXPECTED if f["per_file"][n].get("region_ok")]
+              g8_4 = bool(agree_vals) and all(
+                  (a is not None and a >= WEIGHTED_AGREE) for a in agree_vals)
+              g8_5 = all((f["per_file"][n]["q11_rank_calls"] == 0)
+                         for n in EXPECTED if f["per_file"][n].get("region_ok"))
+              sp = speedup[p]
+              g8_6 = (sp is not None) and (sp >= SPEEDUP_MANDATORY)
+              gates[p] = {
+                  "G8.1_correctness": g8_1,
+                  "G8.2_aggregate_regret": g8_2,
+                  "G8.3_per_file_regret": g8_3,
+                  "G8.4_weighted_agreement": g8_4,
+                  "G8.5_ranking_calls": g8_5,
+                  "G8.6_speedup": g8_6,
+                  "speedup_measured": sp,
+                  "speedup_target_met": (sp is not None and sp >= SPEEDUP_TARGET),
+                  "passes_all": g8_1 and g8_2 and g8_3 and g8_4 and g8_5 and g8_6,
+              }
+
+          # ---- G8.10 / G8.11 (DSTAR / ISTAR eligibility) --------------------
+          def specific_gate(portfolio):
+              agg_max = DICT_AGG_MAX if portfolio == "DICT" else INT_AGG_MAX
+              file_max = DICT_FILE_MAX if portfolio == "DICT" else INT_FILE_MAX
+              result = {}
+              for p in PROXIES:
+                  per = proxy_facts[p]["per_file"]
+                  sum_p = sum_o = 0
+                  worst = 0.0
+                  for n in sorted(EXPECTED):
+                      if not per[n].get("region_ok"):
+                          continue
+                      cp = per[n]["complete_bytes"][portfolio]
+                      co = pf(rows[n])[f"O11_REGION_{portfolio}"]["complete_bytes"]
+                      sum_p += cp
+                      sum_o += co
+                      worst = max(worst, (cp - co) / co if co else 0.0)
+                  cond_agg = (sum_p <= sum_o * agg_max) if sum_o else False
+                  cond_file = worst <= file_max
+                  result[p] = {
+                      "sum_proxy": sum_p,
+                      "sum_o11": sum_o,
+                      "aggregate_ok": cond_agg,
+                      "max_per_file_delta": worst,
+                      "per_file_ok": cond_file,
+                      "passes": cond_agg and cond_file and correctness_ok
+                                and gates[p]["G8.5_ranking_calls"] and gates[p]["G8.6_speedup"],
+                  }
+              return result
+
+          dstar_facts = specific_gate("DICT")
+          istar_facts = specific_gate("INT")
+          dstar = next((p for p in PROXIES if dstar_facts[p]["passes"]), None)
+          istar = next((p for p in PROXIES if istar_facts[p]["passes"]), None)
+
+          # ---- S3: bounded finalist portfolio over ALREADY-MEASURED results --
+          # Zero additional q11 calls, zero ranking calls. S3 only CONSULTS the
+          # measured (P,F) matrix and RAW_BROTLI.
+          s3_files = []
+          s3_before = 0
+          s3_after = 0
+          collapse_events = []
+          for name in sorted(EXPECTED):
+              r = rows[name]
+              if not r.get("region_ok"):
+                  s3_files.append({"file": name, "region_ok": False})
+                  continue
+              def region_finalist(label, p, f):
+                  cell = pf(r)[f"{p}_REGION_{f}"]
+                  sha = cell.get("carrier_sha256")
+                  if not isinstance(sha, str) or len(sha) != 64:
+                      raise SystemExit(f"{name}: malformed S3 carrier hash for {label}: {sha!r}")
+                  return {
+                      "label": label,
+                      "complete_bytes": cell["complete_bytes"],
+                      "identity_kind": "REGION",
+                      "identity": sha,
+                      "carrier_sha256": sha,
+                  }
+
+              # RAW_BROTLI is a distinct representation family. It is never
+              # collapsed with a region carrier merely because compressed lengths
+              # happen to match.
+              finalists = [{
+                  "label": "RAW_BROTLI",
+                  "complete_bytes": r["raw_complete_bytes"],
+                  "identity_kind": "RAW_BROTLI",
+                  "identity": name,
+                  "carrier_sha256": None,
+              }]
+              if istar:
+                  finalists.append(region_finalist("ISTAR_REGION_INT", istar, "INT"))
+              if dstar:
+                  finalists.append(region_finalist("DSTAR_REGION_DICT", dstar, "DICT"))
+              if istar:
+                  finalists.append(region_finalist("ISTAR_REGION_MIXED", istar, "MIXED"))
+              if dstar:
+                  finalists.append(region_finalist("DSTAR_REGION_MIXED", dstar, "MIXED"))
+
+              before = len(finalists)
+              seen = {}
+              ordered_unique = []
+              for item in finalists:
+                  key = (item["identity_kind"], item["identity"])
+                  if key in seen:
+                      prior = seen[key]
+                      if prior["complete_bytes"] != item["complete_bytes"]:
+                          raise SystemExit(
+                              f"{name}: exact S3 representation identity {key} has inconsistent "
+                              f"complete bytes {prior['complete_bytes']} vs {item['complete_bytes']}")
+                      collapse_events.append({
+                          "file": name,
+                          "collapsed": item["label"],
+                          "into": prior["label"],
+                          "complete_bytes": item["complete_bytes"],
+                          "identity_kind": item["identity_kind"],
+                          "identity": item["identity"],
+                      })
+                      continue
+                  seen[key] = item
+                  ordered_unique.append(item)
+
+              # r5 4.7.5 frozen S3 tie order: ordered_unique preserves the frozen
+              # label order, and exact byte ties therefore retain the first label.
+              best = ordered_unique[0]
+              for item in ordered_unique[1:]:
+                  if item["complete_bytes"] < best["complete_bytes"]:
+                      best = item
+              best_label = best["label"]
+              best_bytes = best["complete_bytes"]
+              raw_tie = (best_label == "RAW_BROTLI" and
+                         any(x["complete_bytes"] == best_bytes
+                             for x in ordered_unique if x["label"] != "RAW_BROTLI"))
+              s3_before += before
+              s3_after += len(ordered_unique)
+              s3_files.append({
+                  "file": name,
+                  "region_ok": True,
+                  "finalists_before_dedup": before,
+                  "finalists_after_dedup": len(ordered_unique),
+                  "finalist_labels_before": [x["label"] for x in finalists],
+                  "finalist_labels_after": [x["label"] for x in ordered_unique],
+                  "collapse_events": [c for c in collapse_events if c["file"] == name],
+                  "c_s3": best_bytes,
+                  "winning_label": best_label,
+                  "raw_brotli_won_exact_tie": raw_tie,
+                  "finalists": [{
+                      "label": x["label"],
+                      "complete_bytes": x["complete_bytes"],
+                      "carrier_sha256": x["carrier_sha256"],
+                      "identity_kind": x["identity_kind"],
+                      "delta_vs_c_s3": x["complete_bytes"] - best_bytes,
+                  } for x in ordered_unique],
+              })
+
+          # ---- r5 section 12 decision matrix (mechanical, frozen order) -----
+          adopt = next((p for p in PROXIES if gates[p]["passes_all"]), None)
+          sep = q2["verdict"]
+          any_byte_pass = any(gates[p]["G8.2_aggregate_regret"] and gates[p]["G8.3_per_file_regret"]
+                              for p in PROXIES)
+          speed_any = any(gates[p]["G8.6_speedup"] for p in PROXIES)
+
+          if not correctness_ok:
+              decision, rationale = "NO-GO-G4", "correctness or identity failure (row 5)"
+          elif not any_byte_pass:
+              decision, rationale = "NO-GO-G4", "no cheap proxy replaces O11 at carrier level (row 6)"
+          elif sep == "NONSEPARABLE":
+              decision, rationale = "CONDITIONAL-JOINT", "Q1 answered; Q2 says joint planning required (row 4)"
+          elif adopt is not None and sep == "SEPARABLE-ENOUGH":
+              decision = f"GO-G4-{adopt}"
+              rationale = f"{adopt} satisfies the full frozen gate set (rows 1-3)"
+          elif any_byte_pass and not speed_any:
+              decision, rationale = "CONDITIONAL-SPEED", "fidelity established, operationally insufficient (row 7)"
+          elif any_byte_pass and sep == "SEPARABLE-ENOUGH":
+              decision, rationale = "CONDITIONAL-DISAGREEMENT", "bytes authoritative; disagreement must be explained (row 8)"
+          else:
+              decision, rationale = "NO-GO-G4", "no matrix row satisfied"
+
+          q1_verdict = "PASS" if (any_byte_pass and correctness_ok and sep != "INCONCLUSIVE-INFRA") else "FAIL"
+
+          ruling = {
+              "schema": 5,
+              "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
+              "g4_source_sha256": os.environ.get("G4_SOURCE_SHA256", ""),
+              "frozen_g3_sha": os.environ["FROZEN_G3_SHA"],
+              "prereg": "docs/I10-GROTLI-G4-PLANNER-FIDELITY-PREREG.md",
+              "prereg_freeze_revision": "r5",
+              "thresholds": {
+                  "aggregate_regret_max": AGG_REGRET_MAX,
+                  "per_file_regret_max": FILE_REGRET_MAX,
+                  "weighted_agreement_min": WEIGHTED_AGREE,
+                  "speedup_mandatory": SPEEDUP_MANDATORY,
+                  "speedup_target": SPEEDUP_TARGET,
+                  "dict_agg_max": DICT_AGG_MAX,
+                  "dict_file_max": DICT_FILE_MAX,
+                  "int_agg_max": INT_AGG_MAX,
+                  "int_file_max": INT_FILE_MAX,
+                  "q2_max_pair_gain": q2["max_pair_gain_threshold"],
+                  "q2_agg_pair_gain": q2["agg_pair_gain_threshold"],
+              },
+              "identity_gate": identity,
+              "correctness_ok": correctness_ok,
+              "correctness_detail": correctness_detail,
+              "o11_region_bytes": o11_region,
+              "proxy_facts": proxy_facts,
+              "speedup": speedup,
+              "gates": gates,
+              "dstar_facts": dstar_facts,
+              "istar_facts": istar_facts,
+              "dstar": dstar,
+              "istar": istar,
+              "s3": {
+                  "finalist_label_order": S3_FINALIST_LABELS,
+                  "distinct_finalist_results_before_dedup": s3_before,
+                  "distinct_finalist_results_after_exact_carrier_dedup": s3_after,
+                  "dedup_collapsed_labels": collapse_events,
+                  "reused_q11_verifier_results": s3_after,
+                  "s3_additional_q11_calls": 0,
+                  "s3_q11_rank_calls": 0,
+                  "s3_verifier_calls_are_ranking_calls": False,
+                  "collapsed_to_raw_only": (dstar is None and istar is None),
+                  "per_file": s3_files,
+              },
+              "q2": q2,
+              "q1_verdict": q1_verdict,
+              "decision": decision,
+              "decision_rationale": rationale,
+              "opens_new_validation_corpus": False,
+              "consumes_g3_v1": False,
+          }
+          pathlib.Path("results/discovery-ruling.json").write_text(json.dumps(ruling, indent=2) + "\n")
+
+          md = [
+              "# G4 planner-fidelity discovery ruling (r5)",
+              "",
+              f"- implementation SHA: `{ruling['implementation_sha']}`",
+              f"- G4 source sha256: `{ruling['g4_source_sha256']}`",
+              f"- frozen G3 SHA: `{ruling['frozen_g3_sha']}`",
+              f"- identity gate: **{'PASS' if not identity.get('failures') else 'FAIL'}**",
+              f"- correctness (G8.1): **{correctness_ok}**",
+              f"- DSTAR: **{dstar}**  ISTAR: **{istar}**",
+              f"- Q2 verdict: **{sep}** "
+              f"(max_pair_gain={q2['max_pair_gain']:.4f}, agg_pair_gain={q2['agg_pair_gain']:.4f})",
+              f"- Q1 verdict: **{q1_verdict}**",
+              f"- S3 finalists before/after dedup: **{s3_before}/{s3_after}**",
+              f"- S3 additional q11 calls: **0** (reuses measured results)",
+              f"- decision: **{decision}** — {rationale}",
+              "",
+              "New validation corpus opened: **no**. G3 V1 consumed: **no** (r5 section 9).",
+          ]
+          pathlib.Path("results/discovery-ruling.md").write_text("\n".join(md) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"decision={decision}\n")
+              f.write(f"q1_verdict={q1_verdict}\n")
+          print(json.dumps(ruling, indent=2))
+          PY
+          cat results/discovery-ruling.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload discovery evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: grotli-g4-planner-fidelity-${{ github.run_id }}
+          path: |
+            results/
+            grotli-g4-binary.sha256
+            grotli-g3-binary.sha256
+            grotli-g3-source.blob
+            grotli-g3-source.sha256
+            grotli-g3-hashref-source.sha256
+            grotli-g3-hashref-binary.sha256
+            frozen-grotli_g3_hashref.cpp
+            grotli-g2-binary.sha256
+            results-runner.txt
+          if-no-files-found: error
+          retention-days: 30
