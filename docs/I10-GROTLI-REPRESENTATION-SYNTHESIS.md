@@ -1870,3 +1870,91 @@ large combinatorial planner until this basis earns them.
 The goal of G2 is not to rescue every G1 loss. It is to test whether a **small
 basis of known cheap experts plus routing** can turn the observed class-specific
 representation win into a broader structured-data portfolio win.
+
+
+---
+
+## 27. Measured G2 outcome — typed dictionaries broaden the expert, whole-object eligibility is now binding
+
+G2 is closed as **NO-GO-G2-DISCOVERY**, but the small typed basis produced two
+large same-backend structured wins.
+
+Frozen public implementation:
+
+    c34b291f40db4037ae114a39dae181644260dfff
+
+Remote run:
+
+    35943876855
+
+Measured selected results:
+
+- D1 Amazon: **39,299 B / -2.0610%** versus raw Brotli;
+- D2 CDISC: **20,903 B / -16.4849%**, selected P-DICT;
+- D3 GH Archive: exact whole-object parser unavailable after
+  `unterminated JSON string`, therefore raw fallback at **1,292,757 B**;
+- D4 CROVIA: **84,361 B / -22.5029%**, selected P-MIXED.
+
+The four-family routed aggregate is:
+
+- raw: **1,466,769 B**;
+- selected: **1,437,320 B**;
+- delta: **-2.007746%**.
+
+The frozen G2 gate required <= -3%, so discovery does not pass and V1 remains
+unopened.
+
+Source of record:
+
+- [I10-GROTLI-G2-RESULTS.md](I10-GROTLI-G2-RESULTS.md)
+
+### 27.1 The D2 causal result
+
+D2 was the critical G1 negative control:
+
+- G1 SHAPE_COLUMN: **25,654 B / +2.4971%** versus raw.
+
+G2 P-DICT:
+
+- **20,903 B / -16.4849%** versus raw;
+- **-19.3433%** relative to G1R;
+- 43 exact-dictionary columns selected.
+
+Integer-only selection does not explain the improvement.
+
+Therefore exact lexical token dictionaries are a measured missing
+representation for D2.
+
+This materially strengthens the adaptive-representation thesis: a small known
+expert can change which structured populations beat the same mature backend.
+
+### 27.2 The next bottleneck is representation availability
+
+D3 accounts for **88.1364%** of the four-file raw-Brotli aggregate and contributes
+zero representation saving because the G2 parser's eligibility decision is
+whole-object.
+
+Given the frozen D1/D2/D4 G2 selections, the -3% broad gate is short by only
+**14,555 B**, approximately **1.126%** of D3's raw-Brotli bytes.
+
+This does not establish that D3 contains such a gain.
+
+It establishes the next causal target:
+
+> **make structured representation local and recoverable instead of requiring an
+> entire large object to satisfy one parser contract.**
+
+The next experiment is therefore G3 regionized residual representation, not an
+expanded typed-leaf portfolio.
+
+Binding preregistration:
+
+- [I10-GROTLI-G3-REGION-PREREG.md](I10-GROTLI-G3-REGION-PREREG.md)
+
+G3 freezes the G2 leaves and tests whether valid line-framed records can be
+represented structurally while malformed/incomplete material remains exact raw
+residual data.
+
+Raw Brotli remains mandatory fallback.
+
+No production transform ID is authorized.
