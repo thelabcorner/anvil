@@ -1,0 +1,400 @@
+name: ANVIL I10 Grotli G5A ordering attribution
+
+# Preregistration: docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md
+# Parent evidence:  G3 PASS-G3-NARROW, G4 NO-GO-G4
+#
+# G5A is an ATTRIBUTION experiment, not a codec and not a planner. It holds the
+# reversible token/chunk multiset and the charged envelope constant while
+# changing ONLY the permutation of the exact same lexical scalar chunks before
+# the same Brotli q11/lgwin30 backend.
+#
+# Three arms, frozen:
+#   A1 SOURCE_ORDER  structured chunks in original structured-frame order
+#   A2 SHAPE_ROW     grouped by exact shape, row-major inside each shape
+#   A3 SHAPE_COLUMN  grouped by exact shape, slot-major inside each shape
+#
+# Hard invariants that gate every size number (prereg section 6):
+#   I1 exact source roundtrip per arm (body + charged mode byte)
+#   I2 len(A1_body) == len(A2_body) == len(A3_body)
+#   I3 each arm's token stream is an exact permutation of the canonical chunks
+#   I4 common envelope prefix and raw-residual section byte-identical across arms
+#   I5 same backend: Brotli q11/lgwin30
+#   I6 no typed leaf encoder
+#   I7 the one-byte order-mode field is charged in every complete-byte total
+# Any invariant failure => INVALID-G5A (correctness), no size interpretation.
+#
+# This workflow:
+#   1. checks out the pinned G5A implementation SHA and verifies identity;
+#   2. builds G5A warning-clean and runs its full adversarial selftest (which
+#      re-runs the frozen G3 suite inside the same translation unit);
+#   3. builds a SEPARATE frozen G3 reference from $FROZEN_G3_SHA and verifies its
+#      source identity and selftest, proving the imported parser/shape semantics;
+#   4. fetches and verifies the frozen D1-D4 discovery objects and the frozen
+#      known-stress V1 object;
+#   5. runs the three frozen arms on D1-D4 and on V1 (known-stress anatomy);
+#   6. applies the frozen section-9/10/11 classification MECHANICALLY;
+#   7. uploads the complete evidence (JSONL rows, ruling, provenance).
+#
+# V1 is KNOWN-STRESS / NOT HELD-OUT FOR G5A. No new held-out corpus is opened.
+# Heavy compression runs ONLY here, never on the workstation.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-i10-grotli-g5a-ordering-attribution
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  attribution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      # Pinned public G5A implementation source commit. The workflow lands
+      # after this commit so the implementation identity is immutable before CI.
+      FROZEN_IMPLEMENTATION_SHA: 4618e5ab380271d589c0466c7dff5bf15a6e9d20
+      # Frozen G3 source identity whose parser/shape semantics G5A imports.
+      FROZEN_G3_SHA: 1a3d18fed76adb6fb33264e1994f9c357306b3fa
+    outputs:
+      implementation_sha: ${{ steps.freeze.outputs.sha }}
+      classification: ${{ steps.ruling.outputs.classification }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FROZEN_IMPLEMENTATION_SHA }}
+          fetch-depth: 0
+
+      - name: Freeze implementation identity
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$FROZEN_IMPLEMENTATION_SHA" = "PLACEHOLDER_G5A_IMPLEMENTATION_SHA" ]; then
+            echo "FROZEN_IMPLEMENTATION_SHA is still the placeholder." >&2
+            echo "Commit the G5A source first, then pin the real SHA." >&2
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$FROZEN_IMPLEMENTATION_SHA"
+          echo "sha=$FROZEN_IMPLEMENTATION_SHA" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain)"
+          git show -s --format='%H %s' HEAD
+          sha256sum tools/grotli_g5a_ordering.cpp
+          G5A_SOURCE_SHA256="$(sha256sum tools/grotli_g5a_ordering.cpp | awk '{print $1}')"
+          echo "G5A_SOURCE_SHA256=$G5A_SOURCE_SHA256" >> "$GITHUB_OUTPUT"
+          echo "G5A_SOURCE_SHA256=$G5A_SOURCE_SHA256" >> "$GITHUB_ENV"
+          sha256sum docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md | tee grotli-g5a-prereg.sha256
+          uname -a > results-runner.txt
+
+      - name: Install compiler and Brotli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 libbrotli-dev python3 time
+
+      - name: Build and self-test G5A prototype (warning-clean)
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            tools/grotli_g5a_ordering.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g5a_ordering
+          sha256sum grotli_g5a_ordering | tee grotli-g5a-binary.sha256
+          ./grotli_g5a_ordering selftest
+
+      - name: Build frozen G3 reference and verify its source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BLOB="$(git rev-parse "$FROZEN_G3_SHA:tools/grotli_g3.cpp" 2>/dev/null || true)"
+          if [ -z "$EXPECTED_BLOB" ]; then
+            echo "Frozen G3 commit not present locally; fetching it explicitly."
+            git fetch --no-tags --depth 1 origin "$FROZEN_G3_SHA"
+            EXPECTED_BLOB="$(git rev-parse "$FROZEN_G3_SHA:tools/grotli_g3.cpp")"
+          fi
+          test -n "$EXPECTED_BLOB"
+          git show "$FROZEN_G3_SHA:tools/grotli_g3.cpp" > frozen-grotli_g3.cpp
+          ACTUAL_BLOB="$(git hash-object frozen-grotli_g3.cpp)"
+          test "$ACTUAL_BLOB" = "$EXPECTED_BLOB"
+          echo "$ACTUAL_BLOB" | tee grotli-g3-source.blob
+          sha256sum frozen-grotli_g3.cpp | tee grotli-g3-source.sha256
+          # G5A imports the exact semantic TU; the imported copy must equal the
+          # separately materialized frozen reference byte-for-byte.
+          test "$(git hash-object tools/grotli_g3.cpp)" = "$EXPECTED_BLOB"
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            frozen-grotli_g3.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3
+          sha256sum grotli_g3 | tee grotli-g3-binary.sha256
+          ./grotli_g3 selftest
+
+      - name: Fetch and verify frozen discovery + known-stress corpora
+        shell: bash
+        run: |
+          mkdir -p corpus results
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+
+          # D1-D4 frozen discovery objects (immutable since G1; blob SHA-1 and
+          # SHA-256 both pinned from the G2 corpus freeze).
+          rows = [
+              ("D1-amazon-cellphones.ndjson",
+               "https://raw.githubusercontent.com/simdjson/simdjson-data/4197c425e857f0ec38e89822fdd0bd9ea21f4daf/jsonexamples/amazon_cellphones.ndjson",
+               277673, "9cbb6a071eaa2a10c24d9b4d1729dca501f2f72b",
+               "c1518fdaaed45e590c480ed707aa1adaaba8b84b10747f956bd431c708bd590e"),
+              ("D2-cdisc-adae.ndjson",
+               "https://raw.githubusercontent.com/cdisc-org/DataExchange-DatasetJson/a379f49a3f43c2aaed63bdeca761bdb7140df2c3/examples/adam/adae.ndjson",
+               615350, "4bb9ef50f650767967fc3f0a663c73d33c57c608",
+               "b795a59c5c92a8fc93d7d3f729fa0dae014e9b0f684a6a7a7bcf07e4104ba723"),
+              ("D3-gharchive-10mb.ndjson",
+               "https://raw.githubusercontent.com/rushikeshmore/DataCortex/9bf63551499974e7398b87b45d1a9d4b50936566/corpus/json-bench/gharchive-10mb.ndjson",
+               10485760, "59d1d00825053e9894a7895fcea0665912524ec8",
+               "a860af236f794779b5471b416b2e6d7ea68de00f6d17728dd3b088a7ecec8252"),
+              ("D4-crovia-dpi-receipts.ndjson",
+               "https://raw.githubusercontent.com/croviatrust/crovia-core/1798a9c9138c6efc3fcaf487ac5e9833008f6ad9/demo_dpi_2025-11/data/dpi_royalty_receipts.ndjson",
+               3585053, "24020a024a05a68731a2d4de4536bd7ca3eb8576",
+               "0db7ace9e46ce458a7055f48b09aabc7df15f4f74a23553d3660b7de61d0916f"),
+              # V1: KNOWN-STRESS anatomy only (G3 already opened it). Not held-out.
+              ("V1-sino-us-drugqa-all.jsonl",
+               "https://raw.githubusercontent.com/DodgeLU/Sino-US-DrugQA/cd026a27a5e039863de9080b8d7d95acaf1f5a39/data/release/all.jsonl",
+               15374047, "8d9e6acf3f534194487532fa60d4f1d43fe71d00",
+               "757b9bc7e5ee2d38ab5ed43877b1d87809cb5131621d106671bc27996da1c499"),
+          ]
+          prov = []
+          for name, url, expected_n, expected_blob, expected_sha in rows:
+              data = urllib.request.urlopen(url, timeout=300).read()
+              if len(data) != expected_n:
+                  raise SystemExit(f"{name}: size {len(data)} != {expected_n}")
+              blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              if blob != expected_blob:
+                  raise SystemExit(f"{name}: blob {blob} != {expected_blob}")
+              sha256 = hashlib.sha256(data).hexdigest()
+              if sha256 != expected_sha:
+                  raise SystemExit(f"{name}: sha256 {sha256} != {expected_sha}")
+              pathlib.Path("corpus", name).write_bytes(data)
+              prov.append({"name": name, "bytes": len(data),
+                           "git_blob": blob, "sha256": sha256,
+                           "role": ("known-stress-not-held-out"
+                                    if name.startswith("V1") else "discovery")})
+              print(name, len(data), blob, sha256)
+          pathlib.Path("results/discovery-provenance.json").write_text(
+              json.dumps({"schema": 1,
+                          "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
+                          "frozen_g3_sha": os.environ["FROZEN_G3_SHA"],
+                          "files": prov}, indent=2) + "\n"
+          )
+          PY
+
+      - name: Run G5A arms on discovery corpus (D1-D4)
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > results/g5a-discovery.jsonl
+          for f in corpus/D*.ndjson; do
+            base="$(basename "$f")"
+            /usr/bin/time -v -o "results/g5a-$base.time.txt" \
+              ./grotli_g5a_ordering measure "$f" | tee -a results/g5a-discovery.jsonl
+          done
+          python3 - <<'PY'
+          import json, pathlib
+          rows = [json.loads(x) for x in
+                  pathlib.Path("results/g5a-discovery.jsonl").read_text().splitlines() if x.strip()]
+          if len(rows) != 4:
+              raise SystemExit(f"expected four D1-D4 rows, got {len(rows)}")
+          for r in rows:
+              if not (r["body_size_identity"] and r["envelope_identity"] and
+                      r["all_permutations_exact"] and r["all_roundtrip"]):
+                  raise SystemExit(f"INVALID-G5A invariants on {r['file']}")
+          for r in rows:
+              pathlib.Path("results", f"g5arow-{pathlib.Path(r['file']).name}.json").write_text(
+                  json.dumps(r, separators=(",", ":")) + "\n")
+          print("four D1-D4 G5A rows present and invariant-clean")
+          PY
+
+      - name: Run G5A arms on known-stress V1 (diagnostic only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=corpus/V1-sino-us-drugqa-all.jsonl
+          /usr/bin/time -v -o results/g5a-V1.time.txt \
+            ./grotli_g5a_ordering measure "$f" | tee results/g5a-v1.jsonl
+          python3 - <<'PY'
+          import json, pathlib
+          r = json.loads(pathlib.Path("results/g5a-v1.jsonl").read_text().strip().splitlines()[-1])
+          if not (r["body_size_identity"] and r["envelope_identity"] and
+                  r["all_permutations_exact"] and r["all_roundtrip"]):
+              raise SystemExit("INVALID-G5A invariants on V1")
+          print("V1 G5A row present and invariant-clean (known-stress)")
+          PY
+
+      - name: Frozen classification (sections 9-11, applied mechanically)
+        id: ruling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          # ---- Frozen thresholds (verbatim from the G5A prereg) --------------
+          ORDER_MATERIAL_AGG = 0.99      # S3/S1 <= 0.99  (>= 1.0% aggregate)
+          MATERIAL_FILES_MIN = 2         # A3 < A1 on >= 2 of 4
+          COLUMN_DOMINANT_SHARE = 0.60   # section 10 attribution labels
+          SHAPE_DOMINANT_SHARE = 0.60
+
+          DISCOVERY = {"D1-amazon-cellphones.ndjson", "D2-cdisc-adae.ndjson",
+                       "D3-gharchive-10mb.ndjson", "D4-crovia-dpi-receipts.ndjson"}
+
+          def load(path):
+              return [json.loads(x) for x in pathlib.Path(path).read_text().splitlines() if x.strip()]
+
+          discs = {pathlib.Path(r["file"]).name: r for r in load("results/g5a-discovery.jsonl")}
+          if set(discs) != DISCOVERY:
+              raise SystemExit(f"unexpected discovery rows: {sorted(discs)}")
+
+          invariants_ok = True
+          for r in discs.values():
+              if not (r["body_size_identity"] and r["envelope_identity"] and
+                      r["all_permutations_exact"] and r["all_roundtrip"]):
+                  invariants_ok = False
+
+          A1 = sum(discs[n]["a1_source_order"]["complete_bytes"] for n in DISCOVERY)
+          A2 = sum(discs[n]["a2_shape_row"]["complete_bytes"] for n in DISCOVERY)
+          A3 = sum(discs[n]["a3_shape_column"]["complete_bytes"] for n in DISCOVERY)
+
+          shape_bytes = A1 - A2
+          column_bytes = A2 - A3
+          total_bytes = A1 - A3
+          decomposition_ok = (shape_bytes + column_bytes == total_bytes)
+
+          a3_smaller_files = sum(
+              1 for n in DISCOVERY
+              if discs[n]["a3_shape_column"]["complete_bytes"] < discs[n]["a1_source_order"]["complete_bytes"])
+
+          if not invariants_ok or not decomposition_ok:
+              classification = "INVALID-G5A"
+          elif A3 > A1:
+              classification = "ORDER-ADVERSE"
+          elif A3 == A1:
+              classification = "ORDER-NEUTRAL"
+          elif A3 / A1 > ORDER_MATERIAL_AGG:
+              classification = "ORDER-WEAK"
+          elif a3_smaller_files < MATERIAL_FILES_MIN:
+              classification = "ORDER-CONCENTRATED"
+          else:
+              classification = "ORDER-MATERIAL"
+
+          attribution = None
+          if classification == "ORDER-MATERIAL" and total_bytes > 0:
+              col_share = column_bytes / total_bytes
+              shape_share = shape_bytes / total_bytes
+              if col_share >= COLUMN_DOMINANT_SHARE:
+                  attribution = "COLUMN-DOMINANT"
+              elif shape_share >= SHAPE_DOMINANT_SHARE:
+                  attribution = "SHAPE-DOMINANT"
+              else:
+                  attribution = "MIXED-ORDERING"
+          elif classification == "ORDER-MATERIAL":
+              attribution = "MIXED-ORDERING"
+
+          def shares(num, den):
+              return (num / den) if den else None
+
+          # V1 diagnostic (known-stress; not a held-out test).
+          v1 = load("results/g5a-v1.jsonl")
+          v1 = v1[-1]
+          v1_a1 = v1["a1_source_order"]["complete_bytes"]
+          v1_a2 = v1["a2_shape_row"]["complete_bytes"]
+          v1_a3 = v1["a3_shape_column"]["complete_bytes"]
+          if v1_a3 < v1_a1:
+              v1_label = "V1-COLUMN-FAVORABLE"
+          elif v1_a3 == v1_a1:
+              v1_label = "V1-COLUMN-NEUTRAL"
+          else:
+              v1_label = "V1-COLUMN-ADVERSE"
+
+          ruling = {
+              "schema": 1,
+              "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
+              "g5a_source_sha256": os.environ.get("G5A_SOURCE_SHA256", ""),
+              "frozen_g3_sha": os.environ["FROZEN_G3_SHA"],
+              "prereg": "docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md",
+              "thresholds": {
+                  "order_material_aggregate_ratio": ORDER_MATERIAL_AGG,
+                  "material_files_min": MATERIAL_FILES_MIN,
+                  "column_dominant_share": COLUMN_DOMINANT_SHARE,
+                  "shape_dominant_share": SHAPE_DOMINANT_SHARE,
+              },
+              "invariants_ok": invariants_ok,
+              "decomposition_ok": decomposition_ok,
+              "aggregate": {
+                  "A1_source_order": A1,
+                  "A2_shape_row": A2,
+                  "A3_shape_column": A3,
+                  "shape_bytes": shape_bytes,
+                  "column_bytes": column_bytes,
+                  "total_bytes": total_bytes,
+                  "shape_share": shares(shape_bytes, total_bytes),
+                  "column_share": shares(column_bytes, total_bytes),
+                  "a3_smaller_files": a3_smaller_files,
+              },
+              "per_file": {
+                  n: {
+                      "A1": discs[n]["a1_source_order"]["complete_bytes"],
+                      "A2": discs[n]["a2_shape_row"]["complete_bytes"],
+                      "A3": discs[n]["a3_shape_column"]["complete_bytes"],
+                      "shape_bytes": discs[n]["shape_grouping_bytes"],
+                      "column_bytes": discs[n]["column_increment_bytes"],
+                      "total_bytes": discs[n]["total_order_bytes"],
+                      "token_chunk_count": discs[n]["token_chunk_count"],
+                      "shape_count": discs[n]["shape_count"],
+                      "raw_frame_count": discs[n]["raw_frame_count"],
+                  } for n in sorted(DISCOVERY)
+              },
+              "classification": classification,
+              "attribution": attribution,
+              "v1_known_stress": {
+                  "A1": v1_a1, "A2": v1_a2, "A3": v1_a3,
+                  "A1_to_A2_bytes": v1_a1 - v1_a2,
+                  "A2_to_A3_bytes": v1_a2 - v1_a3,
+                  "label": v1_label,
+                  "role": "known-stress-not-held-out",
+              },
+              "opens_new_held_out_corpus": False,
+              "production_transform_id_allocated": False,
+          }
+          pathlib.Path("results/g5a-ruling.json").write_text(json.dumps(ruling, indent=2) + "\n")
+          md = [
+              "# G5A ordering attribution ruling",
+              "",
+              f"- implementation SHA: `{ruling['implementation_sha']}`",
+              f"- G5A source sha256: `{ruling['g5a_source_sha256']}`",
+              f"- invariants ok: **{invariants_ok}**  decomposition ok: **{decomposition_ok}**",
+              f"- D1-D4 A1/A2/A3: **{A1}** / **{A2}** / **{A3}**",
+              f"- shape_bytes: **{shape_bytes}**  column_bytes: **{column_bytes}**  total: **{total_bytes}**",
+              f"- A3 smaller than A1 on: **{a3_smaller_files}/4** files",
+              f"- classification: **{classification}**  attribution: **{attribution}**",
+              f"- V1 (known-stress): **{v1_label}** (A1={v1_a1} A2={v1_a2} A3={v1_a3})",
+              "",
+              "No production transform ID. No new held-out corpus. Raw Brotli remains the permanent fallback.",
+          ]
+          pathlib.Path("results/g5a-ruling.md").write_text("\n".join(md) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"classification={classification}\n")
+          print(json.dumps(ruling, indent=2))
+          PY
+          cat results/g5a-ruling.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload G5A evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: grotli-g5a-ordering-attribution-${{ github.run_id }}
+          path: |
+            results/
+            grotli-g5a-binary.sha256
+            grotli-g5a-prereg.sha256
+            grotli-g3-binary.sha256
+            grotli-g3-source.blob
+            grotli-g3-source.sha256
+            results-runner.txt
+          if-no-files-found: error
+          retention-days: 30
