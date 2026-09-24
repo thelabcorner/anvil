@@ -2,7 +2,7 @@
 
 **Status:** FROZEN BEFORE G4 D1-D4 DISCOVERY MEASUREMENT AND BEFORE CONSULTING ANY G3 V1 OUTCOME
 **Date:** 2026-09-24
-**Freeze revision:** r4 (r3 plus S3 verifier-reuse accounting clarification, applied before any G4 D1-D4 discovery measurement)
+**Freeze revision:** r5 (r4 plus final ambiguity closure: DSTAR/ISTAR rule-vs-resolution wording and explicit G2_WHOLE exclusion from S3; applied before any G4 D1-D4 discovery measurement)
 **Supersedes:** the earlier placeholder revision of this path (commit `e7c7010`)
 **Parent evidence:** G3 discovery **PASS only** — workflow run `35947013432`
 **Parent implementation:** frozen G3 regionized semantics and G3 leaf oracle
@@ -452,21 +452,21 @@ Rules that are frozen now:
 - if `DSTAR` or `ISTAR` is unavailable, its finalists are **omitted** and the
   omission is reported explicitly; it may not be substituted by another surface's
   carrier on a per-file basis;
-- frozen `G2_WHOLE` may be retained as a **context/fallback finalist only**
-  because it is already part of the overall ANVIL portfolio. It is explicitly
-  **excluded** from all proxy-fidelity gates (§8 preamble, §G8.9) and may never
-  rescue a Q1 fidelity failure;
+- frozen `G2_WHOLE` is **not an S3 finalist**. It remains a separately reported
+  overall-ANVIL diagnostic/fallback in §G8.9, but excluding it from S3 keeps the
+  production-shaped G4 diagnostic focused on the new cheap-planner regional
+  candidates plus permanent `RAW_BROTLI`. It may never rescue a Q1 fidelity
+  failure or an S3 result;
 - no `(P, F)` pair outside the list above may be added to S3;
 - byte-identical finalists may be **deduplicated only by exact bytes/hash**. The
-  report must name which labels collapsed and must count verifier calls **after**
-  dedup.
+  report must name which labels collapsed, report distinct reused-result counts
+  before/after dedup, and must still report `s3_additional_q11_calls = 0`.
 
 #### 4.7.4a S3 reuses already-measured verifier results (no new q11 calls)
 
 Every S3 finalist **is already one of the `P × F` carriers** whose exact q11
-complete bytes were measured for Q1, or (`RAW_BROTLI`, and optionally frozen
-`G2_WHOLE`) an already-measured whole-file result. S3 therefore **reuses those
-measured results** and **must not recompress them**.
+complete bytes were measured for Q1, or the already-measured `RAW_BROTLI` result.
+S3 therefore **reuses those measured results** and **must not recompress them**.
 
 Freeze:
 
@@ -479,10 +479,9 @@ s3_q11_rank_calls           = 0
   `final_q11(P) = 4` per proxy per file (§G8.5). S3 adds **nothing** to it;
 - **reused results must never be labeled as new q11 calls.** A reused measured
   result is a *consulted result*, not a *call*;
-- if frozen `G2_WHOLE` is retained as the optional context/fallback finalist, its
-  already-measured/frozen result is reused and **does not count as a new G4 q11
-  call**;
-- S3 may read the `(P, F)` complete-byte matrix, but it may not run a compressor
+- frozen `G2_WHOLE` is outside S3 and is reported only through the generic
+  diagnostic portfolio of §G8.9;
+- S3 may read the `(P, F)` complete-byte matrix and `RAW_BROTLI`, but it may not run a compressor
   to produce its own numbers;
 - the distinction is mandatory in the report:
 
@@ -507,7 +506,7 @@ Frozen label order for exact ties:
 
 ```
 RAW_BROTLI, then ISTAR_REGION_INT, then DSTAR_REGION_DICT,
-then ISTAR_REGION_MIXED, then DSTAR_REGION_MIXED, then G2_WHOLE if retained
+then ISTAR_REGION_MIXED, then DSTAR_REGION_MIXED
 ```
 
 This is **P6 verification / final arbitration, NOT ranking**:
@@ -879,8 +878,8 @@ For S3, additionally and separately:
 - `s3_distinct_finalist_results_before_dedup`;
 - `s3_distinct_finalist_results_after_exact_carrier_dedup`;
 - `s3_dedup_collapsed_labels` (exact label list);
-- `s3_reused_q11_verifier_results` (count of distinct existing `P × F` / `RAW_BROTLI`
-  / optional `G2_WHOLE` results consulted);
+- `s3_reused_q11_verifier_results` (count of distinct existing `P × F` /
+  `RAW_BROTLI` results consulted);
 - `s3_additional_q11_calls` (always **0**);
 - `s3_q11_rank_calls` (always 0);
 - `s3_verifier_calls_are_ranking_calls` (always `false`).
@@ -1281,7 +1280,7 @@ Per file, diagnostics outside the fidelity numbers:
 - `s3_reused_q11_verifier_results` (consulted existing results, not calls);
 - `s3_additional_q11_calls = 0` and `s3_q11_rank_calls = 0`;
 - confirmation that every S3 finalist byte value is the **reused** measured
-  `(P,F)` / `RAW_BROTLI` / optional `G2_WHOLE` value, with no recompression;
+  `(P,F)` / `RAW_BROTLI` value, with no recompression;
 - `C_S3(f)`, the winning label, and whether `RAW_BROTLI` won an exact tie;
 - for each finalist, its complete bytes and its delta versus `C_S3(f)`.
 
@@ -1350,11 +1349,11 @@ S3 is the **production-shaped finalist portfolio**. It is reported as the final
 portfolio row for every file, and it is evaluated with the same fixed machinery
 regardless of which proxies pass:
 
-- if both `DSTAR` and `ISTAR` exist, S3 contains the five frozen finalists of
-  §4.7.4 (plus `G2_WHOLE` only if retained as context/fallback);
+- if both `DSTAR` and `ISTAR` exist, S3 contains exactly the five frozen
+  finalists of §4.7.4;
 - if only one of them exists, S3 contains that one's finalists plus `RAW_BROTLI`;
-- if neither exists, S3 degenerates to `RAW_BROTLI` plus any retained
-  context/fallback finalist, and this degeneracy must be reported explicitly;
+- if neither exists, S3 degenerates to `RAW_BROTLI` alone, and this degeneracy
+  must be reported explicitly;
 - **S3's bytes never substitute for `C_region(f, proxy)` in G8.2/G8.3**, and S3
   winning a file never converts a failed Q1 proxy into a passing one;
 - S3 makes **zero** ranking calls (§4.7.5), so it neither improves nor worsens
@@ -1438,10 +1437,10 @@ Frozen now, before measurement.
     compared to a candidate score from another surface, at any level. In
     particular, an `S3_dictS*`-style per-column fused choice that compares
     cross-surface scores is **prohibited**.
-19. **`DSTAR` and `ISTAR` are chosen before measurement and applied globally.**
-    They are selected mechanically by G8.10/G8.11 under the frozen order
-    `S0, S1, S2`. Selecting them by observed final S3 bytes is prohibited;
-    per-file switching is prohibited.
+19. **The `DSTAR`/`ISTAR` selection rule is frozen before measurement; the
+    labels resolve mechanically after the G8.10/G8.11 measurements and are then
+    applied globally.** The frozen order is `S0, S1, S2`. Selecting them by
+    observed final S3 bytes is prohibited; per-file switching is prohibited.
 20. **S3's finalist set is fixed.** Adding, removing, or substituting a finalist
     after seeing D1-D4 is prohibited (§4.7.4, §G8.12).
 21. **S3 is P6 verification, not ranking.** `q11_rank(S3) = 0`; S3 reuses
@@ -1449,7 +1448,7 @@ Frozen now, before measurement.
     from ranking calls and paid verifier calls (§4.7.4a, §G8.7).
 22. **S3 reuses measured verifier results and makes zero additional q11 calls.**
     `s3_additional_q11_calls = 0`. Its finalists' bytes are the **already-measured**
-    `(P,F)` / `RAW_BROTLI` / optional `G2_WHOLE` results. Reused results must never
+    `(P,F)` / `RAW_BROTLI` results. Reused results must never
     be reported or counted as new q11 calls, and S3 may not recompress a finalist
     to inflate or deflate any count. The paid verifier cost remains
     `final_q11(P) = 4` per proxy per file.
