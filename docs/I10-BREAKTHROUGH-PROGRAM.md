@@ -664,7 +664,7 @@ Ruling:
 I10-1B starts from a new branch/checkpoint only after the I10-1A hardened result
 is tagged. No DEFLATE-replay source may be mixed into the I10-1A branch.
 
-#### I10-1C — Grotli-derived representation compiler — **G1 CLOSED / SPECIALIST SIGNAL; G2 NEXT**
+#### I10-1C — Grotli-derived representation compiler — **G2 CLOSED / TYPED BASIS POSITIVE; G3 REGIONIZATION NEXT**
 
 This lane tests whether ANVIL can beat a mature backend by changing the
 representation presented to that same backend.
@@ -704,21 +704,52 @@ Source of record:
 
 - `docs/I10-GROTLI-G1-RESULTS.md`.
 
-The G1 held-out Sino-US DrugQA corpus was not opened and remains available.
+The G1 held-out Sino-US DrugQA corpus remained sealed into G2.
+
+G2:
+
+- frozen typed basis: RAW_LEX, EXACT_DICT, INT_FOR, INT_DELTA_FOR, INT_DOD_FOR;
+- frozen public implementation:
+  `c34b291f40db4037ae114a39dae181644260dfff`;
+- remote run: `35943876855`;
+- D1 Amazon: P-DICT **-2.0610%** versus raw Brotli;
+- D2 CDISC: P-DICT **-16.4849%** versus raw Brotli;
+- D3 GH Archive: whole-object structured parser unavailable -> exact raw fallback;
+- D4 CROVIA: P-MIXED **-22.5029%** versus raw Brotli;
+- >=5% family gate: **PASS 2/3**;
+- typed-vs-G1R attribution gate: **PASS**;
+- four-file routed aggregate: **-2.007746%**, below the frozen -3% gate;
+- ruling: **NO-GO-G2-DISCOVERY**;
+- validation skipped; Sino-US DrugQA V1 remains unopened.
+
+The strongest new causal result is D2: exact dictionaries turn the G1 structured
+loss into a large same-backend win. The broad failure is now concentrated in
+structure availability/prevalence: D3 contributes 88.1364% of aggregate raw
+compressed bytes and is excluded entirely by one whole-object parse failure.
+
+Source of record:
+
+- `docs/I10-GROTLI-G2-RESULTS.md`.
 
 Next:
 
-- preregister **G2 typed column expert**;
-- keep raw Brotli permanent fallback;
-- retain exact final-Brotli arbitration;
-- start with only raw lexical, exact-token dictionary/enum, canonical integer
-  FOR/delta/DoD, and narrowly justified default/null coding;
-- do not integrate into `src/anvil.cpp` before G2 closes.
+- preregister and execute **G3 regionized residual expert**;
+- keep the G2 leaf basis frozen;
+- make exact structured eligibility record/region-local for line-framed data;
+- preserve malformed/incomplete records as byte-exact raw residuals;
+- retain raw Brotli and frozen-compatible G2 whole-object paths as candidates;
+- keep V1 sealed unless G3 passes the frozen discovery gate;
+- do not integrate into `src/anvil.cpp` before G3 closes.
+
+Frozen G3 contract:
+
+- `docs/I10-GROTLI-G3-REGION-PREREG.md`.
 
 This lane is adopt/architecture research. DataCortex, CLP, LogPrism, BtrBlocks,
 FastLanes, ALP, Pcodec, FSST and historical columnar encodings are close prior
 art for individual mechanisms. Novelty, if any, must live at a higher
-explanation/compiler mechanism level and must not be claimed from G1.
+explanation/compiler mechanism level and must not be claimed from G1/G2/G3
+components themselves.
 
 ### I10-2 — build information-attribution oracles
 
