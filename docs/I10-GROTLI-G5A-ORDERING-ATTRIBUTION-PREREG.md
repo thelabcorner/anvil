@@ -1,7 +1,7 @@
 # ANVIL I10 - GROTLI G5A Ordering Attribution Preregistration
 
-**Status:** FROZEN r4 BEFORE ANY G5A D1-D4 / V1 CORPUS MEASUREMENT  
-**Freeze note:** r4 is the final pre-corpus contract. The original G5A preregistration existed before implementation; r2/r3 then closed edge cases and independent causal-audit blockers using source review plus correctness-only local compile/selftests and tiny synthetic fixtures. No D1-D4 or V1 outcome was observed while changing the arms, thresholds, or gates. r4 supersedes every earlier G5A source/prereg revision for admissible evidence. It requires: (a) compilation against materialized pinned frozen G3 source; (b) byte-level canonical token-multiset and common-envelope SHA-256 equality; (c) deterministic A0 RANDOM_PERMUTATION null control; (d) exact Brotli implementation/build identity; and (e) explicit out-of-band mode-byte pack/unpack verification.  
+**Status:** FROZEN r5 BEFORE ANY G5A D1-D4 / V1 CORPUS MEASUREMENT  
+**Freeze note:** r5 is the final pre-corpus contract. It makes A0 explicit in the I2 body-size equation and aligns the emitted evidence key with `canonical_token_multiset_sha256`; these are contract-consistency corrections only, made before any D1-D4 or V1 outcome was observed. r4 established the substantive design.  The original G5A preregistration existed before implementation; r2/r3 then closed edge cases and independent causal-audit blockers using source review plus correctness-only local compile/selftests and tiny synthetic fixtures. No D1-D4 or V1 outcome was observed while changing the arms, thresholds, or gates. r5 supersedes every earlier G5A source/prereg revision for admissible evidence. It requires: (a) compilation against materialized pinned frozen G3 source; (b) byte-level canonical token-multiset and common-envelope SHA-256 equality; (c) deterministic A0 RANDOM_PERMUTATION null control; (d) exact Brotli implementation/build identity; and (e) explicit out-of-band mode-byte pack/unpack verification.  
 **Date:** 2026-09-24  
 **Parent evidence:** G3 `PASS-G3-NARROW`, G4 `NO-GO-G4`  
 **Purpose:** isolate the causal contribution of byte ordering/locality under a fixed structured representation  
@@ -276,7 +276,7 @@ original source.
 ### I2 - body-size identity
 
 ```
-len(A1_body) == len(A2_body) == len(A3_body)
+len(A0_body) == len(A1_body) == len(A2_body) == len(A3_body)
 ```
 
 ### I3 - exact permutation coverage AND canonical token-multiset identity
