@@ -1,294 +1,602 @@
 # ANVIL I10 — GROTLI G1-CEILING Pre-Registration
 
 **Frozen:** 2026-09-23
-**Class:** representation-ceiling experiment; no novelty claim
-**Production source changes:** forbidden
-**Compute:** GitHub Actions only
-**Predecessor:** G0 NO-GO in `I10-GROTLI-G0-RESULTS.md`
+**Class:** representation-ceiling / engineering experiment
+**Novelty claim:** none
+**Production source changes:** forbidden until this gate closes
+**Compute policy:** real corpus compression runs on GitHub Actions
+**Predecessor:** `I10-GROTLI-G0-RESULTS.md`
+**Corpus freeze:** `I10-GROTLI-G1-CEILING-CORPUS-FREEZE.md`
 
-## 0. Question
+---
 
-G0 established that blind padded row-position vXOR is the wrong representation.
+## 0. Why G1 exists
 
-G1 asks the actual Grotli-derived question:
+G0 decisively falsified one shortcut:
 
-> **If repeated record structure is represented sparsely and semantically,
-> without materializing absent coordinates, can the same Brotli q11/lgwin30
-> backend compress the complete exact carrier smaller than raw Brotli?**
+> blind padded row-position vXOR is not a useful representation for the tested
+> real NDJSON families.
 
-This is an **oracle-schema ceiling** first. It deliberately separates
-representation power from automatic structure discovery.
+That result does **not** test the broader Grotli/SRS thesis.
 
-If even the oracle ceiling cannot beat raw Brotli, do not build an expensive
-automatic SRS planner for this class.
+The stronger thesis is:
 
-## 1. Frozen first mechanism: exact JSON/NDJSON shape + lexical field streams
+> repeated structured records should be decomposed into a compact
+> decoder-visible structural explanation plus homogeneous raw value streams,
+> then scored by the actual downstream backend.
 
-G1-C0 operates on JSON/NDJSON records that parse successfully.
+G1 asks whether that representation layer itself has enough complete-byte value
+to justify automatic structure discovery and typed leaves later.
 
-It must reconstruct the **original bytes exactly**. Semantic equivalence is not
-enough.
+This is deliberately an **oracle ceiling**:
 
-The encoder separates each record into:
+- input is known to be NDJSON/JSONL;
+- a full byte-exact lexical parser is allowed;
+- encoder cost may be high;
+- no production parser/router is implied.
 
-1. a structural/lexical skeleton;
-2. shape identity;
-3. ordered value slots;
-4. exact raw lexical token bytes for each value.
+If the ceiling itself cannot beat raw Brotli, the broad JSON/NDJSON SRS lane
+does not receive a large implementation budget.
 
-The first ceiling experiment intentionally does **not** normalize value tokens.
+---
 
-Examples preserved verbatim:
+## 1. Primary causal question
 
-- `1` versus `1.0`;
-- exponent spelling;
-- escaped versus unescaped string spellings;
-- whitespace;
-- key order;
+For source X and the exact same Brotli q11/lgwin30 leaf:
+
+    B0 = complete_bytes(Brotli_q11_lw30(X))
+    B1 = complete_bytes(Brotli_q11_lw30(SHAPE_ROW(X)))
+    B2 = complete_bytes(Brotli_q11_lw30(SHAPE_COLUMN(X)))
+
+Does either exact structured representation materially beat B0 on independent
+real structured families after **all** representation metadata is charged?
+
+No typed value codec is allowed in G1.
+
+Therefore any win is attributable to:
+
+- repeated structural-template elimination;
+- shape coding;
+- raw lexical value locality;
+- not integer delta, dictionaries, Gorilla, ALP, FSST, or replay.
+
+---
+
+## 2. Input/framing contract
+
+G1 accepts newline-delimited JSON records.
+
+Record framing is byte exact:
+
+- LF terminates a record and belongs to that record;
+- CR before LF is ordinary source data and is preserved;
+- a non-empty final unterminated suffix is one final record;
+- no final empty record is synthesized;
+- blank records or invalid JSON make the structured candidate unavailable.
+
+For G1-v1:
+
+> **any invalid or blank record makes both structured candidates unavailable for
+> the whole file.**
+
+Raw Brotli remains available.
+
+This prevents an unregistered residual side path from becoming another source of
+compression behavior.
+
+---
+
+## 3. Byte-exact lexical parse
+
+The encoder parses JSON syntax but never normalizes it.
+
+It must preserve exactly:
+
+- object key spelling and escaping;
+- object key order;
 - duplicate keys;
-- CRLF/LF;
-- final newline presence.
+- whitespace;
+- punctuation;
+- string escape spelling;
+- UTF-8 bytes;
+- numeric lexical spelling;
+- negative zero;
+- exponent spelling;
+- CRLF versus LF;
+- missing final LF.
 
-### 1.1 Shape
+A semantic parse followed by ordinary JSON serialization is **not** acceptable.
 
-A shape describes the exact non-value lexical fragments surrounding ordered
-value slots.
+The decoder never parses JSON. It reconstructs bytes from the serialized
+template/value representation.
 
-Conceptually:
+### 3.1 Object keys
 
-    prefix_0
-    VALUE_0
-    prefix_1
-    VALUE_1
+JSON strings used as object keys are **structural bytes**.
+
+They remain in the template.
+
+### 3.2 Scalar values
+
+Every scalar value token is a placeholder:
+
+- string value, including surrounding quotes and original escapes;
+- number token;
+- `true`;
+- `false`;
+- `null`.
+
+The complete raw lexical token is stored as the placeholder value.
+
+### 3.3 Containers
+
+Objects and arrays are not themselves placeholder values.
+
+Their braces/brackets, commas, colons, keys and whitespace remain structural;
+scalar leaves recurse into placeholders.
+
+### 3.4 Exact grammar requirement
+
+The lexical parser must reject malformed JSON rather than attempting recovery.
+
+At minimum validate:
+
+- object/array grammar;
+- required colon/comma placement;
+- valid JSON number grammar;
+- legal string escapes;
+- four hex digits after `\u`;
+- no unescaped control byte below 0x20 inside strings;
+- exactly one JSON value per record followed only by JSON whitespace and the
+  optional record LF already belonging to the record.
+
+UTF-8 semantic normalization is forbidden. The source bytes are preserved.
+
+---
+
+## 4. Shape identity
+
+Represent a record with N scalar values as:
+
+    part_0
+    value_0
+    part_1
+    value_1
     ...
-    suffix
+    value_(N-1)
+    part_N
 
-Identical shapes are dictionary-coded once.
+where every part is the exact byte interval between extracted scalar tokens.
 
-Each record emits a shape ID plus its value tokens.
+Two records have the same G1 shape iff:
 
-This is a sparse representation: there is no max-record-length matrix and no
-padding.
+- they have the same N;
+- every corresponding `part_i` byte string is identical.
 
-### 1.2 Field/value streams
+Scalar lexical type is **not** part of shape identity in G1.
 
-For G1-C0, slots that correspond across identical shapes are grouped into
-streams.
+This is intentional. G1 tests compression structure, not application semantics.
 
-Each stream initially stores:
+If the same structural position sometimes contains a number and sometimes a
+string, the raw lexical value bytes still reconstruct exactly. A later typed
+experiment may decide that type splitting is worthwhile.
 
-- token byte length;
-- exact token bytes.
+Shape IDs are assigned deterministically in first-occurrence order.
 
-The complete carrier is then Brotli-compressed.
+---
 
-This isolates whether **structure separation alone** helps.
+## 5. Shape dictionary
 
-## 2. Frozen ablation ladder
+For every shape serialize:
 
-Only after C0 bytes are measured, evaluate the following cumulative or
-individually attributable leaves. Report every stage separately.
+    occurrence_count
+    placeholder_count
 
-### C0 — SHAPE+RAW
+    repeat placeholder_count + 1:
+        part_length
+        part_bytes
 
-Shape dictionary + shape IDs + exact raw value-token streams.
+All integer fields use canonical unsigned varints.
 
-### C1 — SHAPE+DICT
+All template bytes are charged.
 
-For string/scalar token streams with repeated exact lexical tokens:
+No schema is assumed preinstalled.
 
-- local exact-token dictionary;
-- ID stream;
-- raw escape.
+---
 
-Charge dictionary completely.
+## 6. Record-order stream
 
-### C2 — SHAPE+INTEGER
+Serialize one shape ID for every source record in original order.
 
-Only tokens that parse as integers and roundtrip to the exact lexical token under
-an explicit lexical descriptor may use numeric coding.
+This stream is required even when value payloads are grouped by shape.
 
-Candidates:
+The decoder uses the shape-ID stream to choose which shape/value cursor to
+advance for each reconstructed record.
 
-- FOR + bitpack;
-- delta + zigzag + bitpack;
-- delta-of-delta.
+This avoids per-group absolute row-index tables.
 
-If exact lexical spelling cannot be reconstructed cheaply, retain raw token.
+---
 
-### C3 — SHAPE+PRESENCE
+## 7. Candidate S1 — SHAPE_ROW
 
-For optional/missing/null-like slots across related shapes:
+S1 isolates **structural-template deduplication**.
 
-- compact presence bitmap;
-- default + exceptions.
+After the shape dictionary and record-order stream, serialize one value payload
+per shape.
 
-No padded absent values.
+Within each shape:
 
-### C4 — SHAPE+STRING-SYMBOL
+    for each occurrence in source order:
+        for each placeholder in record order:
+            value_length
+            raw_value_bytes
 
-FSST-like substring symbolization is an optional later leaf only if C0/C1 show
-string-stream opportunity. It is not required to rule the basic ceiling.
+Values from the same record remain adjacent.
 
-Float/Gorilla/ALP leaves are deferred until the integer/string/shape ceiling is
-known.
+Nothing about scalar values is transformed.
 
-## 3. Controls
+S1 asks:
 
-Every file has:
+> If repeated JSON scaffolding is described once but value locality remains
+> record-oriented, does Brotli gain?
 
-    R0 = Brotli_q11_lgwin30(original_bytes)
-    C0 = Brotli_q11_lgwin30(complete_shape_raw_carrier)
-    C1...
-    selected = min(R0, C0, C1, ...)
+---
 
-Raw wins ties.
+## 8. Candidate S2 — SHAPE_COLUMN
 
-The same canonical `brotli_lw` helper is used for every arm.
+S2 uses the exact same parser, shape dictionary and record-order stream.
 
-## 4. Corpus discipline
+Only value ordering changes.
 
-The G0 GH Archive file has been opened and is **not held out anymore**.
+Within each shape:
 
-G1 therefore needs a new validation family before any outcome-driven tuning.
+    for placeholder j in [0, N):
+        for each occurrence in source order:
+            value_length
+            raw_value_bytes
 
-Discovery may reuse:
+Corresponding raw lexical values become adjacent.
 
-- Amazon cellphone NDJSON;
-- CDISC ADaM NDJSON;
-- GH Archive 10 MiB as a now-open diagnostic family.
+Nothing about those values is otherwise transformed.
 
-Before implementation tuning, freeze at least two additional independent real
-JSON/NDJSON families, with one designated validation-only.
+S2 asks:
 
-Prefer datasets with materially different structure:
+> Does homogeneous field-position locality create additional backend value over
+> template dedup alone?
 
-- repeated object records;
-- arrays/fixed-column records;
-- heterogeneous events/logs.
+---
 
-Pin immutable commit/path/blob/size exactly as G0 did.
+## 9. Why both S1 and S2 are mandatory
 
-## 5. Complete-cost contract
+A single "columnar" result would confound two effects:
 
-Charge:
+1. removing repeated structure;
+2. reordering values.
 
-- carrier magic/version;
-- decoded source length;
+Interpretation:
+
+- S1 wins, S2 similar/worse:
+  template deduplication is valuable; columnization is not broadly valuable.
+- S1 loses, S2 wins:
+  field-position locality is the real gain.
+- both win:
+  both effects contribute.
+- both lose:
+  raw Brotli already exploits the structure better than this decomposition.
+
+No typed codec may rescue a losing S1/S2 result inside G1.
+
+---
+
+## 10. Frozen logical carrier
+
+Both structured candidates use the same logical header:
+
+    magic
+    version
+    layout_id            // ROW or COLUMN
+    decoded_source_len
+    record_count
+    shape_count
+
+    shape_dictionary
+    shape_id_stream
+    value_streams
+
+Decoder validation requires:
+
+- exact canonical varints;
+- bounded counts before allocation;
+- shape IDs < shape_count;
+- placeholder count consistency;
+- occurrence counts equal shape-ID frequencies;
+- value counts exactly match expected shape occurrences;
+- sum of reconstructed record bytes equals `decoded_source_len`;
+- exact carrier consumption;
+- no trailing bytes.
+
+The carrier itself is then compressed by Brotli q11/lgwin30.
+
+---
+
+## 11. Complete-byte accounting
+
+Report both backend payload and common prototype-envelope bytes.
+
+The comparison must charge:
+
+- carrier magic/version/layout;
+- source length;
 - record count;
 - shape count;
-- every shape's lexical fragments;
-- shape-ID stream;
-- stream descriptors;
-- stream lengths;
-- token-length/presence streams;
-- dictionaries;
-- numeric parameters;
-- exception streams;
-- backend payload;
-- any outer envelope difference.
+- every template byte;
+- occurrence counts;
+- every shape ID;
+- every value length;
+- every raw value byte;
+- Brotli payload;
+- any candidate-specific selector/envelope bytes.
 
-Report both carrier bytes before Brotli and final Brotli bytes.
+No schema, dictionary, model or type information is free.
 
-## 6. Required diagnostics
+The primary ruling uses complete candidate bytes.
 
-Per file/stage:
+---
+
+## 12. Raw control
+
+Raw control:
+
+    Brotli_q11_lw30(original source bytes)
+
+using the same Brotli implementation/version and large-window settings as S1/S2.
+
+The selected portfolio row is:
+
+    min(RAW, SHAPE_ROW, SHAPE_COLUMN)
+
+Raw wins exact ties.
+
+A structured loss is a scientific result, not a CI failure.
+
+---
+
+## 13. Required diagnostics
+
+For every file report:
+
+### Source anatomy
 
 - source bytes;
-- raw Brotli bytes;
-- carrier bytes;
-- carrier+Brotli bytes;
-- delta vs raw Brotli;
+- source SHA-256;
+- record count;
+- valid-record count;
+- scalar token count;
+- scalar lexical bytes;
+- structural bytes.
+
+### Shape anatomy
+
 - shape count;
-- top-shape coverage;
+- singleton shape count;
+- rows covered by top 1/5/10/100 shapes;
+- median/p95/max occurrences per shape;
 - shape dictionary bytes;
+- shape-ID bytes before Brotli;
+- average placeholders/record;
+- gross repeated-template bytes avoided before metadata.
+
+### S1/S2 carrier
+
+- carrier bytes before Brotli;
+- header bytes;
+- template bytes;
 - shape-ID bytes;
-- value-stream bytes;
-- length/presence bytes;
-- dictionary bytes;
-- numeric payload bytes;
-- exception bytes;
-- exact SHA roundtrip;
-- encode/decode wall time;
-- peak RSS when promoted to timing lane.
+- value-length bytes;
+- raw value bytes;
+- Brotli payload bytes;
+- complete bytes;
+- delta versus raw Brotli;
+- exact SHA roundtrip.
 
-Also report:
+Timing/RSS are diagnostic in this ceiling gate, not the primary representation
+ruling. If a structured representation passes bytes, it receives a separate
+paired timing/RSS promotion lane.
 
-    structure_gain = raw_Brotli - C0
-    typed_leaf_gain = C0 - best_typed
+---
 
-This distinguishes the architectural gain from leaf-specific coding.
+## 14. No hidden schema semantics
 
-## 7. Pass/fail
+G1 does not:
 
-### PASS-CEILING
+- merge fields across different shapes by semantic key;
+- canonicalize key order;
+- normalize strings or numbers;
+- infer integer/float/timestamp types;
+- dictionary-code values;
+- delta numbers;
+- bitpack values;
+- apply Gorilla/ALP/FSST;
+- infer cross-column predictors;
+- use replay.
 
-Authorize automatic SRS discovery work when:
+Those are separate experiments.
 
-1. every emitted candidate roundtrips exactly;
-2. C0 or a small typed extension beats raw Brotli by >=5% on at least two
-   independent discovery families;
-3. newly frozen validation retains >=1% aggregate improvement;
-4. metadata is fully charged;
-5. raw fallback prevents selected-byte regression;
-6. no one giant schema/dictionary artifact explains the result unfairly.
+---
 
-### PASS-TYPED-ONLY
+## 15. Search budget
 
-C0 structure separation does not win, but one small typed leaf repeatedly
-produces material complete-byte wins.
+There is no combinatorial representation search in G1.
 
-Action:
+Exactly three complete candidates exist:
 
-- pursue that typed expert;
-- do not claim broad schema separation is valuable.
+1. RAW;
+2. SHAPE_ROW;
+3. SHAPE_COLUMN.
 
-### NO-GO-SRS-JSON
+This is intentional.
 
-Even oracle schema + the small typed portfolio cannot materially beat raw
-Brotli.
+G1 measures whether the base representation layer has value before ANVIL pays
+the Grotli-v4-style planner/search cost.
 
-Action:
+---
 
-- stop broad JSON SRS work;
-- retain only any independently successful typed experts;
-- move explanation research elsewhere.
+## 16. Corpus split
 
-## 8. Why this is the correct successor to G0
+Frozen manifest:
 
-G0's strongest negative evidence was not merely that XOR was bad.
+`I10-GROTLI-G1-CEILING-CORPUS-FREEZE.md`
 
-It showed:
+Discovery:
 
-- Amazon: only 1.394x padding expansion, yet vXOR still destroyed Brotli's useful
-  literal/dictionary structure;
-- ADaM/GH Archive: residual H0 looked spectacular while the coordinate support
-  exploded 14x/35x.
+- D1 Amazon cellphone NDJSON;
+- D2 CDISC ADaM NDJSON;
+- D3 GH Archive 10 MiB NDJSON;
+- D4 CROVIA DPI royalty receipts NDJSON.
 
-Therefore G1 changes the **representation class**, not a threshold.
+Held-out validation:
 
-It preserves:
+- V1 Sino-US DrugQA authoritative bilingual release.
 
-- repeated shape once;
-- homogeneous values together;
-- sparse presence;
-- exact lexical reconstruction;
+D1-D3 are already open from G0.
 
-without manufacturing a rectangular byte domain.
+D4 is new discovery data.
 
-That is much closer to the mechanism behind the strongest historical Grotli
-results and to modern columnar systems such as ALP/FastLanes/BtrBlocks.
+V1 remains unopened for G1 compression results until the discovery gate passes
+and the implementation SHA is frozen.
 
-## 9. Implementation order
+---
 
-1. freeze new G1 corpus/split;
-2. implement byte-exact JSON lexical tokenizer with roundtrip-only tests;
-3. implement C0 shape/raw carrier;
-4. run discovery;
-5. if C0 shows opportunity, add C1 dictionary;
-6. only then add integer/presence leaves;
-7. freeze implementation;
-8. open validation once;
-9. close gate before any production ANVIL integration.
+## 17. Discovery gate
+
+### PASS-G1-DISCOVERY
+
+Discovery passes only when all are true:
+
+1. RAW/S1/S2 roundtrip exactly for every eligible discovery file;
+2. malformed/truncated/trailing carrier tests pass;
+3. at least **two of four** discovery families have S1 or S2 at least **5%**
+   smaller than raw Brotli complete bytes;
+4. aggregate discovery selected bytes improve by at least **3%** versus aggregate
+   raw Brotli complete bytes;
+5. all representation metadata is charged.
+
+Only PASS-G1-DISCOVERY authorizes opening V1.
+
+### NO-GO-G1-DISCOVERY
+
+If discovery does not pass:
+
+- do **not** fetch/measure V1;
+- close G1 base representation as NO-GO on discovery;
+- retain V1 as unspent validation data;
+- typed leaves require a new preregistration.
+
+This is deliberately stricter than burning held-out data after a discovery
+failure.
+
+---
+
+## 18. Held-out validation gate
+
+The validation job must checkout the exact frozen implementation SHA emitted by
+the discovery job.
+
+No source change is allowed between discovery and validation.
+
+### PASS-G1-BASE
+
+If discovery passed, G1 base representation passes when:
+
+1. V1 RAW/S1/S2 roundtrip exactly;
+2. selected V1 complete bytes improve by at least **1%** versus raw Brotli;
+3. metadata remains fully charged;
+4. validation uses the same carrier semantics and Brotli helper as discovery.
+
+This authorizes:
+
+- production-oriented SRS prototype work;
+- a separately preregistered typed-leaf ladder;
+- automatic/weak-schema structure discovery research.
+
+It does **not** establish mechanism novelty.
+
+### PASS-G1-NARROW
+
+Discovery passes but V1 does not retain the 1% win.
+
+Interpretation:
+
+- structure separation has real but narrow/class-dependent value;
+- retain winning families as adopt evidence;
+- do not call the representation a broad JSON/NDJSON base;
+- inspect anatomy before deciding on any class-specific route.
+
+### NO-GO-G1-BASE
+
+If the discovery gate fails, or if no material representation signal survives
+after complete accounting, do not build a broad SRS base around shape/template
+separation.
+
+This does not falsify type-specific numeric/string experts.
+
+---
+
+## 19. Typed leaves are explicitly deferred
+
+No C1/C2/etc typed leaf is allowed inside G1 after seeing G1 outcomes.
+
+A typed follow-up gets a new preregistration and must state which independent
+evidence justifies it.
+
+Potential future leaves include:
+
+- exact-token dictionary/enum;
+- integer FOR/delta/DoD;
+- null/default bitmap;
+- FSST-like string symbolization;
+- Gorilla/ALP-like exact float representation.
+
+This separation prevents outcome-driven mechanism accretion.
+
+---
+
+## 20. Prior-art boundary
+
+G1 is **not** a mechanism novelty experiment.
+
+Close/established work includes:
+
+- DataCortex JSON/NDJSON schema inference, selective columnization, typed
+  encodings and zstd/Brotli arbitration;
+- CLP structured log decomposition;
+- LogPrism compression-aware joint structure/variable modeling;
+- BtrBlocks adaptive typed scheme selection;
+- FastLanes encoding-expression selection;
+- ALP adaptive exact numeric representation.
+
+A G1 win supports **adoption/architecture viability**, not novelty.
+
+ANVIL's broader open research remains above this layer:
+
+- weak-schema/arbitrary-byte explanation discovery;
+- predictor/explanation synthesis;
+- reference/replay/generative experts;
+- marginal expert basis selection;
+- hardware-aware lowering;
+- full byte/decode/RSS/code-size Pareto extraction.
+
+---
+
+## 21. Implementation order
+
+1. freeze this preregistration and the G1 corpus manifest;
+2. implement byte-exact lexical parser and roundtrip-only tests;
+3. implement S1/S2 logical carriers;
+4. implement malformed/truncated/trailing carrier tests;
+5. run D1-D4 discovery on GitHub Actions;
+6. freeze implementation SHA and discovery ruling;
+7. **only if PASS-G1-DISCOVERY**, fetch/open V1 once;
+8. close G1 before any production ANVIL integration.
 
 No `src/anvil.cpp` changes before this gate closes.
