@@ -58,12 +58,8 @@ using Clock = std::chrono::steady_clock;
 
 static constexpr uint8_t kMagic[4] = {'G','2','S','R'};
 static constexpr uint8_t kVersion = 1;
-static constexpr uint8_t kArmRaw = 0;
-static constexpr uint8_t kArmG1R = 1;
-static constexpr uint8_t kArmPDict = 2;
-static constexpr uint8_t kArmPInt = 3;
-static constexpr uint8_t kArmPMixed = 4;
-static constexpr uint8_t kArmPMarginal = 5;
+// Every archive arm is charged the same one-byte external arm selector.
+// The research tool only needs the common byte cost, not materialized arm IDs.
 static constexpr uint64_t kMaxDecoded = 1ull << 34; // research-wire safety bound
 static constexpr uint64_t kMaxCarrierSlack = 64ull << 20;
 static constexpr size_t kMarginalTopK = 24;
@@ -892,12 +888,19 @@ static std::vector<Bytes> decode_leaf_payload(
     size_t p = 0;
     std::vector<Bytes> out;
     out.reserve(occurrences);
+    uint64_t emitted_bytes = 0;
+    auto push_token = [&](Bytes tok) {
+        if (tok.empty() || tok.size() > decoded_len - emitted_bytes)
+            throw std::runtime_error("leaf reconstructed bytes exceed source bound");
+        emitted_bytes += tok.size();
+        out.push_back(std::move(tok));
+    };
     if (id == LeafId::RawLex) {
         for (size_t i = 0; i < occurrences; ++i) {
             const uint64_t n = get_uvar(payload, p);
             if (n == 0 || n > decoded_len || n > payload.size() - p)
                 throw std::runtime_error("bad RAW_LEX token length");
-            out.emplace_back(payload.begin() + p, payload.begin() + p + static_cast<size_t>(n));
+            push_token(Bytes(payload.begin() + p, payload.begin() + p + static_cast<size_t>(n)));
             p += static_cast<size_t>(n);
         }
         if (p != payload.size()) throw std::runtime_error("RAW_LEX trailing bytes");
@@ -923,7 +926,7 @@ static std::vector<Bytes> decode_leaf_payload(
         const auto ids = unpack_fixed(payload, p, occurrences, width, payload.size());
         for (uint64_t x : ids) {
             if (x >= dict_count) throw std::runtime_error("dictionary id out of range");
-            out.push_back(dict[static_cast<size_t>(x)]);
+            push_token(dict[static_cast<size_t>(x)]);
         }
         return out;
     }
@@ -936,7 +939,7 @@ static std::vector<Bytes> decode_leaf_payload(
             const __int128 v = static_cast<__int128>(base) + static_cast<__int128>(r);
             if (v < std::numeric_limits<int64_t>::min() || v > std::numeric_limits<int64_t>::max())
                 throw std::runtime_error("INT_FOR reconstruction overflow");
-            out.push_back(token_from_int64(static_cast<int64_t>(v)));
+            push_token(token_from_int64(static_cast<int64_t>(v)));
         }
         return out;
     }
@@ -947,7 +950,7 @@ static std::vector<Bytes> decode_leaf_payload(
         if (p >= payload.size()) throw std::runtime_error("missing INT_DELTA_FOR width");
         const uint8_t width = payload[p++];
         const auto residuals = unpack_fixed(payload, p, occurrences - 1, width, payload.size());
-        out.push_back(token_from_int64(cur));
+        push_token(token_from_int64(cur));
         for (uint64_t r : residuals) {
             const __int128 d = static_cast<__int128>(min_delta) + static_cast<__int128>(r);
             if (d < std::numeric_limits<int64_t>::min() || d > std::numeric_limits<int64_t>::max())
@@ -956,7 +959,7 @@ static std::vector<Bytes> decode_leaf_payload(
             if (v < std::numeric_limits<int64_t>::min() || v > std::numeric_limits<int64_t>::max())
                 throw std::runtime_error("INT_DELTA_FOR value overflow");
             cur = static_cast<int64_t>(v);
-            out.push_back(token_from_int64(cur));
+            push_token(token_from_int64(cur));
         }
         return out;
     }
@@ -968,12 +971,12 @@ static std::vector<Bytes> decode_leaf_payload(
         if (p >= payload.size()) throw std::runtime_error("missing INT_DOD_FOR width");
         const uint8_t width = payload[p++];
         const auto residuals = unpack_fixed(payload, p, occurrences - 2, width, payload.size());
-        out.push_back(token_from_int64(cur));
+        push_token(token_from_int64(cur));
         const __int128 second = static_cast<__int128>(cur) + delta;
         if (second < std::numeric_limits<int64_t>::min() || second > std::numeric_limits<int64_t>::max())
             throw std::runtime_error("INT_DOD_FOR first delta overflow");
         cur = static_cast<int64_t>(second);
-        out.push_back(token_from_int64(cur));
+        push_token(token_from_int64(cur));
         for (uint64_t r : residuals) {
             const __int128 dd = static_cast<__int128>(min_dod) + static_cast<__int128>(r);
             if (dd < std::numeric_limits<int64_t>::min() || dd > std::numeric_limits<int64_t>::max())
@@ -986,7 +989,7 @@ static std::vector<Bytes> decode_leaf_payload(
             if (v < std::numeric_limits<int64_t>::min() || v > std::numeric_limits<int64_t>::max())
                 throw std::runtime_error("INT_DOD_FOR value overflow");
             cur = static_cast<int64_t>(v);
-            out.push_back(token_from_int64(cur));
+            push_token(token_from_int64(cur));
         }
         return out;
     }
@@ -1325,9 +1328,20 @@ static MarginalResult marginal_search(
     const auto start = Clock::now();
     MarginalResult result;
     std::vector<LeafId> current = all_raw_selection(cols);
-    ArmResult current_arm = evaluate_arm("P-MARGINAL", src, a, cols, current);
-    ++result.exact_whole_carrier_evaluations;
-    result.byte_trace.push_back(current_arm.complete);
+
+    // Search trials need exact whole-carrier q11 bytes, but do not need to
+    // decompress every candidate that will be discarded. Final-arm correctness
+    // is still verified once through evaluate_arm().
+    auto exact_score = [&](const std::vector<LeafId>& selection) {
+        CarrierStats st;
+        const Bytes carrier = make_carrier(src, a, cols, selection, st);
+        const Bytes br = brotli_encode(carrier);
+        ++result.exact_whole_carrier_evaluations;
+        return complete_bytes(src.size(), br);
+    };
+
+    size_t current_complete = exact_score(current);
+    result.byte_trace.push_back(current_complete);
 
     std::vector<Substitution> substitutions;
     for (size_t ci = 0; ci < cols.size(); ++ci) {
@@ -1366,34 +1380,33 @@ static MarginalResult marginal_search(
         }
         if (eligible.empty()) break;
 
-        bool have_best = false;
-        size_t best_complete = current_arm.complete;
+        size_t best_complete = current_complete;
         const Substitution* best_sub = nullptr;
-        ArmResult best_arm;
 
+        // eligible is already in the frozen deterministic rank order; strict
+        // byte improvement therefore makes that order the exact-tie breaker.
         for (const Substitution* s : eligible) {
             std::vector<LeafId> trial = current;
             trial[s->column] = s->leaf;
-            ArmResult ares = evaluate_arm("P-MARGINAL", src, a, cols, trial);
+            const size_t trial_complete = exact_score(trial);
             ++result.marginal_candidates_evaluated;
-            ++result.exact_whole_carrier_evaluations;
-            if (ares.complete < best_complete) {
-                have_best = true;
-                best_complete = ares.complete;
+            if (trial_complete < best_complete) {
+                best_complete = trial_complete;
                 best_sub = s;
-                best_arm = std::move(ares);
             }
         }
 
-        if (!have_best || best_sub == nullptr) break;
+        if (best_sub == nullptr) break;
         current[best_sub->column] = best_sub->leaf;
-        current_arm = std::move(best_arm);
+        current_complete = best_complete;
         result.accepted.emplace_back(best_sub->column, best_sub->leaf);
-        result.byte_trace.push_back(current_arm.complete);
+        result.byte_trace.push_back(current_complete);
     }
 
-    result.arm = std::move(current_arm);
     result.search_ms = ms_since(start);
+    result.arm = evaluate_arm("P-MARGINAL", src, a, cols, current);
+    if (result.arm.complete != current_complete)
+        throw std::runtime_error("P-MARGINAL deterministic score mismatch");
     return result;
 }
 
@@ -1708,7 +1721,9 @@ static void leaf_selftests() {
     }
 
     {
-        Bytes bad{3, 1, 'a', 1, 'b', 1, 'c', 2, 0xff};
+        // dict_count=3 => width=2. ID 3 is out of range while unused
+        // high bits stay zero, so this exercises ID range rather than padding.
+        Bytes bad{3, 1, 'a', 1, 'b', 1, 'c', 2, 3};
         require_throw([&]{ (void)decode_leaf_payload(LeafId::ExactDict, bad, 1, 100); },
                       "dictionary bad id");
     }
