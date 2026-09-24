@@ -1774,7 +1774,8 @@ Before any production integration:
 
 Parallel research:
 
-- finish BWT subblock memory sweep;
+- BWT subblock memory sweep is closed by run `35930672607`; retain 128 MiB as
+  the max-ratio default and treat smaller caps as measured rate/RSS tradeoffs;
 - continue explanation-gap oracle design;
 - keep I10-1B DEFLATE replay isolated.
 

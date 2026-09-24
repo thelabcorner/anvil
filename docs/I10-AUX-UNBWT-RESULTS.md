@@ -619,10 +619,18 @@ candidate still wins bytes, but **does not cross the complete reference front**.
 The binding deficits are decode cost and, especially on the large BWT case,
 working-set/peak memory.
 
-This result promotes the already-wired `--bwt-subblock` representation to the
-next BWT systems experiment. A remote bytes/decode/RSS sweep can test whether
-smaller independent BWT problems create another non-dominated Pareto point
-without changing the max-ratio default.
+The follow-up `--bwt-subblock` systems experiment is now also closed.
+
+GitHub Actions run `35930672607` swept 8/16/32/64/128 MiB caps with the frozen
+auxiliary representation. On Silesia, smaller caps expose genuine rate/RSS
+tradeoffs (8 MiB roughly halves peak decode RSS at +1.9346% bytes; 16 MiB also
+roughly halves RSS at +1.0169%; 32 MiB costs +0.3923% bytes for a smaller RSS
+reduction). On enwik8, 8/16/32 MiB route away from BWT and cost +5.4075% bytes;
+64 MiB retains BWT but costs +3.2259% while lowering peak decode RSS.
+
+No smaller cap dominates the 128 MiB max-ratio point across the frozen corpora.
+The default therefore remains unchanged. The sweep is retained as measured
+rate/working-set evidence rather than a new BWT mechanism lane.
 
 ---
 
@@ -656,6 +664,11 @@ External same-job reference-cost closure:
 
 - Silesia + enwik8 matrix: `35927623136` — **SUCCESS /
   FRONT-GAP_COST on both corpora**.
+
+BWT subblock rate/decode/RSS sweep:
+
+- Silesia + enwik8 matrix: `35930672607` — **SUCCESS / sweep closed; 128 MiB
+  max-ratio default retained**.
 
 No I10-1B DEFLATE-replay source work was combined with this branch. I10-1A is
 closed as a causally isolated experiment.
