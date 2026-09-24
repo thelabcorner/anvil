@@ -164,6 +164,22 @@ static const char* order_name(G5Order m) {
 static constexpr uint8_t kG5Version = 1;
 static constexpr std::array<uint8_t, 4> kG5Magic = {'G','5','A','O'};
 
+// Single shared definition of the A0 null seed. BOTH the encoder
+// (`permutation_for`) and the decoder (`decode_g5_body`) hash exactly these
+// bytes; keeping one definition here prevents the two sites from drifting.
+// Changing these bytes changes the frozen A0 null and is forbidden post-freeze.
+static constexpr const char* kG5RandomPermutationSeed =
+    "G5A-RANDOM-PERMUTATION-SEED-v1";
+
+// The four frozen order selectors are exactly 0..3. Any other selector byte is
+// malformed and must be rejected deterministically (prereg I7).
+static bool is_valid_g5_selector(uint8_t s) {
+    return s == static_cast<uint8_t>(G5Order::RandomPermutation) ||
+           s == static_cast<uint8_t>(G5Order::SourceOrder) ||
+           s == static_cast<uint8_t>(G5Order::ShapeRow) ||
+           s == static_cast<uint8_t>(G5Order::ShapeColumn);
+}
+
 struct TokenCoord {
     uint32_t shape = 0;
     uint32_t occurrence = 0;
@@ -359,7 +375,7 @@ static std::vector<size_t> permutation_for(const G5Plan& p, G5Order mode) {
         // indices by SHA-256(seed || 0x1F || index_le_u64) as a big-endian
         // 256-bit integer, ties by lower index. No score, no content, no
         // observed byte influences this permutation.
-        static const char* const kSeed = "G5A-RANDOM-PERMUTATION-SEED-v1";
+        const char* const kSeed = kG5RandomPermutationSeed;
         std::vector<std::pair<std::array<uint8_t, 32>, size_t>> keyed;
         keyed.reserve(p.canonical.size());
         for (size_t i = 0; i < p.canonical.size(); ++i) {
@@ -610,7 +626,7 @@ static Bytes decode_g5_body(const Bytes& body, G5Order mode) {
             if (!groups[gid].raw && occ[gid] != groups[gid].members)
                 throw std::runtime_error("G5 A0 occurrence mismatch");
 
-        static const char* const kSeed = "G5A-RANDOM-PERMUTATION-SEED-v1";
+        const char* const kSeed = kG5RandomPermutationSeed;
         std::vector<std::pair<std::array<uint8_t, 32>, size_t>> keyed;
         keyed.reserve(canon.size());
         for (size_t i = 0; i < canon.size(); ++i) {
@@ -738,7 +754,11 @@ static bool mode_pack_unpack_roundtrip(G5Order mode, const Bytes& body) {
     packed.push_back(static_cast<uint8_t>(mode));
     packed.insert(packed.end(), body.begin(), body.end());
     if (packed.size() != body.size() + 1) return false;
-    const G5Order recovered = static_cast<G5Order>(packed.front());
+    // Selector-byte validation (prereg I7): the materialized out-of-band mode
+    // byte must be one of the four frozen selectors before it is accepted.
+    const uint8_t selector = packed.front();
+    if (!is_valid_g5_selector(selector)) return false;
+    const G5Order recovered = static_cast<G5Order>(selector);
     if (recovered != mode) return false;
     const Bytes unpacked(packed.begin() + 1, packed.end());
     return unpacked == body;
@@ -980,6 +1000,27 @@ static void g5a_selftest() {
         const BuiltArm a1 = build_arm(p, G5Order::SourceOrder);
         if (a0.permutation == a1.permutation)
             throw std::runtime_error("G5 A0 permutation equals identity (no null)");
+    }
+
+    // Selector-byte validation (prereg I7): only the four frozen G5Order values
+    // are valid; any other byte must be rejected deterministically.
+    for (uint8_t s : {static_cast<uint8_t>(0), static_cast<uint8_t>(1),
+                      static_cast<uint8_t>(2), static_cast<uint8_t>(3)})
+        if (!is_valid_g5_selector(s))
+            throw std::runtime_error("G5 valid selector rejected");
+    for (uint8_t s : {static_cast<uint8_t>(4), static_cast<uint8_t>(5),
+                      static_cast<uint8_t>(0x7f), static_cast<uint8_t>(0xff)})
+        if (is_valid_g5_selector(s))
+            throw std::runtime_error("G5 invalid selector accepted");
+    // An out-of-range materialized selector must fail the pack/unpack check.
+    {
+        Bytes body = bytes("payload");
+        Bytes packed;
+        packed.push_back(0xff);  // invalid selector
+        packed.insert(packed.end(), body.begin(), body.end());
+        const uint8_t sel = packed.front();
+        if (is_valid_g5_selector(sel))
+            throw std::runtime_error("G5 invalid packed selector accepted");
     }
 
     std::cout << "PASS grotli_g5a_ordering selftest\n";
