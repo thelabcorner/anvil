@@ -103,14 +103,13 @@ jobs:
     env:
       # Pinned public G5B-ORDINAL implementation commit. The workflow lands AFTER
       # this commit so the implementation identity is immutable before CI.
-      # PLACEHOLDER: the freezing worker does not dispatch; the operator re-pins
-      # this to the real frozen G5B-ORDINAL commit before the first dispatch.
-      FROZEN_IMPLEMENTATION_SHA: PLACEHOLDER_G5B_ORDINAL_IMPLEMENTATION_SHA
+      # Frozen by the follow-up pin commit before the first dispatch.
+      FROZEN_IMPLEMENTATION_SHA: cf9306e34e98b35333b23757da88357cab92357e
       # Expected git blob identities of the pinned implementation commit's
       # G5B-ORDINAL source and prereg (checked before any measurement).
-      # PLACEHOLDER: re-pin to the real frozen blobs before the first dispatch.
-      EXPECTED_G5B_SOURCE_BLOB: PLACEHOLDER_G5B_ORDINAL_SOURCE_BLOB
-      EXPECTED_G5B_PREREG_BLOB: PLACEHOLDER_G5B_ORDINAL_PREREG_BLOB
+      # Frozen by the follow-up pin commit before the first dispatch.
+      EXPECTED_G5B_SOURCE_BLOB: ce8021a5f7f3d25319db1ccd22850c3144c03040
+      EXPECTED_G5B_PREREG_BLOB: 1a45154f26ed98b7c5bc1d15bb1b5985d456347c
       # Frozen G3 source identity whose parser/shape semantics G5B-ORDINAL imports.
       FROZEN_G3_SHA: 1a3d18fed76adb6fb33264e1994f9c357306b3fa
       # Authoritative blob/SHA-256 of the frozen G3 source at FROZEN_G3_SHA.
@@ -155,9 +154,8 @@ jobs:
     steps:
       # Pre-checkout placeholder guard: actions/checkout would try the placeholder
       # ref first and fail with an unclear git error, so fail explicitly here
-      # BEFORE checkout on a pre-pin accidental dispatch. The three G5B-ORDINAL
-      # self-pin values are intentionally still placeholders until the follow-up
-      # pin commit; a pre-pin dispatch must fail closed and clearly.
+      # BEFORE checkout on any stale/pre-pin accidental dispatch. The values below are
+      # frozen by the follow-up pin commit; this guard remains defense in depth.
       - name: Pre-check frozen pins (placeholder guard)
         shell: bash
         run: |
@@ -307,6 +305,8 @@ jobs:
 
       - name: Acquire and verify frozen G5A floor evidence (I10)
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p results floor_evidence
