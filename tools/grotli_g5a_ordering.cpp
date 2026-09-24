@@ -6,32 +6,154 @@
 // scalar chunks before the same Brotli backend.
 //
 // Preregistration:
-//   docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md
+//   docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md  (freeze revision r4)
+//
+// FROZEN-INCLUSION (prereg section 2.1): CI compiles G5A against the materialized
+// pinned frozen G3 source, NOT the mutable working-tree file, by defining
+//     -DG5A_FROZEN_G3_HEADER=\"frozen-grotli_g3.cpp\"
+// Local builds with no define fall back to the working-tree tools/grotli_g3.cpp.
 //
 // IMPORTANT: D1-D4 / V1 measurements belong in GitHub Actions only. Local use is
 // limited to compilation and tiny selftests.
 
+#ifndef G5A_FROZEN_G3_HEADER
+#define G5A_FROZEN_G3_HEADER "grotli_g3.cpp"
+#endif
+
 #define main grotli_g3_embedded_main
-#include "grotli_g3.cpp"
+#include G5A_FROZEN_G3_HEADER
 #undef main
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
+// ---------------------------------------------------------------------------
+// Self-contained SHA-256 (prereg I3/I4 require byte-level multiset and envelope
+// hashes). The frozen G3 TU provides none, so G5A carries its own.
+// ---------------------------------------------------------------------------
+
+namespace sha256 {
+
+struct Ctx {
+    uint32_t h[8];
+    uint64_t len = 0;
+    uint8_t buf[64];
+    size_t buf_len = 0;
+};
+
+static const uint32_t K[64] = {
+    0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u,
+    0x923f82a4u, 0xab1c5ed5u, 0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
+    0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u, 0xe49b69c1u, 0xefbe4786u,
+    0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+    0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u, 0xc6e00bf3u, 0xd5a79147u,
+    0x06ca6351u, 0x14292967u, 0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
+    0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u, 0xa2bfe8a1u, 0xa81a664bu,
+    0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+    0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au,
+    0x5b9cca4fu, 0x682e6ff3u, 0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+    0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u};
+
+static inline uint32_t rotr(uint32_t x, uint32_t n) { return (x >> n) | (x << (32 - n)); }
+
+static void init(Ctx& c) {
+    c.h[0] = 0x6a09e667u; c.h[1] = 0xbb67ae85u; c.h[2] = 0x3c6ef372u;
+    c.h[3] = 0xa54ff53au; c.h[4] = 0x510e527fu; c.h[5] = 0x9b05688cu;
+    c.h[6] = 0x1f83d9abu; c.h[7] = 0x5be0cd19u;
+}
+
+static void compress(Ctx& c, const uint8_t* p) {
+    uint32_t w[64];
+    for (int i = 0; i < 16; ++i)
+        w[i] = (uint32_t(p[i * 4]) << 24) | (uint32_t(p[i * 4 + 1]) << 16) |
+               (uint32_t(p[i * 4 + 2]) << 8) | uint32_t(p[i * 4 + 3]);
+    for (int i = 16; i < 64; ++i) {
+        const uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+        const uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    uint32_t a = c.h[0], b = c.h[1], cc = c.h[2], d = c.h[3];
+    uint32_t e = c.h[4], f = c.h[5], g = c.h[6], h = c.h[7];
+    for (int i = 0; i < 64; ++i) {
+        const uint32_t S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        const uint32_t ch = (e & f) ^ (~e & g);
+        const uint32_t t1 = h + S1 + ch + K[i] + w[i];
+        const uint32_t S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        const uint32_t maj = (a & b) ^ (a & cc) ^ (b & cc);
+        const uint32_t t2 = S0 + maj;
+        h = g; g = f; f = e; e = d + t1;
+        d = cc; cc = b; b = a; a = t1 + t2;
+    }
+    c.h[0] += a; c.h[1] += b; c.h[2] += cc; c.h[3] += d;
+    c.h[4] += e; c.h[5] += f; c.h[6] += g; c.h[7] += h;
+}
+
+static void update(Ctx& c, const uint8_t* p, size_t n) {
+    c.len += n;
+    while (n) {
+        const size_t take = std::min<size_t>(64 - c.buf_len, n);
+        std::memcpy(c.buf + c.buf_len, p, take);
+        c.buf_len += take;
+        p += take;
+        n -= take;
+        if (c.buf_len == 64) { compress(c, c.buf); c.buf_len = 0; }
+    }
+}
+
+static std::array<uint8_t, 32> final(Ctx& c) {
+    const uint64_t bitlen = c.len * 8ull;
+    const uint8_t pad = 0x80;
+    update(c, &pad, 1);
+    const uint8_t zero = 0;
+    while (c.buf_len != 56) update(c, &zero, 1);
+    uint8_t lenb[8];
+    for (int i = 0; i < 8; ++i) lenb[i] = uint8_t(bitlen >> (56 - i * 8));
+    update(c, lenb, 8);
+    std::array<uint8_t, 32> out{};
+    for (int i = 0; i < 8; ++i) {
+        out[i * 4] = uint8_t(c.h[i] >> 24);
+        out[i * 4 + 1] = uint8_t(c.h[i] >> 16);
+        out[i * 4 + 2] = uint8_t(c.h[i] >> 8);
+        out[i * 4 + 3] = uint8_t(c.h[i]);
+    }
+    return out;
+}
+
+static std::array<uint8_t, 32> hash(const Bytes& in) {
+    Ctx c; init(c); update(c, in.data(), in.size()); return final(c);
+}
+
+static std::string hex(const std::array<uint8_t, 32>& h) {
+    static const char* d = "0123456789abcdef";
+    std::string s;
+    s.reserve(64);
+    for (uint8_t b : h) { s += d[b >> 4]; s += d[b & 0xf]; }
+    return s;
+}
+
+static std::string hex(const Bytes& in) { return hex(hash(in)); }
+
+} // namespace sha256
+
 enum class G5Order : uint8_t {
-    SourceOrder = 0,
-    ShapeRow = 1,
-    ShapeColumn = 2,
+    RandomPermutation = 0,  // A0 deterministic null
+    SourceOrder = 1,        // A1
+    ShapeRow = 2,           // A2
+    ShapeColumn = 3,        // A3
 };
 
 static const char* order_name(G5Order m) {
     switch (m) {
+        case G5Order::RandomPermutation: return "RANDOM_PERMUTATION";
         case G5Order::SourceOrder: return "SOURCE_ORDER";
         case G5Order::ShapeRow: return "SHAPE_ROW";
         case G5Order::ShapeColumn: return "SHAPE_COLUMN";
@@ -55,7 +177,31 @@ struct G5Plan {
     // [shape][occurrence][slot] -> canonical token identity.
     std::vector<std::vector<std::vector<size_t>>> canonical_id;
     uint64_t structured_token_bytes = 0;
+    // Byte-level invariant hashes (prereg I3/I4). Identical across all arms.
+    std::string envelope_sha256;         // SHA-256 of `prefix`
+    std::string multiset_sha256;         // SHA-256 of sorted (uvar(len)||bytes) records
 };
+
+static const Bytes& token_at(const G5Plan& p, const TokenCoord& c);
+
+// Canonical token-multiset SHA-256 (prereg I3): sort the decode-visible framed
+// records lexicographically ascending, then hash the concatenation with no
+// separator. Order-independent, so it is identical for every permutation.
+static std::string canonical_multiset_sha256(const G5Plan& p) {
+    std::vector<Bytes> records;
+    records.reserve(p.canonical.size());
+    for (const TokenCoord& c : p.canonical) {
+        Bytes rec;
+        const Bytes& tok = token_at(p, c);
+        put_uvar(rec, tok.size());
+        rec.insert(rec.end(), tok.begin(), tok.end());
+        records.push_back(std::move(rec));
+    }
+    std::sort(records.begin(), records.end());
+    Bytes joined;
+    for (const Bytes& r : records) joined.insert(joined.end(), r.begin(), r.end());
+    return sha256::hex(joined);
+}
 
 static const Bytes& token_at(const G5Plan& p, const TokenCoord& c) {
     if (c.shape >= p.analysis.shapes.size())
@@ -197,6 +343,10 @@ static G5Plan build_g5_plan(const Bytes& src) {
                     throw std::runtime_error("G5 unassigned canonical token");
     }
 
+    // Byte-level invariant hashes (prereg I3/I4), computed once per file.
+    p.envelope_sha256 = sha256::hex(p.prefix);
+    p.multiset_sha256 = canonical_multiset_sha256(p);
+
     return p;
 }
 
@@ -204,7 +354,29 @@ static std::vector<size_t> permutation_for(const G5Plan& p, G5Order mode) {
     std::vector<size_t> perm;
     perm.reserve(p.canonical.size());
 
-    if (mode == G5Order::SourceOrder) {
+    if (mode == G5Order::RandomPermutation) {
+        // A0 deterministic null (prereg section 4 A0 / 4.1): sort canonical
+        // indices by SHA-256(seed || 0x1F || index_le_u64) as a big-endian
+        // 256-bit integer, ties by lower index. No score, no content, no
+        // observed byte influences this permutation.
+        static const char* const kSeed = "G5A-RANDOM-PERMUTATION-SEED-v1";
+        std::vector<std::pair<std::array<uint8_t, 32>, size_t>> keyed;
+        keyed.reserve(p.canonical.size());
+        for (size_t i = 0; i < p.canonical.size(); ++i) {
+            Bytes buf;
+            for (const char* c = kSeed; *c; ++c) buf.push_back(uint8_t(*c));
+            buf.push_back(0x1F);
+            for (unsigned b = 0; b < 8; ++b)
+                buf.push_back(uint8_t((uint64_t(i) >> (b * 8)) & 0xffu));
+            keyed.emplace_back(sha256::hash(buf), i);
+        }
+        std::sort(keyed.begin(), keyed.end(),
+                  [](const auto& x, const auto& y) {
+                      if (x.first != y.first) return x.first < y.first;  // big-endian digest
+                      return x.second < y.second;
+                  });
+        for (const auto& kv : keyed) perm.push_back(kv.second);
+    } else if (mode == G5Order::SourceOrder) {
         for (size_t i = 0; i < p.canonical.size(); ++i) perm.push_back(i);
     } else if (mode == G5Order::ShapeRow) {
         for (size_t sid = 0; sid < p.analysis.shapes.size(); ++sid) {
@@ -235,6 +407,9 @@ struct BuiltArm {
     std::vector<size_t> permutation;
     bool permutation_ok = false;
     double build_ms = 0.0;
+    // Byte-level invariant hashes (prereg I3/I4).
+    std::string envelope_sha256;
+    std::string multiset_sha256;
 };
 
 static BuiltArm build_arm(const G5Plan& p, G5Order mode) {
@@ -249,6 +424,25 @@ static BuiltArm build_arm(const G5Plan& p, G5Order mode) {
     for (size_t id : r.permutation) {
         const TokenCoord& c = p.canonical[id];
         append_token_chunk(r.body, token_at(p, c));
+    }
+
+    // Envelope hash is over the shared prefix; the multiset hash is over the
+    // arm's own token region records (sorted), which must equal the plan hash.
+    r.envelope_sha256 = sha256::hex(p.prefix);
+    {
+        std::vector<Bytes> records;
+        records.reserve(r.permutation.size());
+        for (size_t id : r.permutation) {
+            Bytes rec;
+            const Bytes& tok = token_at(p, p.canonical[id]);
+            put_uvar(rec, tok.size());
+            rec.insert(rec.end(), tok.begin(), tok.end());
+            records.push_back(std::move(rec));
+        }
+        std::sort(records.begin(), records.end());
+        Bytes joined;
+        for (const Bytes& rec : records) joined.insert(joined.end(), rec.begin(), rec.end());
+        r.multiset_sha256 = sha256::hex(joined);
     }
 
     const auto t1 = std::chrono::steady_clock::now();
@@ -396,6 +590,45 @@ static Bytes decode_g5_body(const Bytes& body, G5Order mode) {
                 for (size_t occ = 0; occ < g.members; ++occ)
                     read_into(g, occ, slot);
         }
+    } else if (mode == G5Order::RandomPermutation) {
+        // Reconstruct the deterministic A0 null (prereg section 4 A0) over the
+        // decoder's own canonical coordinate list. The encoder's canonical order
+        // is SOURCE-FRAME order: walk frame_group, and for each structured
+        // record emit occ-then-slot. This mirrors build_g5_plan exactly.
+        std::vector<size_t> occ(groups.size(), 0);
+        struct Coord { size_t gid, occ, slot; };
+        std::vector<Coord> canon;
+        for (uint32_t gid : frame_group) {
+            const G5DGroup& g = groups[gid];
+            if (g.raw) continue;
+            const size_t oi = occ[gid]++;
+            if (oi >= g.members) throw std::runtime_error("G5 A0 occurrence overflow");
+            for (size_t slot = 0; slot < g.slots; ++slot)
+                canon.push_back(Coord{gid, oi, slot});
+        }
+        for (size_t gid = 0; gid < groups.size(); ++gid)
+            if (!groups[gid].raw && occ[gid] != groups[gid].members)
+                throw std::runtime_error("G5 A0 occurrence mismatch");
+
+        static const char* const kSeed = "G5A-RANDOM-PERMUTATION-SEED-v1";
+        std::vector<std::pair<std::array<uint8_t, 32>, size_t>> keyed;
+        keyed.reserve(canon.size());
+        for (size_t i = 0; i < canon.size(); ++i) {
+            Bytes buf;
+            for (const char* ch = kSeed; *ch; ++ch) buf.push_back(uint8_t(*ch));
+            buf.push_back(0x1F);
+            for (unsigned b = 0; b < 8; ++b)
+                buf.push_back(uint8_t((uint64_t(i) >> (b * 8)) & 0xffu));
+            keyed.emplace_back(sha256::hash(buf), i);
+        }
+        std::sort(keyed.begin(), keyed.end(), [](const auto& x, const auto& y) {
+            if (x.first != y.first) return x.first < y.first;
+            return x.second < y.second;
+        });
+        for (const auto& kv : keyed) {
+            const Coord& c = canon[kv.second];
+            read_into(groups[c.gid], c.occ, c.slot);
+        }
     } else {
         throw std::runtime_error("G5 invalid decode order");
     }
@@ -447,9 +680,12 @@ struct MeasuredArm {
     Bytes brotli;
     size_t complete_bytes = 0;
     bool roundtrip = false;
+    bool mode_pack_ok = false;
     double encode_ms = 0.0;
     double decode_ms = 0.0;
 };
+
+static bool mode_pack_unpack_roundtrip(G5Order mode, const Bytes& body);
 
 static MeasuredArm measure_arm(const G5Plan& p, const Bytes& src, G5Order mode) {
     MeasuredArm m;
@@ -460,6 +696,10 @@ static MeasuredArm measure_arm(const G5Plan& p, const Bytes& src, G5Order mode) 
     const auto e1 = std::chrono::steady_clock::now();
     m.encode_ms = std::chrono::duration<double, std::milli>(e1 - e0).count();
     m.complete_bytes = 1 + m.brotli.size(); // one charged outer order-mode byte
+
+    // Materialize the charged mode byte (prereg section 3.2).
+    m.mode_pack_ok = mode_pack_unpack_roundtrip(mode, m.built.body);
+    if (!m.mode_pack_ok) throw std::runtime_error("G5 mode byte pack/unpack mismatch");
 
     const auto d0 = std::chrono::steady_clock::now();
     const Bytes decoded_body = brotli_decode_exact(m.brotli, m.built.body.size());
@@ -476,15 +716,39 @@ static MeasuredArm measure_arm(const G5Plan& p, const Bytes& src, G5Order mode) 
 static void print_arm_json(const char* key, const MeasuredArm& m) {
     std::cout << ",\"" << key << "\":{"
               << "\"mode\":\"" << order_name(m.built.mode) << "\""
+              << ",\"mode_byte\":" << static_cast<unsigned>(m.built.mode)
               << ",\"body_bytes\":" << m.built.body.size()
               << ",\"brotli_bytes\":" << m.brotli.size()
               << ",\"complete_bytes\":" << m.complete_bytes
               << ",\"roundtrip\":" << (m.roundtrip ? "true" : "false")
+              << ",\"mode_pack_unpack_ok\":" << (m.mode_pack_ok ? "true" : "false")
               << ",\"permutation_ok\":" << (m.built.permutation_ok ? "true" : "false")
+              << ",\"envelope_sha256\":\"" << m.built.envelope_sha256 << "\""
+              << ",\"multiset_sha256\":\"" << m.built.multiset_sha256 << "\""
               << ",\"build_ms\":" << m.built.build_ms
               << ",\"encode_ms\":" << m.encode_ms
               << ",\"decode_ms\":" << m.decode_ms
               << "}";
+}
+
+// Mode byte materialization (prereg section 3.2): pack the one-byte order mode
+// with the body and unpack it, verifying the recovered mode is the packed one.
+static bool mode_pack_unpack_roundtrip(G5Order mode, const Bytes& body) {
+    Bytes packed;
+    packed.push_back(static_cast<uint8_t>(mode));
+    packed.insert(packed.end(), body.begin(), body.end());
+    if (packed.size() != body.size() + 1) return false;
+    const G5Order recovered = static_cast<G5Order>(packed.front());
+    if (recovered != mode) return false;
+    const Bytes unpacked(packed.begin() + 1, packed.end());
+    return unpacked == body;
+}
+
+static std::string brotli_version_dotted() {
+    const uint32_t v = BrotliEncoderVersion();
+    return std::to_string((v >> 24) & 0xffu) + "." +
+           std::to_string((v >> 12) & 0xfffu) + "." +
+           std::to_string(v & 0xfffu);
 }
 
 static int measure_g5a(const std::string& path) {
@@ -495,11 +759,15 @@ static int measure_g5a(const std::string& path) {
     const double parse_plan_ms =
         std::chrono::duration<double, std::milli>(p1 - p0).count();
 
+    const MeasuredArm a0 = measure_arm(plan, src, G5Order::RandomPermutation);
     const MeasuredArm a1 = measure_arm(plan, src, G5Order::SourceOrder);
     const MeasuredArm a2 = measure_arm(plan, src, G5Order::ShapeRow);
     const MeasuredArm a3 = measure_arm(plan, src, G5Order::ShapeColumn);
 
+    const std::array<const MeasuredArm*, 4> arms = {&a0, &a1, &a2, &a3};
+
     const bool same_body_size =
+        a0.built.body.size() == a1.built.body.size() &&
         a1.built.body.size() == a2.built.body.size() &&
         a2.built.body.size() == a3.built.body.size();
     if (!same_body_size) throw std::runtime_error("G5 body-size identity failure");
@@ -509,20 +777,46 @@ static int measure_g5a(const std::string& path) {
                std::equal(plan.prefix.begin(), plan.prefix.end(), body.begin());
     };
     const bool envelope_identity =
-        has_common_prefix(a1.built.body) &&
-        has_common_prefix(a2.built.body) &&
-        has_common_prefix(a3.built.body);
+        has_common_prefix(a0.built.body) && has_common_prefix(a1.built.body) &&
+        has_common_prefix(a2.built.body) && has_common_prefix(a3.built.body);
     if (!envelope_identity)
         throw std::runtime_error("G5 common-envelope identity failure");
 
+    // Envelope SHA-256 (prereg I4) must be identical across arms and equal the
+    // plan prefix hash; multiset SHA-256 (prereg I3) must be identical too.
+    for (const MeasuredArm* m : arms) {
+        if (m->built.envelope_sha256 != plan.envelope_sha256)
+            throw std::runtime_error("G5 envelope sha256 mismatch");
+        if (m->built.multiset_sha256 != plan.multiset_sha256)
+            throw std::runtime_error("G5 multiset sha256 mismatch");
+    }
+    const bool hashes_identical =
+        a0.built.envelope_sha256 == a1.built.envelope_sha256 &&
+        a1.built.envelope_sha256 == a2.built.envelope_sha256 &&
+        a2.built.envelope_sha256 == a3.built.envelope_sha256 &&
+        a0.built.multiset_sha256 == a1.built.multiset_sha256 &&
+        a1.built.multiset_sha256 == a2.built.multiset_sha256 &&
+        a2.built.multiset_sha256 == a3.built.multiset_sha256;
+    if (!hashes_identical)
+        throw std::runtime_error("G5 invariant-hash identity failure");
+
     const bool all_perm =
-        a1.built.permutation_ok && a2.built.permutation_ok && a3.built.permutation_ok;
-    const bool all_roundtrip = a1.roundtrip && a2.roundtrip && a3.roundtrip;
+        a0.built.permutation_ok && a1.built.permutation_ok &&
+        a2.built.permutation_ok && a3.built.permutation_ok;
+    const bool all_roundtrip =
+        a0.roundtrip && a1.roundtrip && a2.roundtrip && a3.roundtrip;
+    const bool all_mode_pack =
+        a0.mode_pack_ok && a1.mode_pack_ok && a2.mode_pack_ok && a3.mode_pack_ok;
     if (!all_perm || !all_roundtrip)
         throw std::runtime_error("G5 hard invariant failure");
+    if (!all_mode_pack)
+        throw std::runtime_error("G5 mode byte pack/unpack failure");
 
-    // Raw Brotli is context only and does not enter the A1/A2/A3 causal gate.
+    // Raw Brotli is context only and does not enter the A0/A1/A2/A3 causal gate.
     const Bytes raw_br = brotli_encode(src);
+    // Frozen accounting: 1 (arm selector) + uvar_len(source_len) + payload.
+    const size_t raw_complete_context =
+        1ull + static_cast<size_t>(uvar_len(src.size())) + raw_br.size();
 
     const int64_t shape_bytes =
         static_cast<int64_t>(a1.complete_bytes) - static_cast<int64_t>(a2.complete_bytes);
@@ -530,13 +824,19 @@ static int measure_g5a(const std::string& path) {
         static_cast<int64_t>(a2.complete_bytes) - static_cast<int64_t>(a3.complete_bytes);
     const int64_t total_bytes =
         static_cast<int64_t>(a1.complete_bytes) - static_cast<int64_t>(a3.complete_bytes);
+    const int64_t random_null_bytes =
+        static_cast<int64_t>(a0.complete_bytes) - static_cast<int64_t>(a3.complete_bytes);
 
     std::cout << "{"
               << "\"schema\":1"
               << ",\"file\":\"" << json_escape(path) << "\""
               << ",\"source_bytes\":" << src.size()
               << ",\"raw_brotli_bytes\":" << raw_br.size()
-              << ",\"raw_complete_bytes_context\":" << (raw_br.size() + 5)
+              << ",\"raw_complete_bytes_context\":" << raw_complete_context
+              << ",\"brotli_encoder_version\":" << BrotliEncoderVersion()
+              << ",\"brotli_encoder_version_dotted\":\"" << brotli_version_dotted() << "\""
+              << ",\"carrier_quality\":11"
+              << ",\"carrier_window\":30"
               << ",\"parse_plan_ms\":" << parse_plan_ms
               << ",\"frame_count\":" << plan.analysis.frames.size()
               << ",\"structured_frame_count\":" << plan.analysis.structured_frame_count
@@ -545,16 +845,22 @@ static int measure_g5a(const std::string& path) {
               << ",\"token_chunk_count\":" << plan.canonical.size()
               << ",\"structured_token_bytes\":" << plan.structured_token_bytes
               << ",\"common_prefix_bytes\":" << plan.prefix.size()
+              << ",\"envelope_sha256\":\"" << plan.envelope_sha256 << "\""
+              << ",\"multiset_sha256\":\"" << plan.multiset_sha256 << "\""
               << ",\"body_size_identity\":" << (same_body_size ? "true" : "false")
               << ",\"envelope_identity\":" << (envelope_identity ? "true" : "false")
+              << ",\"invariant_hashes_identical\":" << (hashes_identical ? "true" : "false")
               << ",\"all_permutations_exact\":" << (all_perm ? "true" : "false")
+              << ",\"all_mode_pack_unpack\":" << (all_mode_pack ? "true" : "false")
               << ",\"all_roundtrip\":" << (all_roundtrip ? "true" : "false");
+    print_arm_json("a0_random_permutation", a0);
     print_arm_json("a1_source_order", a1);
     print_arm_json("a2_shape_row", a2);
     print_arm_json("a3_shape_column", a3);
     std::cout << ",\"shape_grouping_bytes\":" << shape_bytes
               << ",\"column_increment_bytes\":" << column_bytes
               << ",\"total_order_bytes\":" << total_bytes
+              << ",\"random_null_bytes\":" << random_null_bytes
               << "}\n";
     return 0;
 }
@@ -562,20 +868,35 @@ static int measure_g5a(const std::string& path) {
 static void g5a_fixture(const std::string& s, const char* label) {
     const Bytes src = bytes(s);
     const G5Plan p = build_g5_plan(src);
+    const BuiltArm a0 = build_arm(p, G5Order::RandomPermutation);
     const BuiltArm a1 = build_arm(p, G5Order::SourceOrder);
     const BuiltArm a2 = build_arm(p, G5Order::ShapeRow);
     const BuiltArm a3 = build_arm(p, G5Order::ShapeColumn);
 
-    if (a1.body.size() != a2.body.size() || a2.body.size() != a3.body.size())
+    if (a0.body.size() != a1.body.size() || a1.body.size() != a2.body.size() ||
+        a2.body.size() != a3.body.size())
         throw std::runtime_error(std::string(label) + ": body sizes differ");
     auto has_prefix = [&](const Bytes& body) {
         return body.size() >= p.prefix.size() &&
                std::equal(p.prefix.begin(), p.prefix.end(), body.begin());
     };
-    if (!has_prefix(a1.body) || !has_prefix(a2.body) || !has_prefix(a3.body))
+    if (!has_prefix(a0.body) || !has_prefix(a1.body) || !has_prefix(a2.body) ||
+        !has_prefix(a3.body))
         throw std::runtime_error(std::string(label) + ": common envelope differs");
-    if (!a1.permutation_ok || !a2.permutation_ok || !a3.permutation_ok)
-        throw std::runtime_error(std::string(label) + ": permutation invalid");
+    for (const auto* a : {&a0, &a1, &a2, &a3}) {
+        if (!a->permutation_ok)
+            throw std::runtime_error(std::string(label) + ": permutation invalid");
+        // Byte-level invariant hashes (prereg I3/I4).
+        if (a->envelope_sha256 != p.envelope_sha256)
+            throw std::runtime_error(std::string(label) + ": envelope hash mismatch");
+        if (a->multiset_sha256 != p.multiset_sha256)
+            throw std::runtime_error(std::string(label) + ": multiset hash mismatch");
+        // Mode byte materialization (prereg section 3.2).
+        if (!mode_pack_unpack_roundtrip(a->mode, a->body))
+            throw std::runtime_error(std::string(label) + ": mode pack/unpack");
+    }
+    if (decode_g5_body(a0.body, G5Order::RandomPermutation) != src)
+        throw std::runtime_error(std::string(label) + ": random decode");
     if (decode_g5_body(a1.body, G5Order::SourceOrder) != src)
         throw std::runtime_error(std::string(label) + ": source decode");
     if (decode_g5_body(a2.body, G5Order::ShapeRow) != src)
@@ -584,9 +905,17 @@ static void g5a_fixture(const std::string& s, const char* label) {
         throw std::runtime_error(std::string(label) + ": shape-column decode");
 
     const size_t expected = p.canonical.size();
-    for (const auto* a : {&a1, &a2, &a3})
+    // A0/A1/A2/A3 must be exact permutations; A1 is the identity permutation.
+    for (const auto* a : {&a0, &a1, &a2, &a3})
         if (!validate_permutation(a->permutation, expected))
             throw std::runtime_error(std::string(label) + ": exact coverage");
+    for (size_t i = 0; i < expected; ++i)
+        if (a1.permutation[i] != i)
+            throw std::runtime_error(std::string(label) + ": source order is not identity");
+    // The A0 random permutation must be deterministic: rebuilt identically.
+    const BuiltArm a0b = build_arm(p, G5Order::RandomPermutation);
+    if (a0.permutation != a0b.permutation || a0.body != a0b.body)
+        throw std::runtime_error(std::string(label) + ": A0 not deterministic");
 }
 
 static void g5a_selftest() {
@@ -626,6 +955,32 @@ static void g5a_selftest() {
         throw std::runtime_error("G5 permutation omission accepted");
     if (!validate_permutation({}, 0))
         throw std::runtime_error("G5 empty permutation rejected");
+
+    // SHA-256 known-answer tests: the invariant hashes depend on this.
+    if (sha256::hex(bytes("")) !=
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        throw std::runtime_error("G5 sha256 empty KAT");
+    if (sha256::hex(bytes("abc")) !=
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        throw std::runtime_error("G5 sha256 abc KAT");
+
+    // A0 must actually reorder a multi-chunk fixture (otherwise it is a no-op
+    // null and the audit-control claim is vacuous).
+    {
+        const std::string reorderable =
+            "{\"a\":1,\"b\":\"x\"}\n"
+            "{\"p\":9,\"q\":\"y\"}\n"
+            "{\"a\":2,\"b\":\"z\"}\n"
+            "{\"p\":8,\"q\":\"w\"}\n";
+        const Bytes src = bytes(reorderable);
+        const G5Plan p = build_g5_plan(src);
+        if (p.canonical.size() < 4)
+            throw std::runtime_error("G5 A0 fixture too small to reorder");
+        const BuiltArm a0 = build_arm(p, G5Order::RandomPermutation);
+        const BuiltArm a1 = build_arm(p, G5Order::SourceOrder);
+        if (a0.permutation == a1.permutation)
+            throw std::runtime_error("G5 A0 permutation equals identity (no null)");
+    }
 
     std::cout << "PASS grotli_g5a_ordering selftest\n";
 }
