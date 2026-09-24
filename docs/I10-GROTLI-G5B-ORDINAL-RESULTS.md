@@ -1,196 +1,222 @@
 # ANVIL I10 - GROTLI G5B-ORDINAL Results
 
-**Closed:** 2026-09-24
-**Preregistration:** `docs/I10-GROTLI-G5B-ORDINAL-PREREG.md`, frozen revision **r3**
-**Prereg git blob:** `1a45154f26ed98b7c5bc1d15bb1b5985d456347c`
-**Prereg SHA-256:** `b0c4c91de7a8a46a8fdea9f03742a01da68067fabb76f73fba3af6561ce3339f`
-**Frozen implementation commit:** `cf9306e34e98b35333b23757da88357cab92357e`
-**Frozen G5B-ORDINAL source blob:** `ce8021a5f7f3d25319db1ccd22850c3144c03040`
-**Frozen G5B-ORDINAL source SHA-256:** `910ddcf7ab8026ecca095199d921cfe823df64dd5bc9552617b9a1d73e0aa9f4`
-**Frozen G5B-ORDINAL binary SHA-256:** `ea47f30c8f315db86d4e1b94c656323df53848dd574216ec10f8eb1fc776010f`
-**Workflow run:** `36011333908` (workflow_dispatch, `ANVIL I10 Grotli G5B-ORDINAL probe`, conclusion `success`)
-**Workflow head SHA:** `a443f37c0076591dd7efd2175859630e1e20f6c9` (= `origin/main` at run time; run `createdAt` `2026-09-24T14:14:23Z`)
-**Artifact:** id `10812278595`, name `grotli-g5b-ordinal-36011333908`, size `196512` bytes,
-GitHub-exposed `digest` `sha256:742dc2ee8a9b683104f6c00f93f26ed132274e41c22ae5b4113aaa4ab6e266af`, `expired: false`
-**Frozen G3 reference:** public SHA `1a3d18fed76adb6fb33264e1994f9c357306b3fa`, source blob `eedc7b7e6671c4a5fcaf7a5997671bd4be30bdde`, source SHA-256 `5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e`
-**G5A floor reference:** run `35985412906` (head `996c2dbe67736c42288287abba7ed6f3307a0b34`), artifact id `10801714249`, digest `sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278`
-**Brotli backend:** libbrotli `1.1.0-2build2` (Ubuntu 24.04), `BrotliEncoderVersion()` = `16781312` (`1.1.0`), q11 / lgwin30
-**Runner:** `Linux runnervmtr4k5 6.17.0-1022-azure #22-Ubuntu SMP ... x86_64`
-**Compiler:** `Ubuntu clang version 18.1.3 (1ubuntu1)`
-**Decision:** **ORDINAL-ADVERSE** (discovery D1-D4)
+**Closed:** 2026-09-24  
+**Preregistration:** `docs/I10-GROTLI-G5B-ORDINAL-PREREG.md`, frozen revision **r3**  
+**Prereg git blob:** `1a45154f26ed98b7c5bc1d15bb1b5985d456347c`  
+**Prereg SHA-256:** `b0c4c91de7a8a46a8fdea9f03742a01da68067fabb76f73fba3af6561ce3339f`  
+**Frozen implementation commit:** `cf9306e34e98b35333b23757da88357cab92357e`  
+**Frozen G5B source blob:** `ce8021a5f7f3d25319db1ccd22850c3144c03040`  
+**Frozen G5B source SHA-256:** `910ddcf7ab8026ecca095199d921cfe823df64dd5bc9552617b9a1d73e0aa9f4`  
+**Frozen G5B binary SHA-256:** `ea47f30c8f315db86d4e1b94c656323df53848dd574216ec10f8eb1fc776010f`  
+**Authoritative workflow run:** `36011333908` (workflow_dispatch, `ANVIL I10 Grotli G5B-ORDINAL probe`, conclusion `success`)  
+**Workflow head SHA:** `a443f37c0076591dd7efd2175859630e1e20f6c9`  
+**Evidence artifact:** `grotli-g5b-ordinal-36011333908`, artifact id `10812278595`, size `196512`, digest `sha256:742dc2ee8a9b683104f6c00f93f26ed132274e41c22ae5b4113aaa4ab6e266af`  
+**Frozen G5A floor:** run `35985412906`, artifact id `10801714249`, digest `sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278`  
+**Frozen G3 reference:** public SHA `1a3d18fed76adb6fb33264e1994f9c357306b3fa`, source blob `eedc7b7e6671c4a5fcaf7a5997671bd4be30bdde`, source SHA-256 `5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e`  
+**Backend:** libbrotli `1.1.0-2build2` (Ubuntu 24.04), `BrotliEncoderVersion() = 16781312` (`1.1.0`), q11 / lgwin30  
+**Decision:** **ORDINAL-ADVERSE** on frozen D1-D4 discovery
 
 ---
 
 ## 0. Executive ruling
 
-G5B-ORDINAL asked a single interstitial, sharply causal question:
+G5B-ORDINAL asked one sharply causal question:
 
-> Does the boundary between exact lexical shapes fragment positional same-ordinal
-> slot locality?
+> Does lifting same-ordinal scalar slots across exact lexical-shape boundaries improve
+> the G5A shape-column floor when every scalar chunk, charged envelope byte, source
+> reconstruction fact, and Brotli backend parameter is held constant?
 
-Three arms over the byte-identical frozen G5A `G5AO` common carrier differ in
-exactly one mechanism - the permutation of the same canonical structured scalar
-chunks:
+The answer on the frozen D1-D4 discovery set is **no**.
 
-- **B0 `ORDINAL_NULL`** (selector byte 4) - deterministic structure-destroying null
-  (frozen seed `G5B-ORDINAL-NULL-SEED-v1`, one draw);
-- **B1 `ORDINAL_FLOOR`** (selector byte 3) - EXACT frozen G5A A3 `SHAPE_COLUMN`
-  semantics, the already-spent floor, not a treatment;
-- **B2 `ORDINAL_BLOCKED`** (selector byte 5) - the single treatment: hold the
-  positional ordinal `j` constant **globally across all shapes** before advancing.
+The experiment is valid. Every required provenance, build, corpus, correctness, floor,
+and same-run replay gate passed:
 
-Every provenance, build, selftest, corpus-identity, floor-replay, and
-correctness-invariant gate passed:
+- pinned G5B r3 implementation identity: **PASS**;
+- warning-clean G5B build against materialized frozen G3 + selftest: **PASS**;
+- separate frozen G3 reference build + selftest: **PASS**;
+- archived G5A evidence identity and archive digest: **PASS**;
+- D1-D4 + V1 corpus size/blob/SHA-256 identities: **PASS**;
+- same-run frozen G5A replay: **PASS**;
+- B1 byte/fact reproduction of frozen G5A A3 on D1-D4: **PASS**;
+- G5B permutation, length, envelope, multiset, selector, and roundtrip invariants: **PASS**;
+- evidence upload: **PASS**.
 
-- pinned implementation identity, source blob, prereg blob: **PASS**;
-- warning-clean build (`-Wall -Wextra -Wpedantic -Werror`) compiled against the
-  **materialized pinned frozen G3 source** (`frozen-grotli_g3.cpp`; `grotli-g5b.d`
-  records the include): **PASS**;
-- frozen G3 source identity (`frozen_blob == implementation_tree_blob == expected`
-  = `eedc7b7e…`): **PASS**;
-- adversarial selftest of `grotli_g5b_ordinal` and of the separate frozen G3
-  reference (`grotli_g3`): **PASS**;
-- D1-D4 + V1 corpus identity (size + git blob + SHA-256, re-verified at fetch):
-  **PASS**;
-- frozen G5A floor acquisition + per-file B1 reproduction + same-run G5A reference
-  replay (I10): **PASS** (`floor_ok: true`, `same_run_replay: true`);
-- I1-I9 invariants on every row (roundtrip, body/envelope/token-region length
-  identities, envelope identity, canonical token-multiset identity, exact
-  permutations, selector pack/unpack, fixed backend, B0 present and reordering):
-  **PASS** (`invariants_ok: true`);
-- artifact upload (`if: always()`; `grotli-g5b-ordinal-36011333908`): **PASS**.
+The frozen r3 first-match ruling was applied mechanically:
 
-The frozen r3 classification was applied mechanically inside the run:
+> **ORDINAL-ADVERSE**
 
-> **ORDINAL-ADVERSE**: `S2 (1,403,029) > S1 (1,380,245)`. The global-ordinal
-> (cross-shape) permutation is **larger** than the per-exact-shape column floor by
-> **+22,784 B (+1.6507%)** in aggregate over the frozen D1-D4 discovery set.
+because aggregate B2 `ORDINAL_BLOCKED` is larger than B1 `ORDINAL_FLOOR`:
 
-The known-stress diagnostic is:
+```
+B1 = 1,380,245
+B2 = 1,403,029
 
-> **V1-ORDINAL-FAVORABLE** (B2 slightly *smaller* than B1) - KNOWN-STRESS / NOT
-> HELD-OUT FOR G5B-ORDINAL, diagnostic only.
+B2 - B1 = +22,784 bytes
+B2 / B1 = 1.0165072143
+=> +1.650721% larger
+=> ORDINAL-ADVERSE
+```
 
-No production transform ID was allocated. No new held-out corpus was opened. Raw
-Brotli remains the permanent fallback. G4 remains **NO-GO**. The result is a
-discovery-set anatomy finding only (`opens_new_held_out_corpus: false`,
-`production_transform_id_allocated: false`, `semantic_hierarchy_lane_open: true`).
+This closes the **ordinal proxy only**. It does **not** close the semantic hierarchy /
+path-aware lane, which remains **OPEN**. No production transform ID was allocated. No
+new held-out corpus was opened. Raw Brotli remains the permanent fallback.
 
 ---
 
-## 1. What was measured (frozen arm semantics)
+## 1. What was measured
 
-Exactly the three frozen arms, differing only in the permutation of the same
-canonical structured scalar chunks, over a byte-identical frozen G5A `G5AO`
-common carrier (magic `G5AO`, version 1, source/frame/group counts, `frame_group`,
-group descriptors, raw-residual section; then exactly N `(token_len, token_bytes)`
-chunks), plus a constant charged one-byte out-of-band selector:
+G5B-ORDINAL retained the exact G5A carrier grammar and exact-shape representation and
+changed only the ordering of the same canonical structured scalar chunks.
 
-- **B0 `ORDINAL_NULL`** - deterministic pseudo-random permutation from a frozen seed
-  and the canonical chunk index; destroys positional locality while preserving
-  everything else;
-- **B1 `ORDINAL_FLOOR`** - `for sid (first-appearance); for slot j; for occurrence`:
-  emit `canonical_index[sid][occ][j]` (EXACT frozen G5A A3 `SHAPE_COLUMN`);
-- **B2 `ORDINAL_BLOCKED`** - `for j (0..D-1); for sid (first-appearance) with
-  j < slots(sid); for occurrence`: emit `canonical_index[sid][occ][j]` (ordinal held
-  globally constant across shapes).
+The three frozen arms were:
 
-`complete_bytes = 1 + brotli(common_body_with_arm_permutation)`. The selector byte
-is charged in every arm's total and is not passed to Brotli, so it is equal-cost and
-cannot confound the ordering comparison. All three arms had, per file, identical
-`body_bytes`, identical `envelope_len`, identical `token_region_len`, identical
-`envelope_sha256`, and identical `canonical_token_multiset_sha256`.
+- **B0 `ORDINAL_NULL`**, selector 4 — one deterministic structure-destroying null;
+- **B1 `ORDINAL_FLOOR`**, selector 3 — exact frozen G5A A3 `SHAPE_COLUMN`;
+- **B2 `ORDINAL_BLOCKED`**, selector 5 — global ordinal blocking across exact shapes.
+
+The common Brotli input body uses the frozen `G5AO` carrier magic. The one-byte arm
+selector is charged outside Brotli exactly as preregistered.
+
+Per file, all arms preserved:
+
+- source bytes and exact roundtrip;
+- structured/raw frame classification;
+- exact lexical shapes and templates;
+- frame-to-group reconstruction map;
+- raw residual bytes;
+- scalar token bytes;
+- token count and token length framing;
+- body length, envelope length, token-region length;
+- common-envelope SHA-256;
+- canonical token-multiset SHA-256;
+- q11 / lgwin30 backend identity.
+
+Therefore B1-vs-B2 isolates the effect of crossing exact-shape boundaries by **slot
+ordinal only**.
 
 ---
 
-## 2. Machine-readable evidence (authoritative)
+## 2. Authoritative evidence
 
-Ruling: `results/g5b-ruling.json` and `results/g5b-ruling.md` in the run artifact
-`grotli-g5b-ordinal-36011333908`. Per-file rows: `results/g5b-discovery.jsonl`
-(D1-D4) and `results/g5b-v1.jsonl` (V1). All numbers below are copied from those
-CI-produced objects; no local corpus measurement was performed.
+Machine-readable evidence is in artifact
+`grotli-g5b-ordinal-36011333908`:
 
-### 2.1 Aggregate (D1-D4 complete bytes)
+- `results/g5b-ruling.json`
+- `results/g5b-ruling.md`
+- `results/g5b-discovery.jsonl`
+- `results/g5b-v1.jsonl`
+- `results/floor-check.json`
+- `results/g5a-replay-discovery.jsonl`
+- `results/discovery-provenance.json`
+- archived G5A floor evidence under `floor_evidence/`
+- compiler/backend/source identity objects.
 
-| Arm | Complete bytes |
-|---|---:|
-| B0 `ORDINAL_NULL` | **2,054,910** |
-| B1 `ORDINAL_FLOOR` | **1,380,245** |
-| B2 `ORDINAL_BLOCKED` | **1,403,029** |
+The authoritative measurement is GitHub Actions run `36011333908`; no workstation or
+homelab result is used as evidence.
 
-Derived deterministic byte effects (frozen section 9 semantics):
+### 2.1 Aggregate D1-D4 complete bytes
+
+| Arm | Complete bytes | vs B1 |
+|---|---:|---:|
+| B0 `ORDINAL_NULL` | **2,054,910** | +674,665 |
+| B1 `ORDINAL_FLOOR` | **1,380,245** | baseline |
+| B2 `ORDINAL_BLOCKED` | **1,403,029** | **+22,784 (+1.650721%)** |
+
+The B2 null margin remains large:
 
 ```
-b2_vs_b1_bytes = S1 - S2 = 1,380,245 - 1,403,029 =  -22,784   (negative = B2 LARGER)
-b2_vs_b0_bytes = S0 - S2 = 2,054,910 - 1,403,029 =  651,881
-b1_vs_b0_bytes = S0 - S1 = 2,054,910 - 1,380,245 =  674,665
-b2_vs_b1_ratio = S2 / S1 = 1.0165072142989107  ->  +1.6507%
+B0 - B2 = 651,881 bytes
 ```
 
-The B1 floor is byte-identical to the archived frozen G5A A3 aggregate
-(`1,380,245` = G5A A3 `1,380,245`), as required by I10.
+but the preregistered ruling does not permit the null to rescue a treatment that is
+already worse than its causal floor. `B2 > B1` triggers **ORDINAL-ADVERSE** before
+materiality/breadth/null promotion gates are considered.
 
-### 2.2 Classification gate evaluation (frozen r3 precedence)
+### 2.2 Per-file facts
+
+| File | B0 | B1 floor | B2 ordinal | B2-B1 | B2 vs B1 | Degenerate? |
+|---|---:|---:|---:|---:|---:|:--:|
+| D1 amazon cellphones | 49,870 | 39,463 | 39,463 | 0 | 0.0000% | yes |
+| D2 cdisc adae | 92,210 | 25,717 | 25,855 | +138 | +0.5366% | no |
+| D3 gharchive 10 MiB | 1,693,435 | 1,230,007 | 1,253,880 | **+23,873** | **+1.9409%** | no |
+| D4 crovia dpi receipts | 219,395 | 85,058 | 83,831 | **-1,227** | **-1.4425%** | no |
+
+Only D4 is smaller under B2 among non-degenerate files. D1 has one exact shape and
+therefore correctly degenerates to B1 == B2 with zero moved tokens.
+
+Frozen liveness facts:
+
+| File | shapes | max slots | shared ordinal slots | cross-shape ordinal tokens | B2 moved tokens |
+|---|---:|---:|---:|---:|---:|
+| D1 | 1 | 9 | 0 | 0 | 0 |
+| D2 | 2 | 284 | 55 | 55 | 65,788 |
+| D3 | 167 | 533 | 378 | 21,362 | 259,154 |
+| D4 | 42 | 45 | 44 | 1,201 | 81,934 |
+
+The treatment is therefore live on D2-D4; the adverse aggregate is not explained by
+a no-op treatment.
+
+### 2.3 B1 exactly reproduces frozen G5A A3
+
+B1 complete bytes equal the authoritative frozen G5A A3 values exactly:
+
+| File | frozen G5A A3 | G5B B1 |
+|---|---:|---:|
+| D1 | 39,463 | 39,463 |
+| D2 | 25,717 | 25,717 |
+| D3 | 1,230,007 | 1,230,007 |
+| D4 | 85,058 | 85,058 |
+| **aggregate** | **1,380,245** | **1,380,245** |
+
+The floor gate additionally verified per-file body bytes, envelope length,
+token-region length, envelope SHA-256, canonical token-multiset SHA-256, structural
+counts, backend version, archived G5A implementation/source identity, and same-run
+G5A replay.
+
+`results/floor-check.json`: **`ok: true`**.
+
+---
+
+## 3. Frozen r3 ruling recomputation
+
+The authoritative ruling records:
 
 ```
-invariants_ok: true    floor_ok: true    same_run_replay: true
-S2 (1,403,029) >  S1 (1,380,245)?          YES  (S2 > S1  -> ADVERSE, first match wins)
-=> classification: ORDINAL-ADVERSE
-(identity check)  B1 vs frozen G5A A3 aggregate 1,380,245:  MATCH
+floor_ok: true
+invariants_ok: true
+B0 = 2,054,910
+B1 = 1,380,245
+B2 = 1,403,029
+b2_vs_b1_bytes = -22,784  # B1 - B2
+b2_vs_b0_bytes = +651,881 # B0 - B2
+b2_smaller_nondegenerate_files = 1
 ```
 
-Because the first matching rule is `ORDINAL-ADVERSE if S2 > S1`, the later
-(null / ratio / breadth) gates are **not reached**. For the record only:
-`S2 < S0` holds (null margin `S0 - S2 = 651,881` bytes), but the frozen precedence
-places ADVERSE first, so **no favorable claim is made and none is permitted**.
-`b2_smaller_nondegenerate_files = 1` of 4 (see 2.3); the breadth gate would not
-have been satisfied even had the aggregate favored B2.
+The r3 first-match order checks invalid states before scientific classification, then
+checks adverse/neutral before promotion gates.
 
-Per section 3.1/10, the single deterministic null is **one draw, not a
-significance test**; no p-value or "random is worse on average" language is used.
+Since:
 
-### 2.3 Per-file facts (D1-D4) - B2 vs B1
+```
+B2 > B1
+```
 
-| File | B0 | B1 | B2 | b2_vs_b1 bytes | b2_vs_b0 bytes | b1_vs_b0 bytes | shapes | shared ord slots | cross-shape ord tokens | b2_moved | b1_eq_b2 | degenerate | B2<B1 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--:|:--:|
-| D1 amazon cellphones | 49,870 | 39,463 | 39,463 | 0 | 10,407 | 10,407 | 1 | 0 | 0 | 0 | true | **yes** | no |
-| D2 cdisc adae | 92,210 | 25,717 | 25,855 | **-138** | 66,355 | 66,493 | 2 | 55 | 55 | 65,788 | false | no | no (B2 larger) |
-| D3 gharchive 10 MiB | 1,693,435 | 1,230,007 | 1,253,880 | **-23,873** | 439,555 | 463,428 | 167 | 378 | 21,362 | 259,154 | false | no | no (B2 larger) |
-| D4 crovia dpi receipts | 219,395 | 85,058 | 83,831 | **+1,227** | 135,564 | 134,337 | 42 | 44 | 1,201 | 81,934 | false | no | **yes** |
+the first applicable scientific label is:
 
-- **B2 is smaller than B1 on exactly 1 of 4 files** (D4, by 1,227 B). The frozen
-  breadth gate requires >= 2 non-degenerate files; it is not met.
-- **D1 is DEGENERATE** (`b1_eq_b2 == true`, `b2_moved_token_count == 0`,
-  `shape_count == 1`, `shared_ordinal_slots == 0`). Per frozen section 5.1, D1
-  cannot count toward breadth.
-- D2 and D3 are the adverse mass: B2 is larger by 138 B and 23,873 B respectively,
-  and D3 carries the dominant share of the adverse aggregate. D3 is also the only
-  file with a raw frame (`raw_frame_count == 1`).
-- D4 is the sole favorable non-degenerate file (`b2_vs_b1_bytes = +1,227`), but its
-  saving cannot offset D3's 23,873 B adverse term.
+> **ORDINAL-ADVERSE**
 
-### 2.4 Liveness / non-degenerate metrics
+The 0.99 materiality threshold, two-file favorable breadth threshold, and null gate
+are downstream and therefore moot for classification. This is deliberate
+preregistered precedence, not post-result interpretation.
 
-| File | shapes | max_slots | shared_ordinal_slots | cross_shape_ordinal_tokens | b1_eq_b2 | b2_moved_token_count | token chunks |
-|---|---:|---:|---:|---:|:--:|---:|---:|
-| D1 | 1 | 9 | 0 | 0 | true | 0 | 7,137 |
-| D2 | 2 | 284 | 55 | 55 | false | 65,788 | 65,789 |
-| D3 | 167 | 533 | 378 | 21,362 | false | 259,154 | 259,196 |
-| D4 | 42 | 45 | 44 | 1,201 | false | 81,934 | 82,768 |
+Arithmetic was re-verified against `results/g5b-discovery.jsonl`; no discrepancy was
+found.
 
-The r3 fail-closed liveness invariants held on every discovery row:
-`shared_ordinal_slots <= max_slots`; single-shape file (D1) has
-`shared_ordinal_slots == 0`; and `b1_eq_b2 == (b2_moved_token_count == 0)` on all
-rows. The D1 single-shape DEGENERATE case is exactly the legitimate
-`shared_ordinal_slots == 0` form; the withdrawn r2 claim (that DEGENERATE implies
-`shared_ordinal_slots != 0` is impossible) did not arise on D1-D4 and no invariant
-rejected a valid case.
+---
 
-### 2.5 V1 known-stress diagnostic
+## 4. V1 known-stress diagnostic
 
-V1 = Sino-US DrugQA (`all.jsonl`), 15,374,047 bytes, SHA-256
-`757b9bc7e5ee2d38ab5ed43877b1d87809cb5131621d106671bc27996da1c499`. Role:
-**KNOWN-STRESS / NOT HELD-OUT FOR G5B-ORDINAL**.
+V1 Sino-US DrugQA remains **KNOWN-STRESS / NOT HELD-OUT**.
 
 | Arm | Complete bytes |
 |---|---:|
@@ -198,190 +224,132 @@ V1 = Sino-US DrugQA (`all.jsonl`), 15,374,047 bytes, SHA-256
 | B1 | 2,183,986 |
 | B2 | 2,181,849 |
 
-`B1->B2 = +2,137` B (**-0.0978%**), `B0->B2 = +361,592` B. V1 invariant re-gate
-inside the final ruling: **clean** (all top-level identities true, all arms
-roundtrip/permutation/selector-clean, envelope and multiset hashes identical,
-q11/lgwin30). Permitted label **V1-ORDINAL-FAVORABLE** was emitted: on V1 the
-global-ordinal permutation is slightly *smaller* than the per-exact-shape column
-floor.
+B2 is 2,137 bytes smaller than B1:
 
-V1 is a diagnostic, not a held-out test. It cannot satisfy any generalization or
-promotion gate, it is reported **after** re-gating correctness, it never affects the
-discovery ruling, and it does not validate any G5B-ORDINAL hypothesis. In
-particular, V1's favorable sign **does not** qualify or rescue the adverse D1-D4
-discovery ruling.
+```
+B2 / B1 - 1 = -0.097849%
+```
 
-### 2.6 Rejected / infrastructure-invalid predecessor runs (provenance honesty)
+so the mechanically emitted diagnostic label is:
 
-Two predecessor attempts are recorded for the immutable evidence trail; neither is
-a measurement:
+> **V1-ORDINAL-FAVORABLE**
 
-- **Run `36010649558`** (workflow_dispatch, head `10490d5101801f78de17f0ab81e41f926e30d3fd`,
-  conclusion **`failure`**, `2026-09-24T14:08:45Z`). This run is
-  **infrastructure-invalid / premeasurement**: the pinned API metadata checks
-  succeeded, but `urllib` forwarded the GitHub bearer token across the artifact API
-  302 to signed blob storage, which returned 401. It reached **no** D1-D4/V1
-  measurement and produced no ruling. Corrected by `a443f37c`.
-- **Commit `a443f37c0076591dd7efd2175859630e1e20f6c9`** ("ci: strip auth on
-  artifact redirects", head of run `36011333908`) is a **transport-only
-  correction**: it changes only the artifact-download auth handling
-  (`add_unredirected_header` so authentication is sent to `api.github.com` but not
-  propagated cross-host) in
-  `.github/workflows/anvil-i10-grotli-g5b-ordinal.yml`. Frozen G5B r3
-  source/prereg, corpora, selectors, thresholds, backend, and ruling semantics are
-  unchanged.
+This does not alter the D1-D4 **ORDINAL-ADVERSE** ruling. V1 was already known-stress
+and is not evidence of held-out generalization.
 
-Run `36011333908` is the sole source-of-record measurement for G5B-ORDINAL r3.
+The sign reversal itself is informative: ordinal coarsening can help some structural
+regimes, but it is not a reliable compatibility relation across heterogeneous exact
+shapes.
 
 ---
 
-## 3. Causal interpretation (discovery D1-D4 only)
+## 5. Causal interpretation
 
-### 3.1 Raw ordinal cross-shape coarsening is falsified on the frozen D1-D4 set
+### 5.1 G5A survives; the coarse ordinal explanation does not
 
-Holding source bytes, parsing, frame split, structured/raw classification, exact
-shapes, shape templates, `frame_group`, raw residuals, scalar token bytes, length
-framing, token multiset, common envelope, body length, and backend all constant, and
-changing *only* the scope over which a fixed positional ordinal is held constant:
-the global-ordinal (cross-shape) permutation is **+1.6507% LARGER** in aggregate than
-the frozen per-exact-shape column floor, and is smaller on only **1 of 4** families.
+G5A established that ordering/locality materially changes compressed size while
+holding the byte multiset and representation fixed. Its dominant component was
+same-slot-across-rows **within exact shape**.
 
-Within the frozen r3 contract, this is a **falsification of the raw ordinal
-cross-shape coarsening proxy**: on this frozen discovery set, forcing column
-emission at the *global* positional-ordinal level (across shape boundaries) does not
-improve over per-exact-shape columns; it is adverse in aggregate and on the majority
-of files.
+G5B tested the simplest possible cross-shape extension of that fact:
 
-### 3.2 The adverse effect is concentrated, and not a uniform law
+> treat slot ordinal as if it were enough to identify compatible fields across
+> different exact shapes.
 
-The aggregate adverse term is dominated by D3 (23,873 B, of 22,784 B net adverse
-aggregate), with a smaller adverse term on D2 (138 B) and a favorable term on D4
-(1,227 B). D1 is DEGENERATE and contributes nothing. So the effect is
-**file/heterogeneity-dependent**, not a uniform property. A single deterministic null
-draw passed (`B2 < B0` by 651,881 B), but the frozen precedence places ADVERSE first,
-and the frozen breadth gate (>= 2 non-degenerate files) is not met regardless.
+That extension is falsified on the frozen discovery set.
 
-### 3.3 What this establishes about the *mechanism* (and what it does not)
+The result does **not** contradict G5A. Instead it narrows the mechanism:
 
-The favorable G5A mechanism was **same-slot-across-rows locality within an exact
-shape** (`column_share = 0.8019`, column-dominated). G5B-ORDINAL tested the natural
-next coarsening - "hold the ordinal constant globally, across shapes" - and it
-**did not help**. This is consistent with the favorable locality being
-**exact-shape-internal**, such that the crude cross-shape ordinal adjacency B2
-creates (21,362 cross-shape-ordinal tokens on D3, 1,201 on D4, 55 on D2) destroys
-rather than enhances Brotli's positional locality.
+- corresponding-slot locality **inside a coherent exact shape** is valuable;
+- blindly merging equal ordinal positions **across different shapes** can destroy
+  useful locality;
+- therefore ordinal index is not a sufficient semantic compatibility key.
 
-This does **not** establish that positional ordinals are meaningless, that slot `j`
-of one shape is or is not the same logical field as slot `j` of another, that any
-semantic/path alignment exists, or that flat shapes are the right abstraction. The
-experiment intentionally made **no** logical-field or semantic-path claim.
+D3 provides the strongest evidence: the treatment is highly live
+(`21,362` cross-shape ordinal tokens, `259,154` moved tokens) and gives back
+`23,873` bytes relative to the exact-shape column floor.
 
-### 3.4 Semantic hierarchy lane remains OPEN
+D4 proves the opposite regime can exist: cross-shape ordinal blocking saves
+`1,227` bytes. That prevents the stronger claim that cross-shape locality is
+inherently harmful. The supported conclusion is narrower: **ordinal alone is an
+insufficient grouping rule**.
 
-Per the frozen r3 disposition (prereg section 11 "Non-pass disposition" and section
-16): a non-pass (ADVERSE / NEUTRAL / UNSUPPORTED-BY-NULL / WEAK / CONCENTRATED)
-**closes only the ordinal proxy**. It does **not** close the semantic-hierarchy lane.
-The original **semantic** G5B lane - exact flat shapes versus an explicitly
-preregistered structural/semantic hierarchy, and later precise semantic-path fusion
-- remains **OPEN** (`semantic_hierarchy_lane_open: true`) and is not answered by this
-result. G5B-ORDINAL may serve as motivation and architecture context for that lane
-but may not change that lane's own frozen contract.
+### 5.2 The next question is semantic/path compatibility
 
-### 3.5 V1 is a known-stress diagnostic only
+The most direct hypothesis left by G5A + G5B is that the useful locality unit is not
+"slot number" but a more meaningful coordinate such as structural path, field/key
+identity, or another compatibility signature that survives shape variation.
 
-V1's favorable sign (B2 smaller by 2,137 B) is descriptive. V1 is not held out and
-cannot promote anything; it neither contradicts nor rescues the D1-D4 ruling. Its
-different sign is itself consistent with 3.2: the ordinal-cross-shape effect is
-heterogeneity-dependent, and V1's anatomy (`shape_count == 3`, `max_slots == 17`,
-`shared_ordinal_slots == 16`) differs sharply from D3's.
+This is not yet a result and must not be smuggled into the G5B conclusion.
+
+The next anatomy experiment should therefore ask whether a **path-aware / field-aware
+cross-shape grouping** can improve or at least preserve the exact-shape B1 floor
+while keeping the same causal discipline:
+
+- same frozen source/corpora and clearly labeled corpus roles;
+- same scalar bytes and complete explanation-cost accounting;
+- same reversible carrier facts;
+- explicit metadata charging if path identity requires new transmitted information;
+- exact roundtrip and multiset gates;
+- a deterministic null/control;
+- B1 exact-shape column floor retained as an already-spent baseline;
+- no production promotion without a new held-out gate.
+
+If path information can be derived deterministically from already-transmitted
+structure, the experiment must prove that derivation and charge only genuinely new
+information. If it requires additional metadata, those bytes must be included in
+the complete carrier before any rate claim.
 
 ---
 
-## 4. Discipline and provenance notes
+## 6. Infrastructure-invalid precursor run
 
-- **No local measurement, no threshold movement.** No D1-D4/V1 or heavy benchmark
-  was run on the workstation, and no codec/source/workflow/prereg threshold was
-  changed by this closure. The artifact was downloaded read-only from the GitHub API
-  into the in-repo gitignored `scratch/` path as a local copy of the GitHub artifact
-  and is not itself treated as evidence.
-- **Immutable source of record.** CI artifacts/logs of run `36011333908` are the
-  only measurement evidence. The GitHub-exposed artifact `digest`
-  (`sha256:742dc2ee…`) is pinned for the record; the local read-only download's
-  archive-zip SHA-256 is recorded alongside it in `scratch/` for cross-check.
-- **Provenance verified before/independently of outcome:** implementation commit,
-  source blob, prereg blob, frozen G3 head/blob/SHA-256,
-  `frozen_blob == implementation_tree_blob`, `grotli-g5b.d` showing compilation
-  against `frozen-grotli_g3.cpp`, both selftests PASS, the frozen G5A floor artifact
-  (id/digest/size) and its archived provenance, and the same-run G5A reference replay.
-  Runtime libbrotli `.so` SHA-256s captured: `libbrotlidec.so.1.1.0` `64d8a501…`,
-  `libbrotlienc.so.1.1.0` `6e59301f…`, `libbrotlicommon.so.1.1.0` `a91ead09…`.
-- **Negative/unfavorable facts preserved:** the aggregate ruling is adverse; B2 is
-  larger on D2 and D3, and on D3 by a wide margin; the breadth gate is unmet
-  (1/4); D1 is DEGENERATE. None of this was smoothed, clipped, or reframed. V1's
-  favorable sign is reported but explicitly quarantined as a non-held-out diagnostic.
-- **Selector discipline preserved (I7):** frozen selector bytes B1/B0/B2 = 3/4/5 on
-  the shared `G5AO` carrier; selector 0/1/2 remain invalid (G5A A0/A1/A2 aliases);
-  pack/unpack round-trip clean; selector never passed to Brotli.
+Run `36010649558` is **infrastructure-invalid / premeasurement** and is **not
+scientific evidence**.
+
+It passed implementation/build/selftest provenance but failed while downloading the
+archived G5A artifact: Python `urllib` forwarded the GitHub bearer token across the
+artifact API's cross-host 302 redirect to signed blob storage, which returned HTTP
+401.
+
+No corpus measurement step executed. The fail-closed workflow emitted
+`INVALID-G5B-ORDINAL` and prohibited B2 interpretation.
+
+Workflow-only commit `a443f37c0076591dd7efd2175859630e1e20f6c9` is a transport-only
+correction: it changed the downloader to use `add_unredirected_header`, so credentials
+are sent to `api.github.com` but not forwarded to the signed-storage host. It did not
+change the frozen r3 implementation, preregistration, corpora, arms, selectors,
+thresholds, backend, or ruling semantics.
+
+The authoritative scientific run is exclusively `36011333908`.
 
 ---
 
-## 5. Disposition and next scientific decision
+## 7. Disposition
 
-**Disposition:** G5B-ORDINAL is **CLOSED** as a discovery-set anatomy result
-(`ORDINAL-ADVERSE`). No production transform ID, no promotion, no production source
-change, no new held-out corpus. Raw Brotli remains the permanent fallback. G4
-remains **NO-GO**. The `ORDINAL-*` proxy is closed; the semantic-hierarchy lane
-remains **OPEN**.
+**Closed: G5B-ORDINAL = ORDINAL-ADVERSE.**
 
-**What is now closed:** raw ordinal cross-shape coarsening - lifting the
-positional-ordinal crossing from per-exact-shape (B1) to global-across-shapes (B2) -
-is falsified as a favorable mechanism on the frozen D1-D4 discovery set. Any future
-proposal to spend complexity on ordinal cross-shape coarsening must treat this as a
-closed negative result.
+Retain:
 
-**What remains open:** the original semantic G5B lane (exact flat shapes versus an
-explicitly preregistered structural/semantic hierarchy, and later precise
-semantic-path fusion). This result **does not** motivate abandoning flat shapes for
-hierarchy, nor does it motivate the reverse; it removes one cheap surrogate and
-leaves the semantic-hierarchy question exactly where the frozen G5A results left it.
+- G4 remains **NO-GO** (`NO-GO-G4`); no cheap planner-proxy claim is reopened by G5B;
+- G5A `ORDER-MATERIAL / COLUMN-DOMINANT` as the established ordering/locality
+  anatomy result;
+- exact-shape B1/A3 as the floor for the next hierarchy experiment;
+- raw Brotli as the permanent fallback;
+- all provenance and causal-accounting rules.
 
-**Highest-information next experiment (for a future frozen prereg, not implemented
-here):** a hypothesis for the semantic-hierarchy lane must separate *positional*
-ordinal structure from *semantic* structure explicitly - e.g. whether a frozen,
-content-independent, explicitly preregistered structural/semantic refinement of flat
-shapes improves field-local column ordering where the crude positional ordinal
-proxy does not - while reusing the frozen G5A thresholds, the same frozen D1-D4
-discovery objects, the same Brotli q11/lgwin30 backend, the same null discipline,
-and the same fail-closed invariant suite. Any such experiment must be its own frozen
-prereg; it may not retroactively change G5A or G5B-ORDINAL arms or gates.
+Close:
 
-**Do not:** add more random draws to G5B-ORDINAL; retune thresholds; retro-fit
-V1-ORDINAL-FAVORABLE into a favorable discovery story; treat the adverse discovery
-result as a generalization claim; allocate a production transform ID; or expand the
-typed leaf basis to rescue a planner hypothesis (G4's standing NO-GO).
+- global same-ordinal-across-shapes as a candidate explanation for the G5A column
+  effect;
+- any attempt to rescue that proxy by tuning thresholds or adding post-hoc
+  exceptions.
 
----
+Keep open:
 
-## 6. Reproduce
+- semantic/path-aware cross-shape hierarchy;
+- representation designs that recover compatible field identity without hiding
+  metadata cost;
+- later held-out validation only after a mechanism survives discovery causally.
 
-1. Workflow: `.github/workflows/anvil-i10-grotli-g5b-ordinal.yml`
-   (prereg `docs/I10-GROTLI-G5B-ORDINAL-PREREG.md`, r3).
-2. Dispatch on head `a443f37c0076591dd7efd2175859630e1e20f6c9` (run
-   `36011333908`); the workflow checks out `cf9306e…`, verifies source/prereg blobs,
-   materializes and verifies the pinned frozen G3 source, builds warning-clean
-   against it, selftests both binaries, acquires and verifies the frozen G5A floor
-   evidence (run `35985412906`, artifact `10801714249`, pinned digest), runs the
-   same-run frozen G5A reference replay on D1-D4, fetches and verifies D1-D4 + V1,
-   measures B0/B1/B2, verifies B1/FLOOR exact reproduction, applies the frozen
-   section-10/10.1 classification mechanically (fail-closed, I12), and uploads
-   `grotli-g5b-ordinal-<run_id>` with `if: always()`.
-3. Authoritative objects in that artifact: `results/g5b-ruling.json`,
-   `results/g5b-ruling.md`, `results/g5b-discovery.jsonl`, `results/g5b-v1.jsonl`,
-   `results/g5brow-*.json`, `results/floor-check.json`,
-   `results/discovery-provenance.json`, `results/g5a-reference-identity.txt`,
-   `results/g5a-replay-discovery.jsonl`, plus the provenance/identity files
-   (`grotli-g5b-implementation-identity.txt`, `grotli-g3-source.sha256`,
-   `brotli-package-identity.txt`, `brotli-library-sha256.txt`).
-4. Predecessor runs for the record: `36010649558` (infrastructure-invalid /
-   premeasurement, `failure`) and the transport-only correction commit
-   `a443f37c0076591dd7efd2175859630e1e20f6c9`.
+No production transform ID. No new held-out corpus. No generalization claim.
