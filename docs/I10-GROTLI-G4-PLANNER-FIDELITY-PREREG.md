@@ -461,6 +461,39 @@ Rules that are frozen now:
   report must name which labels collapsed and must count verifier calls **after**
   dedup.
 
+#### 4.7.4a S3 reuses already-measured verifier results (no new q11 calls)
+
+Every S3 finalist **is already one of the `P × F` carriers** whose exact q11
+complete bytes were measured for Q1, or (`RAW_BROTLI`, and optionally frozen
+`G2_WHOLE`) an already-measured whole-file result. S3 therefore **reuses those
+measured results** and **must not recompress them**.
+
+Freeze:
+
+```
+s3_additional_q11_calls     = 0
+s3_q11_rank_calls           = 0
+```
+
+- the actual verifier cost was already paid by the `P × F` plan, where
+  `final_q11(P) = 4` per proxy per file (§G8.5). S3 adds **nothing** to it;
+- **reused results must never be labeled as new q11 calls.** A reused measured
+  result is a *consulted result*, not a *call*;
+- if frozen `G2_WHOLE` is retained as the optional context/fallback finalist, its
+  already-measured/frozen result is reused and **does not count as a new G4 q11
+  call**;
+- S3 may read the `(P, F)` complete-byte matrix, but it may not run a compressor
+  to produce its own numbers;
+- the distinction is mandatory in the report:
+
+```
+sum of "calls"  = paid verifier calls   (final_q11(P) = 4 per proxy per file)
+sum of "reuses" = consulted results     (S3 finalists, deduplicated)
+```
+
+These two quantities are reported separately and are never added together, and a
+reuse is never reported as a call reduction attributable to S3.
+
 #### 4.7.5 S3 arbitration (P6, not ranking)
 
 S3's final selection is the exact complete-carrier bytes over the fixed finalist
@@ -482,7 +515,15 @@ This is **P6 verification / final arbitration, NOT ranking**:
 - it uses no candidate scores;
 - it performs no cross-surface score comparison;
 - `q11_rank(S3) = 0`;
-- its q11 final-carrier calls are reported **separately** from ranking calls.
+- `s3_additional_q11_calls = 0`: it **reuses** the already-measured `(P, F)`
+  verifier results (§4.7.4a) and recompresses nothing;
+- reused results are reported as consulted results, **separately** from paid
+  verifier calls and **separately** from ranking calls.
+
+This S3 tie order is **authoritative for S3** and supersedes the generic
+diagnostic carrier-level tie order of §6.3 for S3 arbitration. The two orders are
+not interchangeable: §6.3 orders final portfolio *labels over the whole diagnostic
+candidate set*, whereas §4.7.5 orders *S3's own fixed finalist labels only*.
 
 ---
 
@@ -590,15 +631,20 @@ Deterministic and frozen:
 **Family level (inside `C_region`).** Ties on exact complete bytes between
 portfolios are resolved nominally by the §5.1 family order
 `RAW, DICT, INT, MIXED`. This does not change `C_region`.
-**Carrier level (final portfolio, reporting only).** Within one file, if two
-final portfolio candidates produce identical complete bytes, the report must list
-all tied candidates; the **nominal** selected-candidate tie-break is:
+**Carrier level (generic diagnostic portfolio, reporting only).** Within one
+file, if two candidates of the generic diagnostic portfolio (`§G8.9`: `RAW_BROTLI`,
+frozen `G2_WHOLE`, and the `(P,F)` carriers) produce identical complete bytes, the
+report must list all tied candidates; the **nominal generic** selected-candidate
+tie-break is:
 
 1. `RAW_BROTLI` if raw is among the ties (raw fallback is permanent);
 2. then `O11`;
 3. then `S0`, then `S1`, then `S2`.
 
-Both tie-breaks never decide the G4 GO/NO-GO; they only resolve reporting labels.
+This generic order is a **diagnostic reporting label only**. It is **not** S3's
+tie order: S3 arbitration uses its own explicit finalist order in §4.7.5, which is
+authoritative for S3. The two must not be substituted for one another, and neither
+decides the G4 GO/NO-GO.
 
 ---
 
@@ -826,22 +872,31 @@ The result row for every ranking surface must contain, as exact integers:
 
 For S3, additionally and separately:
 
-- `s3_finalist_count_before_dedup`;
-- `s3_finalist_count_after_dedup`;
+- `s3_distinct_finalist_results_before_dedup`;
+- `s3_distinct_finalist_results_after_exact_carrier_dedup`;
 - `s3_dedup_collapsed_labels` (exact label list);
-- `s3_q11_final_carrier_calls` (after dedup);
+- `s3_reused_q11_verifier_results` (count of distinct existing `P × F` / `RAW_BROTLI`
+  / optional `G2_WHOLE` results consulted);
+- `s3_additional_q11_calls` (always **0**);
 - `s3_q11_rank_calls` (always 0);
 - `s3_verifier_calls_are_ranking_calls` (always `false`).
 
-> **Ranking calls and final-carrier verifier calls are never summed into one
-> number.** `q11_rank_calls` counts candidate ranking only; `final_q11_carrier_calls`
-> and `s3_q11_final_carrier_calls` count whole-carrier verification only. S3
-> performs zero ranking calls and is never credited with eliminating ranking calls
-> it never made.
+> **Three quantities are never summed into one number.** `q11_rank_calls` counts
+> candidate ranking only. `final_q11_carrier_calls` counts **paid** whole-carrier
+> verifier calls (`final_q11(P) = 4` per proxy per file). `s3_reused_q11_verifier_results`
+> counts **consulted existing results** and is explicitly not a call count. S3
+> performs zero ranking calls and zero additional q11 calls, and it is never
+> credited with eliminating ranking calls it never made, nor with a call reduction
+> from reusing results it did not pay for.
 
 Call counts are deterministic and must be identical across runs on identical
 input. A run whose call counts differ from a previous identical run is a
 measurement failure and invalidates that arm's result.
+
+For S3, `s3_distinct_finalist_results_before_dedup`,
+`s3_distinct_finalist_results_after_exact_carrier_dedup`, and
+`s3_reused_q11_verifier_results` are also deterministic integers and are checked
+the same way.
 
 ### G8.8 Provenance
 
@@ -862,7 +917,8 @@ For each file, in addition to the four `(P,F)` regional encodes, report:
 - the nominal final portfolio selection over
   `{RAW_BROTLI, G2_WHOLE, C(f,O11,RAW), C(f,O11,DICT), C(f,O11,INT), C(f,O11,MIXED),
     C(f,S0,*), C(f,S1,*), C(f,S2,*)}`
-  using the §6.3 carrier-level tie-break.
+  using the §6.3 **generic diagnostic** carrier-level tie-break (which does not
+  govern S3; S3 uses §4.7.5).
 
 These numbers are **diagnostics and fallback candidates only**. They are
 **excluded** from `C_region(f,P)`, from G8.2, and from G8.3 (§8 preamble), so a
@@ -1216,7 +1272,12 @@ Per file, diagnostics outside the fidelity numbers:
   condition named);
 - `ISTAR` label and the G8.11 numbers, same form;
 - the exact finalist label set per file, before and after dedup;
-- `s3_q11_final_carrier_calls` (after dedup) and `s3_q11_rank_calls = 0`;
+- `s3_distinct_finalist_results_before_dedup`;
+- `s3_distinct_finalist_results_after_exact_carrier_dedup`;
+- `s3_reused_q11_verifier_results` (consulted existing results, not calls);
+- `s3_additional_q11_calls = 0` and `s3_q11_rank_calls = 0`;
+- confirmation that every S3 finalist byte value is the **reused** measured
+  `(P,F)` / `RAW_BROTLI` / optional `G2_WHOLE` value, with no recompression;
 - `C_S3(f)`, the winning label, and whether `RAW_BROTLI` won an exact tie;
 - for each finalist, its complete bytes and its delta versus `C_S3(f)`.
 
@@ -1381,7 +1442,15 @@ Frozen now, before measurement.
     after seeing D1-D4 is prohibited (§4.7.4, §G8.12).
 21. **S3 is P6 verification, not ranking.** `q11_rank(S3) = 0`; S3's final-carrier
     q11 calls are reported separately from ranking calls (§G8.7).
-22. **S3 does not validate a new compression mechanism**, does not repair a
+22. **S3 reuses measured verifier results and makes zero additional q11 calls.**
+    `s3_additional_q11_calls = 0`. Its finalists' bytes are the **already-measured**
+    `(P,F)` / `RAW_BROTLI` / optional `G2_WHOLE` results. Reused results must never
+    be reported or counted as new q11 calls, and S3 may not recompress a finalist
+    to inflate or deflate any count. The paid verifier cost remains
+    `final_q11(P) = 4` per proxy per file.
+23. **S3's tie order is its own.** §4.7.5 is authoritative for S3 and is not the
+    generic §6.3 diagnostic order. The two orders may not be substituted.
+24. **S3 does not validate a new compression mechanism**, does not repair a
     failed Q1 proxy, and its artifacts may not be quoted as proxy-fidelity
     evidence.
 
@@ -1445,8 +1514,9 @@ C(f, O11, MIXED) == frozen G3 REGION_MIXED carrier bytes
 10. freeze the G4 implementation SHA publicly;
 11. create a GitHub Actions discovery workflow pinned to that SHA;
 12. run D1-D4 remotely, once per ranking surface, with deterministic call
-    counting and exactly four final q11 verifier calls per proxy per file, plus
-    the deduplicated S3 verifier calls;
+    counting and exactly four final q11 verifier calls per proxy per file; S3
+    performs **no** additional q11 calls — it reuses those measured results
+    (§4.7.4a) and reports reused-result counts separately from paid call counts;
 13. apply §8 gates, §8.10/§8.11 DSTAR/ISTAR selection, §10.6 gate, §10.7 block,
     and §12 matrix mechanically;
 14. write source-of-record results, including every failure;
