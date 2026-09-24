@@ -1,0 +1,453 @@
+name: ANVIL I10 Grotli G3 regionized discovery
+
+# Preregistration: docs/I10-GROTLI-G3-REGION-PREREG.md (freeze revision r2).
+# This workflow:
+#   1. checks out a pinned G3 implementation SHA and verifies identity;
+#   2. builds the G3 standalone prototype and runs its mandatory selftests;
+#   3. fetches/verifies the frozen D1-D4 discovery corpus identities;
+#   4. builds/runs the FROZEN G2 control (tools/grotli_g2.cpp, public SHA
+#      c34b291f40db4037ae114a39dae181644260dfff) SEPARATELY for G2_WHOLE;
+#   5. runs G3 on each discovery file and binds the frozen G2 control row to it;
+#   6. applies the PASS-G3-REGION discovery gate;
+#   7. only on PASS, opens held-out V1 once using the exact frozen G3 SHA,
+#      requiring V1_REGION_BEST (a G3 regionized arm) >= 1% below raw Brotli.
+#
+# Heavy compression runs ONLY here, never on the workstation.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-i10-grotli-g3-discovery
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      # Pinned G3 implementation SHA (set before running; must match checkout).
+      FROZEN_IMPLEMENTATION_SHA: 1a3d18fed76adb6fb33264e1994f9c357306b3fa
+      # Frozen G2 control source identity (public SHA from G2 results).
+      FROZEN_G2_SHA: c34b291f40db4037ae114a39dae181644260dfff
+    outputs:
+      implementation_sha: ${{ steps.freeze.outputs.sha }}
+      pass_discovery: ${{ steps.ruling.outputs.pass_discovery }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FROZEN_IMPLEMENTATION_SHA }}
+          fetch-depth: 0
+
+      - name: Freeze implementation identity
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FROZEN_IMPLEMENTATION_SHA"
+          echo "sha=$FROZEN_IMPLEMENTATION_SHA" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain)"
+          git show -s --format='%H %s' HEAD
+          sha256sum tools/grotli_g3.cpp tools/grotli_g2.cpp
+
+      - name: Install compiler and Brotli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 libbrotli-dev python3 time
+
+      - name: Build and self-test G3 prototype
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            tools/grotli_g3.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3
+          sha256sum grotli_g3 | tee grotli-g3-binary.sha256
+          ./grotli_g3 selftest
+
+      - name: Build frozen G2 control and verify its source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Materialize the control source directly from the published frozen
+          # G2 commit; never compile an approximation from the G3 tree.
+          EXPECTED_BLOB="$(git rev-parse "$FROZEN_G2_SHA:tools/grotli_g2.cpp" 2>/dev/null || true)"
+          if [ -z "$EXPECTED_BLOB" ]; then
+            echo "Frozen G2 commit not present locally; fetching it explicitly."
+            git fetch --no-tags --depth 1 origin "$FROZEN_G2_SHA"
+            EXPECTED_BLOB="$(git rev-parse "$FROZEN_G2_SHA:tools/grotli_g2.cpp")"
+          fi
+          test -n "$EXPECTED_BLOB"
+          git show "$FROZEN_G2_SHA:tools/grotli_g2.cpp" > frozen-grotli_g2.cpp
+          ACTUAL_BLOB="$(git hash-object frozen-grotli_g2.cpp)"
+          test "$ACTUAL_BLOB" = "$EXPECTED_BLOB"
+          echo "$ACTUAL_BLOB" | tee grotli-g2-source.blob
+          sha256sum frozen-grotli_g2.cpp | tee grotli-g2-source.sha256
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            frozen-grotli_g2.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g2
+          sha256sum grotli_g2 | tee grotli-g2-binary.sha256
+          ./grotli_g2 selftest
+
+      - name: Fetch and verify frozen discovery corpora
+        shell: bash
+        run: |
+          mkdir -p corpus results
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+
+          rows = [
+              ("D1-amazon-cellphones.ndjson",
+               "https://raw.githubusercontent.com/simdjson/simdjson-data/4197c425e857f0ec38e89822fdd0bd9ea21f4daf/jsonexamples/amazon_cellphones.ndjson",
+               277673, "9cbb6a071eaa2a10c24d9b4d1729dca501f2f72b"),
+              ("D2-cdisc-adae.ndjson",
+               "https://raw.githubusercontent.com/cdisc-org/DataExchange-DatasetJson/a379f49a3f43c2aaed63bdeca761bdb7140df2c3/examples/adam/adae.ndjson",
+               615350, "4bb9ef50f650767967fc3f0a663c73d33c57c608"),
+              ("D3-gharchive-10mb.ndjson",
+               "https://raw.githubusercontent.com/rushikeshmore/DataCortex/9bf63551499974e7398b87b45d1a9d4b50936566/corpus/json-bench/gharchive-10mb.ndjson",
+               10485760, "59d1d00825053e9894a7895fcea0665912524ec8"),
+              ("D4-crovia-dpi-receipts.ndjson",
+               "https://raw.githubusercontent.com/croviatrust/crovia-core/1798a9c9138c6efc3fcaf487ac5e9833008f6ad9/demo_dpi_2025-11/data/dpi_royalty_receipts.ndjson",
+               3585053, "24020a024a05a68731a2d4de4536bd7ca3eb8576"),
+          ]
+          prov = []
+          for name, url, expected_n, expected_blob in rows:
+              data = urllib.request.urlopen(url, timeout=240).read()
+              if len(data) != expected_n:
+                  raise SystemExit(f"{name}: size {len(data)} != {expected_n}")
+              blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              if blob != expected_blob:
+                  raise SystemExit(f"{name}: blob {blob} != {expected_blob}")
+              sha256 = hashlib.sha256(data).hexdigest()
+              pathlib.Path("corpus", name).write_bytes(data)
+              prov.append({"name": name, "bytes": len(data), "git_blob": blob, "sha256": sha256})
+              print(name, len(data), blob, sha256)
+          pathlib.Path("results/discovery-provenance.json").write_text(
+              json.dumps({"schema": 3, "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"], "files": prov}, indent=2) + "\n"
+          )
+          PY
+
+      - name: Measure frozen G2 control on discovery corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > results/g2-control.jsonl
+          for f in corpus/*; do
+            ./grotli_g2 measure "$f" | tee -a results/g2-control.jsonl
+          done
+          python3 - <<'PY'
+          import json, pathlib
+          expected = {
+              "D1-amazon-cellphones.ndjson",
+              "D2-cdisc-adae.ndjson",
+              "D3-gharchive-10mb.ndjson",
+              "D4-crovia-dpi-receipts.ndjson",
+          }
+          rows = {}
+          for line in pathlib.Path("results/g2-control.jsonl").read_text().splitlines():
+              if not line.strip():
+                  continue
+              row = json.loads(line)
+              name = pathlib.Path(row["file"]).name
+              if name in rows:
+                  raise SystemExit(f"duplicate frozen G2 control row: {name}")
+              rows[name] = row
+          if set(rows) != expected:
+              raise SystemExit(f"unexpected frozen G2 control rows: {sorted(rows)}")
+          for name, row in rows.items():
+              pathlib.Path("results", f"g2row-{name}.json").write_text(
+                  json.dumps(row, separators=(",", ":")) + "\n"
+              )
+          PY
+
+      - name: Measure G3 region arms on discovery corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > results/discovery.jsonl
+          for f in corpus/*; do
+            base="$(basename "$f")"
+            g2row="results/g2row-$base.json"
+            test -s "$g2row"
+            /usr/bin/time -v -o "results/g3-$base.time.txt" \
+              ./grotli_g3 measure "$f" --g2-result "$g2row" | tee -a results/discovery.jsonl
+          done
+
+      - name: Discovery ruling
+        id: ruling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          rows = [json.loads(x) for x in pathlib.Path("results/discovery.jsonl").read_text().splitlines() if x.strip()]
+          if len(rows) != 4:
+              raise SystemExit(f"expected four discovery rows, got {len(rows)}")
+
+          by_name = {pathlib.Path(r["file"]).name: r for r in rows}
+          expected = {
+              "D1-amazon-cellphones.ndjson",
+              "D2-cdisc-adae.ndjson",
+              "D3-gharchive-10mb.ndjson",
+              "D4-crovia-dpi-receipts.ndjson",
+          }
+          if set(by_name) != expected:
+              raise SystemExit(f"unexpected discovery files: {sorted(by_name)}")
+
+          region_arms = ["g3_region_raw", "g3_region_dict", "g3_region_int", "g3_region_mixed"]
+          raw_total = 0
+          selected_total = 0
+          wins_5 = 0
+          structured = {"D1-amazon-cellphones.ndjson", "D2-cdisc-adae.ndjson", "D4-crovia-dpi-receipts.ndjson"}
+          report = []
+          d3_structured_frames = 0
+          d3_raw_frames = 0
+          d3_region_best = None
+          d3_raw_complete = None
+
+          for name in sorted(expected):
+              r = by_name[name]
+              raw = r["raw_complete_bytes"]
+              selected = r["selected_bytes"]
+              raw_total += raw
+              selected_total += selected
+              if not r.get("raw_roundtrip"):
+                  raise SystemExit(f"raw roundtrip failed: {name}")
+
+              # Every emitted G3 arm must round-trip exactly.
+              for arm in region_arms:
+                  if not r.get(f"{arm}_roundtrip"):
+                      raise SystemExit(f"{arm} roundtrip failed: {name}")
+              if not r.get("g2_control_provided") or not r.get("g2_control_bound"):
+                  raise SystemExit(f"frozen G2 control missing/unbound: {name}")
+
+              region_best = min(r[f"{a}_complete_bytes"] for a in region_arms)
+              delta = (selected / raw - 1.0) * 100.0
+
+              if name == "D3-gharchive-10mb.ndjson":
+                  d3_structured_frames = r["structured_frame_count"]
+                  d3_raw_frames = r["raw_frame_count"]
+                  d3_region_best = region_best
+                  d3_raw_complete = raw
+
+              if name in structured:
+                  if delta <= -5.0:
+                      wins_5 += 1
+
+              report.append({
+                  "file": name,
+                  "frame_count": r["frame_count"],
+                  "structured_frame_count": r["structured_frame_count"],
+                  "raw_frame_count": r["raw_frame_count"],
+                  "structured_source_bytes": r["structured_source_bytes"],
+                  "raw_source_bytes": r["raw_source_bytes"],
+                  "raw_residual_fraction": r["raw_residual_fraction"],
+                  "shape_count": r["shape_count"],
+                  "raw_complete_bytes": raw,
+                  "g2_whole_complete_bytes": r.get("g2_whole_complete_bytes"),
+                  "g2_control_bound": r.get("g2_control_bound"),
+                  "g3_region_raw_complete_bytes": r["g3_region_raw_complete_bytes"],
+                  "g3_region_dict_complete_bytes": r["g3_region_dict_complete_bytes"],
+                  "g3_region_int_complete_bytes": r["g3_region_int_complete_bytes"],
+                  "g3_region_mixed_complete_bytes": r["g3_region_mixed_complete_bytes"],
+                  "g3_region_best_complete_bytes": region_best,
+                  "selected_arm": r["selected_arm"],
+                  "selected_bytes": selected,
+                  "selected_delta_pct": delta,
+              })
+
+          if d3_region_best is None or d3_raw_complete is None:
+              raise SystemExit("D3 row missing from discovery accounting")
+          aggregate_delta = (selected_total / raw_total - 1.0) * 100.0
+          cond_3 = d3_structured_frames >= 1 and d3_raw_frames >= 1
+          cond_4 = d3_region_best < d3_raw_complete
+          cond_5 = aggregate_delta <= -3.0
+          cond_6 = wins_5 >= 2
+          passed = cond_3 and cond_4 and cond_5 and cond_6
+          ruling = {
+              "schema": 3,
+              "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
+              "d3_structured_frames": d3_structured_frames,
+              "d3_raw_frames": d3_raw_frames,
+              "d3_region_best_complete_bytes": d3_region_best,
+              "d3_raw_complete_bytes": d3_raw_complete,
+              "d3_mixed_coverage_pass": cond_3,
+              "d3_regionized_size_pass": cond_4,
+              "wins_ge_5pct": wins_5,
+              "required_wins_ge_5pct": 2,
+              "aggregate_raw_complete_bytes": raw_total,
+              "aggregate_selected_bytes": selected_total,
+              "aggregate_selected_delta_pct": aggregate_delta,
+              "required_aggregate_delta_pct": -3.0,
+              "pass_discovery": passed,
+              "rows": report,
+          }
+          pathlib.Path("results/discovery-ruling.json").write_text(json.dumps(ruling, indent=2) + "\n")
+          pathlib.Path("results/discovery-ruling.md").write_text(
+              "# G3 discovery ruling\n\n"
+              f"- D3 structured frames: **{d3_structured_frames}** (need >=1)\n"
+              f"- D3 raw residual frames: **{d3_raw_frames}** (need >=1)\n"
+              f"- D3 regionized best < raw: **{cond_4}** "
+              f"({d3_region_best} B vs {d3_raw_complete} B)\n"
+              f"- structured >=5% wins: **{wins_5}/3** (need 2)\n"
+              f"- aggregate routed delta: **{aggregate_delta:.4f}%** (need <= -3%)\n"
+              f"- ruling: **{'PASS-G3-REGION' if passed else 'NO-GO-G3-REGION'}**\n"
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"pass_discovery={'true' if passed else 'false'}\n")
+          print(json.dumps(ruling, indent=2))
+          PY
+          cat results/discovery-ruling.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload discovery evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: grotli-g3-discovery-${{ github.run_id }}
+          path: |
+            results/
+            grotli-g3-binary.sha256
+            grotli-g2-binary.sha256
+            grotli-g2-source.blob
+            grotli-g2-source.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  validation:
+    needs: discovery
+    if: needs.discovery.outputs.pass_discovery == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      IMPLEMENTATION_SHA: ${{ needs.discovery.outputs.implementation_sha }}
+      FROZEN_G2_SHA: c34b291f40db4037ae114a39dae181644260dfff
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.discovery.outputs.implementation_sha }}
+          fetch-depth: 0
+
+      - name: Verify frozen implementation identity
+        run: test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+
+      - name: Install compiler and Brotli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 libbrotli-dev python3 time
+
+      - name: Build and self-test identical G3 implementation
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            tools/grotli_g3.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3
+          ./grotli_g3 selftest
+          sha256sum grotli_g3 | tee grotli-g3-binary.sha256
+
+      - name: Build frozen G2 control (context/fallback only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BLOB="$(git rev-parse "$FROZEN_G2_SHA:tools/grotli_g2.cpp" 2>/dev/null || true)"
+          if [ -z "$EXPECTED_BLOB" ]; then
+            git fetch --no-tags --depth 1 origin "$FROZEN_G2_SHA"
+            EXPECTED_BLOB="$(git rev-parse "$FROZEN_G2_SHA:tools/grotli_g2.cpp")"
+          fi
+          git show "$FROZEN_G2_SHA:tools/grotli_g2.cpp" > frozen-grotli_g2.cpp
+          test "$(git hash-object frozen-grotli_g2.cpp)" = "$EXPECTED_BLOB"
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            frozen-grotli_g2.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g2
+          ./grotli_g2 selftest
+
+      - name: Fetch and verify held-out V1
+        shell: bash
+        run: |
+          mkdir -p corpus results
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+          name = "V1-sino-us-drugqa-all.jsonl"
+          url = "https://raw.githubusercontent.com/DodgeLU/Sino-US-DrugQA/cd026a27a5e039863de9080b8d7d95acaf1f5a39/data/release/all.jsonl"
+          expected_n = 15374047
+          expected_blob = "8d9e6acf3f534194487532fa60d4f1d43fe71d00"
+          data = urllib.request.urlopen(url, timeout=240).read()
+          if len(data) != expected_n:
+              raise SystemExit(f"{name}: size {len(data)} != {expected_n}")
+          blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+          if blob != expected_blob:
+              raise SystemExit(f"{name}: blob {blob} != {expected_blob}")
+          sha256 = hashlib.sha256(data).hexdigest()
+          pathlib.Path("corpus", name).write_bytes(data)
+          pathlib.Path("results/validation-provenance.json").write_text(
+              json.dumps({"schema": 1, "name": name, "bytes": len(data),
+                          "git_blob": blob, "sha256": sha256,
+                          "implementation_sha": os.environ["IMPLEMENTATION_SHA"]}, indent=2) + "\n"
+          )
+          print(name, len(data), blob, sha256)
+          PY
+
+      - name: Measure held-out V1 (frozen G2 control + G3 region arms)
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=corpus/V1-sino-us-drugqa-all.jsonl
+          ./grotli_g2 measure "$f" > results/g2row-v1.json
+          /usr/bin/time -v -o results/V1.time.txt \
+            ./grotli_g3 measure "$f" --g2-result results/g2row-v1.json \
+            | tee results/validation.jsonl
+
+      - name: Held-out ruling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          r = json.loads(pathlib.Path("results/validation.jsonl").read_text())
+          region_arms = ["g3_region_raw", "g3_region_dict", "g3_region_int", "g3_region_mixed"]
+          for arm in region_arms:
+              if not r.get(f"{arm}_roundtrip"):
+                  raise SystemExit(f"held-out roundtrip failed: {arm}")
+          if not r.get("raw_roundtrip"):
+              raise SystemExit("held-out raw roundtrip failed")
+          if not r.get("g2_control_provided") or not r.get("g2_control_bound"):
+              raise SystemExit("held-out frozen G2 control missing/unbound")
+          # A G3 regionized arm (NOT G2_WHOLE) must earn the held-out win.
+          v1_region_best = min(r[f"{a}_complete_bytes"] for a in region_arms)
+          region_delta = (v1_region_best / r["raw_complete_bytes"] - 1.0) * 100.0
+          passed = region_delta <= -1.0
+          ruling = {
+              "schema": 1,
+              "raw_complete_bytes": r["raw_complete_bytes"],
+              "v1_region_best_arm_bytes": v1_region_best,
+              "v1_region_best_delta_pct": region_delta,
+              "overall_selected_arm": r["selected_arm"],
+              "overall_selected_bytes": r["selected_bytes"],
+              "has_raw_residual_frames": r["raw_frame_count"] > 0,
+              "raw_frame_count": r["raw_frame_count"],
+              "pass_g3_base": passed,
+          }
+          pathlib.Path("results/validation-ruling.json").write_text(json.dumps(ruling, indent=2) + "\n")
+          pathlib.Path("results/validation-ruling.md").write_text(
+              "# G3 held-out ruling\n\n"
+              f"- V1_REGION_BEST delta: **{region_delta:.4f}%** (need <= -1%)\n"
+              f"- overall selected arm: **{r['selected_arm']}**\n"
+              f"- V1 contains raw residual frames: **{r['raw_frame_count'] > 0}**\n"
+              f"- ruling: **{'PASS-G3-BASE' if passed else 'PASS-G3-NARROW'}**\n"
+          )
+          print(json.dumps(ruling, indent=2))
+          PY
+          cat results/validation-ruling.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload held-out evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: grotli-g3-validation-${{ github.run_id }}
+          path: |
+            results/
+            grotli-g3-binary.sha256
+          if-no-files-found: error
+          retention-days: 30
