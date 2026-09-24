@@ -6,7 +6,7 @@
 // scalar chunks before the same Brotli backend.
 //
 // Preregistration:
-//   docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md  (freeze revision r4)
+//   docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md  (freeze revision r5)
 //
 // FROZEN-INCLUSION (prereg section 2.1): CI compiles G5A against the materialized
 // pinned frozen G3 source, NOT the mutable working-tree file, by defining
@@ -724,7 +724,7 @@ static void print_arm_json(const char* key, const MeasuredArm& m) {
               << ",\"mode_pack_unpack_ok\":" << (m.mode_pack_ok ? "true" : "false")
               << ",\"permutation_ok\":" << (m.built.permutation_ok ? "true" : "false")
               << ",\"envelope_sha256\":\"" << m.built.envelope_sha256 << "\""
-              << ",\"multiset_sha256\":\"" << m.built.multiset_sha256 << "\""
+              << ",\"canonical_token_multiset_sha256\":\"" << m.built.multiset_sha256 << "\""
               << ",\"build_ms\":" << m.built.build_ms
               << ",\"encode_ms\":" << m.encode_ms
               << ",\"decode_ms\":" << m.decode_ms
@@ -846,7 +846,7 @@ static int measure_g5a(const std::string& path) {
               << ",\"structured_token_bytes\":" << plan.structured_token_bytes
               << ",\"common_prefix_bytes\":" << plan.prefix.size()
               << ",\"envelope_sha256\":\"" << plan.envelope_sha256 << "\""
-              << ",\"multiset_sha256\":\"" << plan.multiset_sha256 << "\""
+              << ",\"canonical_token_multiset_sha256\":\"" << plan.multiset_sha256 << "\""
               << ",\"body_size_identity\":" << (same_body_size ? "true" : "false")
               << ",\"envelope_identity\":" << (envelope_identity ? "true" : "false")
               << ",\"invariant_hashes_identical\":" << (hashes_identical ? "true" : "false")
