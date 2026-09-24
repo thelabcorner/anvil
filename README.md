@@ -20,6 +20,8 @@ Iteration 10 has now closed its first adopt-class improvement: auxiliary-index i
 
 The same-runner external reference-cost gate has now closed that question: I10-1A still wins bytes, but is **FRONT-GAP_COST**, not a complete reference-front crossing. On Silesia it is 1.72x xz decode time but 4.57x xz peak RSS; on enwik8 it is 3.91x xz decode time with ~599 MiB peak RSS. Decode dependency depth and BWT working-set size therefore remain binding system axes.
 
+A separate Grotli-derived representation lane has now produced ANVIL's first clean **same-backend structured representation crossing**: on the frozen CROVIA receipt corpus, byte-exact lexical shape/column reordering followed by the same Brotli q11/lgwin30 backend is **21.77% smaller than raw Brotli**. The broader untyped G1 gate is still a **NO-GO**—only one discovery family crossed 5%, and the routed four-family portfolio improved by 1.656%, below the preregistered 3% threshold. The result therefore supports a specialist representation portfolio, not a universal JSON transform.
+
 The current research reset and execution program are documented in:
 
 - [`docs/FRONTIER-RESET-2026-09-23.md`](docs/FRONTIER-RESET-2026-09-23.md) — post-I9 synthesis and mechanism frontier
@@ -29,6 +31,9 @@ The current research reset and execution program are documented in:
 - [`docs/I10-GROTLI-G0-PREREG.md`](docs/I10-GROTLI-G0-PREREG.md) — frozen first causal experiment: exact record-aligned vXOR+Brotli versus raw Brotli
 - [`docs/I10-GROTLI-G0-CORPUS-FREEZE.md`](docs/I10-GROTLI-G0-CORPUS-FREEZE.md) — immutable discovery/validation split and upstream Git-object identities frozen before G0 implementation
 - [`docs/I10-GROTLI-G0-RESULTS.md`](docs/I10-GROTLI-G0-RESULTS.md) — G0 closeout: padded row-major vXOR is a decisive no-go; broader typed/shape-aware SRS remains a separate hypothesis
+- [`docs/I10-GROTLI-G1-CEILING-PREREG.md`](docs/I10-GROTLI-G1-CEILING-PREREG.md) — frozen untyped exact-shape/column causal gate
+- [`docs/I10-GROTLI-G1-CEILING-CORPUS-FREEZE.md`](docs/I10-GROTLI-G1-CEILING-CORPUS-FREEZE.md) — immutable G1 discovery split plus still-unspent held-out DrugQA validation corpus
+- [`docs/I10-GROTLI-G1-RESULTS.md`](docs/I10-GROTLI-G1-RESULTS.md) — G1 closeout: broad base NO-GO, but a 21.77% same-Brotli class-specific column-locality win
 - [`docs/I10-BREAKTHROUGH-PROGRAM.md`](docs/I10-BREAKTHROUGH-PROGRAM.md) — falsifiable Iteration-10 execution program
 - [`docs/I10-AUX-UNBWT-RESULTS.md`](docs/I10-AUX-UNBWT-RESULTS.md) — closed I10-1A paired timing, byte economics, hardening and ruling
 - [`docs/I10-REMOTE-BASELINE-CLOSURE.md`](docs/I10-REMOTE-BASELINE-CLOSURE.md) — closed Linux/GitHub baseline and deterministic I9 identity ruling

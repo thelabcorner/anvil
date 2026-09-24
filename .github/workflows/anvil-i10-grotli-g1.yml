@@ -140,17 +140,33 @@ jobs:
           report_rows = []
 
           for r in rows:
+              if not r.get("raw_roundtrip"):
+                  raise SystemExit(f"raw roundtrip failed: {r['file']}")
+
+              raw_total += r["raw_complete_bytes"]
+              selected_total += r["selected_bytes"]
+
               if not r.get("structured_eligible"):
-                  raise SystemExit(
-                      f"frozen discovery corpus unexpectedly ineligible: "
-                      f"{r['file']}: {r.get('ineligible_reason')}"
-                  )
-              if not (
-                  r.get("raw_roundtrip")
-                  and r.get("row_roundtrip")
-                  and r.get("column_roundtrip")
-              ):
-                  raise SystemExit(f"roundtrip failed: {r['file']}")
+                  if (
+                      r.get("selected_arm") != "raw"
+                      or r["selected_bytes"] != r["raw_complete_bytes"]
+                  ):
+                      raise SystemExit(
+                          f"ineligible file did not fall back exactly to raw: {r['file']}"
+                      )
+                  report_rows.append({
+                      "file": r["file"],
+                      "source_bytes": r["source_bytes"],
+                      "structured_eligible": False,
+                      "ineligible_reason": r.get("ineligible_reason"),
+                      "raw_complete_bytes": r["raw_complete_bytes"],
+                      "selected_arm": "raw",
+                      "selected_bytes": r["selected_bytes"],
+                  })
+                  continue
+
+              if not (r.get("row_roundtrip") and r.get("column_roundtrip")):
+                  raise SystemExit(f"structured roundtrip failed: {r['file']}")
 
               best_structured = min(
                   r["row_complete_bytes"], r["column_complete_bytes"]
@@ -160,11 +176,10 @@ jobs:
               ) * 100.0
               if structured_delta <= -5.0:
                   wins_5 += 1
-              raw_total += r["raw_complete_bytes"]
-              selected_total += r["selected_bytes"]
               report_rows.append({
                   "file": r["file"],
                   "source_bytes": r["source_bytes"],
+                  "structured_eligible": True,
                   "raw_complete_bytes": r["raw_complete_bytes"],
                   "row_complete_bytes": r["row_complete_bytes"],
                   "column_complete_bytes": r["column_complete_bytes"],
