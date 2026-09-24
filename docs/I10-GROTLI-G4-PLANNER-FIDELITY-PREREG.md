@@ -718,13 +718,13 @@ Any roundtrip failure is an immediate, unconditional proxy failure.
 ### G8.2 Aggregate complete-byte regret
 
 ```
-aggregate_regret(a) <= 0.0025        # <= 0.25%
+aggregate_regret(P) <= 0.0025        # <= 0.25%
 ```
 
 ### G8.3 Per-file complete-byte regret
 
 ```
-per_file_regret(f, a) <= 0.0050      # <= 0.50%   for every discovery file f
+per_file_regret(f, P) <= 0.0050      # <= 0.50%   for every discovery file f
 ```
 
 No exception, no averaging away, no dropped file.
@@ -737,15 +737,17 @@ Slot agreement is measured on **one unambiguous common candidate surface**: the
 surface (all five leaves allowed) and therefore the most informative comparison;
 it is also the surface on which the separability probe of §10 operates.
 
-Definitions:
+Definitions. For each eligible `REGION_MIXED` slot `i`, let `w_i`
+be the exact total source-byte length of all lexical tokens in that slot, and let
+`I_i(P)` equal 1 when `P` and O11 choose the same leaf and 0 otherwise:
 
 ```
-weighted_agreement(P) = #( slots where P and O11 chose the same leaf in
-                           REGION_MIXED, weighted by source bytes of that
-                           slot's lexical tokens )
-                        / #( same denominator over all eligible slots )
-raw_agreement(P)      = unweighted count agreement over the same slots
+weighted_agreement(P) = sum_i( w_i * I_i(P) ) / sum_i( w_i )
+raw_agreement(P)      = sum_i( I_i(P) ) / eligible_slot_count
 ```
+
+If `sum_i(w_i) == 0`, the run is a measurement error. G4 may not invent a
+fallback weighting rule after observing such a case.
 
 ```
 weighted_agreement(P) >= 0.95        # >= 95%, source-byte-weighted, MIXED vs MIXED
@@ -834,6 +836,8 @@ verifier calls (G8.5).
 > fails adoption.
 
 **End-to-end candidate-planner time must also be reported**:
+
+```
 candidate_planner_ms(P) =
     structural_parse_ms            (shared, measured once)
   + candidate_materialization_ms   (shared across P)
@@ -1440,8 +1444,9 @@ Frozen now, before measurement.
     per-file switching is prohibited.
 20. **S3's finalist set is fixed.** Adding, removing, or substituting a finalist
     after seeing D1-D4 is prohibited (§4.7.4, §G8.12).
-21. **S3 is P6 verification, not ranking.** `q11_rank(S3) = 0`; S3's final-carrier
-    q11 calls are reported separately from ranking calls (§G8.7).
+21. **S3 is P6 verification, not ranking.** `q11_rank(S3) = 0`; S3 reuses
+    already-paid whole-carrier verifier results and reports those reuses separately
+    from ranking calls and paid verifier calls (§4.7.4a, §G8.7).
 22. **S3 reuses measured verifier results and makes zero additional q11 calls.**
     `s3_additional_q11_calls = 0`. Its finalists' bytes are the **already-measured**
     `(P,F)` / `RAW_BROTLI` / optional `G2_WHOLE` results. Reused results must never
@@ -1465,19 +1470,27 @@ Frozen now, before measurement.
   result (§5.1).
 - G4 does **not** change G3's representation, carrier, framing, parser, shapes,
   leaves, or backend.
-- G4's `O11 REGION_*` carriers must be **byte-identical to the corresponding
-  frozen G3 regional carrier** for each portfolio separately:
+- G4's `O11 REGION_*` serialized carriers must be **byte-identical to the
+  corresponding carriers produced by a separately built frozen-G3 reference**
+  from implementation SHA `1a3d18fed76adb6fb33264e1994f9c357306b3fa` on the
+  same frozen source object. The CI reference wrapper may expose carrier bytes or
+  hashes, but may not change G3 semantics. Require both serialized identity and
+  complete-byte equality for every portfolio:
 
 ```
-C(f, O11, RAW)   == frozen G3 REGION_RAW   carrier bytes
-C(f, O11, DICT)  == frozen G3 REGION_DICT  carrier bytes
-C(f, O11, INT)   == frozen G3 REGION_INT   carrier bytes
-C(f, O11, MIXED) == frozen G3 REGION_MIXED carrier bytes
+carrier_sha256(f,O11,RAW)   == g3_reference_carrier_sha256(f,REGION_RAW)
+carrier_sha256(f,O11,DICT)  == g3_reference_carrier_sha256(f,REGION_DICT)
+carrier_sha256(f,O11,INT)   == g3_reference_carrier_sha256(f,REGION_INT)
+carrier_sha256(f,O11,MIXED) == g3_reference_carrier_sha256(f,REGION_MIXED)
+
+C(f,O11,RAW)   == g3_reference_complete_bytes(f,REGION_RAW)
+C(f,O11,DICT)  == g3_reference_complete_bytes(f,REGION_DICT)
+C(f,O11,INT)   == g3_reference_complete_bytes(f,REGION_INT)
+C(f,O11,MIXED) == g3_reference_complete_bytes(f,REGION_MIXED)
 ```
 
-  This is a per-portfolio equality invariant, not a vague "G3 carrier" claim. If
-  any of the four fails, that is a G4 implementation defect and blocks G4
-  entirely.
+  If any serialized-carrier identity or complete-byte equality fails, that is a
+  G4 implementation defect and blocks G4 entirely.
 - `C(f, P, RAW)` must equal `C(f, O11, RAW)` for every proxy `P`, since
   `REGION_RAW` allows exactly one leaf. A violation is an implementation defect.
 - G4 inherits all G3 decoder strictness and adversarial self-tests unchanged.
@@ -1491,10 +1504,13 @@ C(f, O11, MIXED) == frozen G3 REGION_MIXED carrier bytes
 
 ## 15. Implementation order
 
-1. commit and publish this preregistration (this document) — done before any G4
-   code exists;
+1. commit and publish this final preregistration revision **before any D1-D4 G4
+   discovery measurement**. A tiny synthetic-only prototype already exists as
+   disclosed in §0; it creates no discovery evidence and authorizes no gate
+   changes;
 2. do **not** consult or import any G3 V1 outcome;
-3. fork the frozen G3 standalone prototype into a G4 research prototype;
+3. realign the existing standalone G4 research prototype to this final freeze,
+   preserving the frozen G3 representation semantics;
 4. implement the four ranking surfaces crossed with the four frozen portfolios
    so that structural analysis, candidate materialization, and carrier
    construction are shared code and only the ranking surface differs;
