@@ -331,7 +331,10 @@ jobs:
               req.add_header("Accept", "application/vnd.github+json")
               req.add_header("X-GitHub-Api-Version", "2022-11-28")
               if token:
-                  req.add_header("Authorization", f"Bearer {token}")
+                  # Send credentials only to this request. urllib must NOT forward
+                  # the GitHub bearer token across the artifact API's cross-host
+                  # 302 redirect to signed blob storage.
+                  req.add_unredirected_header("Authorization", f"Bearer {token}")
               return urllib.request.urlopen(req, timeout=300)
 
           floor = pathlib.Path("floor_evidence")
@@ -378,7 +381,10 @@ jobs:
           req = urllib.request.Request(url)
           req.add_header("Accept", "application/vnd.github+json")
           if token:
-              req.add_header("Authorization", f"Bearer {token}")
+              # Keep the bearer token on api.github.com only. Request headers added
+              # with add_unredirected_header are intentionally omitted from the
+              # redirected signed-storage request.
+              req.add_unredirected_header("Authorization", f"Bearer {token}")
           data = urllib.request.urlopen(req, timeout=600).read()
           (floor / "g5a-artifact.zip").write_bytes(data)
           zip_digest = "sha256:" + hashlib.sha256(data).hexdigest()
