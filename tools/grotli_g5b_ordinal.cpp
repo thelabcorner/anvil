@@ -392,9 +392,13 @@ static G5BPlan build_g5b_plan(const Bytes& src) {
             if (j < a.shapes[sid].slots.size()) ++present;
         if (present >= 2) ++p.shared_ordinal_slots;
     }
-    // Fail-closed liveness sanity (prereg I11 / section 5.1): shared ordinals are
-    // each counted once, no file can share more ordinals than it has slots, and a
-    // single shape can never share an ordinal with itself (shared_ordinal_slots == 0).
+    // Fail-closed liveness sanity (prereg I11 / section 5.1, corrected): shared
+    // ordinals are each counted once, no file can share more ordinals than it has
+    // slots, and a single shape can never share an ordinal with itself
+    // (shared_ordinal_slots == 0). NOTE (r3 correction): b1_eq_b2 does NOT imply
+    // shared_ordinal_slots == 0. Two DISTINCT one-slot shapes are a legitimate
+    // multi-shape DEGENERATE case (shared_ordinal_slots == 1, b1_eq_b2 == true);
+    // no invariant may reject it.
     if (p.shared_ordinal_slots > p.max_slots)
         throw std::runtime_error("G5B shared_ordinal_slots exceeds max_slots");
     if (a.shapes.size() < 2 && p.shared_ordinal_slots != 0)
@@ -925,10 +929,11 @@ static int measure_g5b(const std::string& path) {
     // an implementation bug and must never fall through to a favorable classification.
     if (b1_eq_b2 != (b2_moved_token_count == 0))
         throw std::runtime_error("G5B b1_eq_b2 / b2_moved_token_count contradiction");
-    // b1_eq_b2 means the treatment changed nothing on this file (DEGENERATE, section
-    // 5.1). A degenerate file cannot share a positional ordinal across distinct shapes.
-    if (b1_eq_b2 && plan.shared_ordinal_slots != 0)
-        throw std::runtime_error("G5B degenerate file has shared ordinal slots");
+    // b1_eq_b2 means the treatment changed nothing on this file (DEGENERATE,
+    // section 5.1). It does NOT imply shared_ordinal_slots == 0 (r3 correction):
+    // two distinct one-slot shapes legitimately share ordinal 0 while B1 and B2
+    // coincide. The valid liveness invariants (shared <= max; single shape =>
+    // shared == 0) are enforced once per file in build_g5b_plan.
 
     // Raw Brotli is context only and does not enter the B0/B1/B2 causal gate.
     const Bytes raw_br = brotli_encode(src);
@@ -1143,6 +1148,31 @@ static void g5b_selftest() {
             throw std::runtime_error("G5B single-shape file not degenerate (B1 != B2)");
         if (b2.cross_shape_ordinal_tokens != 0)
             throw std::runtime_error("G5B degenerate file created cross-shape crossings");
+    }
+
+    // Legitimate MULTI-SHAPE degeneracy (r3 correction): two DISTINCT one-slot
+    // shapes share ordinal 0 (shared_ordinal_slots == 1 > 0), yet B1 (shape-major)
+    // and B2 (ordinal-major) emit the same order, so b1_eq_b2 == true and
+    // b2_moved_token_count == 0. This must be VALID, never a contradiction.
+    {
+        const std::string two_one_slot =
+            "{\"a\":1}\n"
+            "{\"b\":2}\n";
+        g5b_fixture(two_one_slot, "two distinct one-slot shapes");
+        const Bytes src = bytes(two_one_slot);
+        const G5BPlan p = build_g5b_plan(src);
+        if (p.analysis.shapes.size() != 2)
+            throw std::runtime_error("G5B two-one-slot fixture did not produce two shapes");
+        if (p.max_slots != 1 || p.shared_ordinal_slots != 1)
+            throw std::runtime_error("G5B two-one-slot fixture liveness unexpected");
+        const BuiltArm b1 = build_arm(p, G5BOrdinal::OrdinalFloor);
+        const BuiltArm b2 = build_arm(p, G5BOrdinal::OrdinalBlocked);
+        if (b1.permutation != b2.permutation)
+            throw std::runtime_error("G5B two-one-slot fixture is not degenerate");
+        if (moved_token_count(b1.permutation, b2.permutation) != 0)
+            throw std::runtime_error("G5B two-one-slot degenerate file moved tokens");
+        if (b2.cross_shape_ordinal_tokens != 1)
+            throw std::runtime_error("G5B two-one-slot fixture cross-shape count unexpected");
     }
 
     // Exact permutation validator must reject both duplicates and omissions.

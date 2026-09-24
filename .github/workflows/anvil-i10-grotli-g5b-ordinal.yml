@@ -1,6 +1,6 @@
 name: ANVIL I10 Grotli G5B-ORDINAL probe
 
-# Preregistration: docs/I10-GROTLI-G5B-ORDINAL-PREREG.md  (frozen revision r2)
+# Preregistration: docs/I10-GROTLI-G5B-ORDINAL-PREREG.md  (frozen revision r3)
 # Parent evidence:  G5A ORDER-MATERIAL/COLUMN-DOMINANT (run 35985412906),
 #                   G4 NO-GO-G4, G3 PASS-G3-NARROW
 #
@@ -32,13 +32,18 @@ name: ANVIL I10 Grotli G5B-ORDINAL probe
 #   I8  compiler/pkg/libbrotli provenance; linked libbrotli SHA-256; BrotliEncoderVersion
 #   I9  deterministic null present and actually reorders on nontrivial fixtures
 #   I10 B1/FLOOR exact reproduction of frozen G5A A3 on D1-D4 vs run 35985412906,
-#       strengthened per-file facts + backend provenance comparability + a same-run
-#       frozen G5A reference replay control (section 7.3)
+#       strengthened per-file facts (TOP-LEVEL carrier_quality/carrier_window rows)
+#       + backend provenance comparability + a same-run frozen G5A reference replay
+#       control (section 7.3)
 #   I11 liveness/degeneracy: shape_count, max_slots, shared_ordinal_slots,
-#       cross_shape_ordinal_tokens, b1_eq_b2, b2_moved_token_count; impossible
-#       combinations fail closed
+#       cross_shape_ordinal_tokens, b1_eq_b2, b2_moved_token_count; the valid
+#       invariants fail closed (shared<=max; shape_count<2 => shared==0;
+#       b1_eq_b2 <=> b2_moved_token_count==0). A multi-shape file whose shapes
+#       each have one slot is legitimately DEGENERATE with shared_ordinal_slots>0.
 #   I12 no floor/provenance/invariant failure falls through to a favorable label;
-#       artifact upload is if: always()
+#       a V1 re-gate failure routes the source-of-record classification to
+#       INVALID-G5B-ORDINAL and prohibits B2 interpretation; artifact upload is
+#       if: always()
 # Any invariant failure => INVALID-G5B-ORDINAL (or INVALID-B1-FLOOR for I10).
 #
 # This workflow:
@@ -61,8 +66,10 @@ name: ANVIL I10 Grotli G5B-ORDINAL probe
 #
 # V1 is KNOWN-STRESS / NOT HELD-OUT FOR G5B-ORDINAL. No new held-out corpus is
 # opened. V1 correctness is RE-GATED inside the final ruling; a V1 invariant
-# failure fails closed (never a V1-ORDINAL-* label). V1 remains a known-stress
-# diagnostic only and MUST be re-gated separately from the discovery ruling.
+# failure fails closed (never a V1-ORDINAL-* label) AND routes the source-of-record
+# classification to INVALID-G5B-ORDINAL with B2 interpretation prohibited (I12).
+# V1 remains a known-stress diagnostic only and MUST be re-gated separately from
+# the discovery ruling.
 # Heavy compression runs ONLY here, never on the workstation.
 # This workflow is NOT dispatched by the freezing worker.
 
@@ -103,18 +110,26 @@ jobs:
       #   digest sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278,
       #   expired false, expires 2026-10-24T10:11:27Z.
       G5A_REFERENCE_RUN_ID: "35985412906"
+      # Expected run head SHA of the authoritative G5A floor run (documented in
+      # docs/I10-GROTLI-G5A-RESULTS.md and G5B prereg section 7.3). The floor
+      # step asserts the API-returned head_sha equals this identity pin.
+      G5A_REFERENCE_RUN_HEAD_SHA: 996c2dbe67736c42288287abba7ed6f3307a0b34
       G5A_ARTIFACT_NAME: grotli-g5a-ordering-attribution-35985412906
       G5A_ARTIFACT_ID: "10801714249"
       G5A_ARTIFACT_SIZE: "15631"
       G5A_ARTIFACT_DIGEST: "sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278"
       # Frozen G5A implementation identity replayed locally as a same-run control.
+      # All three identities are CHECKED pins: the workflow asserts the pinned
+      # commit's G5A source blob and prereg blob before compiling the replay, and
+      # cross-checks the archived G5A provenance when the artifact exposes it.
       G5A_REFERENCE_IMPLEMENTATION_SHA: e6714e81aeff1579c4502f1fd9af4d7f205a8b4b
       G5A_REFERENCE_SOURCE_BLOB: 2772d7eaf0a64be1fdbbb377f5d668d21dab9cbe
       G5A_REFERENCE_PREREG_BLOB: a84f42a3f414cc987d8c19cc70a578e2d4222467
       # Frozen expected backend identity. The runner installs this exact apt version
       # and CI fails closed if the installed version drifts (I5/I8).
       EXPECTED_LIBBROTLI_PACKAGE_VERSION: 1.1.0-2build2
-      # Frozen BrotliEncoderVersion() integer (1.1.0 -> 0x01001000).
+      # Frozen BrotliEncoderVersion() integer (1.1.0 -> 0x01001000), CHECKED
+      # against every measured row and against the archived G5A ruling backend.
       EXPECTED_BROTLI_ENCODER_VERSION: "16781312"
       # Exact expected member paths inside the archived G5A artifact zip (no suffix
       # or shallowest matching is accepted; decoy members cannot satisfy a path).
@@ -295,6 +310,10 @@ jobs:
           if run.get("conclusion") != "success":
               raise SystemExit(f"G5A run {run_id} conclusion is {run.get('conclusion')}")
           head_sha = run.get("head_sha", "")
+          expected_head = os.environ["G5A_REFERENCE_RUN_HEAD_SHA"]
+          if head_sha != expected_head:
+              raise SystemExit(
+                  f"G5A run head_sha mismatch: {head_sha} != {expected_head}")
           (floor / "g5a-run.json").write_text(json.dumps(run, indent=2) + "\n")
 
           # 2. Find the expected artifact by name AND id, verify metadata.
@@ -348,6 +367,25 @@ jobs:
           for rel in os.environ.get("G5A_OPTIONAL_PROVENANCE_FILES", "").split():
               if rel in names:
                   (floor / pathlib.Path(rel).name).write_bytes(zf.read(rel))
+          # Cross-check the archived G5A implementation identity when the archive
+          # exposes it: the archive's own source/prereg blobs must equal the
+          # pinned identities (checked pins, not dead metadata).
+          ident_path = floor / "grotli-g5a-implementation-identity.txt"
+          if ident_path.exists():
+              ident = {}
+              for line in ident_path.read_text().splitlines():
+                  if "=" in line:
+                      key, value = line.split("=", 1)
+                      ident[key.strip()] = value.strip()
+              for key, want in (
+                      ("source_blob", os.environ["G5A_REFERENCE_SOURCE_BLOB"]),
+                      ("prereg_blob", os.environ["G5A_REFERENCE_PREREG_BLOB"]),
+                      ("implementation_sha",
+                       os.environ["G5A_REFERENCE_IMPLEMENTATION_SHA"])):
+                  if ident.get(key) != want:
+                      raise SystemExit(
+                          f"archived G5A implementation identity {key} mismatch: "
+                          f"{ident.get(key)} != {want}")
 
           # 5. Verify frozen provenance facts inside the ruling.
           ruling = json.loads((floor / "g5a-ruling.json").read_text())
@@ -356,6 +394,13 @@ jobs:
               raise SystemExit("G5A ruling implementation_sha mismatch")
           if ruling.get("frozen_g3_sha") != os.environ["FROZEN_G3_SHA"]:
               raise SystemExit("G5A ruling frozen_g3_sha mismatch")
+          want_encoder_version = int(os.environ["EXPECTED_BROTLI_ENCODER_VERSION"])
+          archived_versions = {int(v["integer"]) for v in
+                               ruling["backend"]["brotli_encoder_versions"]}
+          if archived_versions != {want_encoder_version}:
+              raise SystemExit(
+                  f"G5A ruling BrotliEncoderVersion mismatch: "
+                  f"{sorted(archived_versions)} != {want_encoder_version}")
           if ruling.get("classification") != "ORDER-MATERIAL":
               raise SystemExit(
                   f"G5A ruling classification is {ruling.get('classification')}")
@@ -443,6 +488,13 @@ jobs:
             git fetch --no-tags --depth 1 origin "$G5A_REFERENCE_IMPLEMENTATION_SHA"
           REPLAY_SRC_BLOB="$(git rev-parse "$G5A_REFERENCE_IMPLEMENTATION_SHA:tools/grotli_g5a_ordering.cpp")"
           test "$REPLAY_SRC_BLOB" = "$G5A_REFERENCE_SOURCE_BLOB"
+          # CHECKED pin (was dead metadata): the pinned G5A implementation commit's
+          # prereg blob must be exactly the frozen prereg identity.
+          REPLAY_PRE_BLOB="$(git rev-parse "$G5A_REFERENCE_IMPLEMENTATION_SHA:docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md")"
+          test "$REPLAY_PRE_BLOB" = "$G5A_REFERENCE_PREREG_BLOB"
+          printf 'implementation_sha=%s\nsource_blob=%s\nprereg_blob=%s\n' \
+            "$G5A_REFERENCE_IMPLEMENTATION_SHA" "$REPLAY_SRC_BLOB" "$REPLAY_PRE_BLOB" \
+            | tee results/g5a-reference-identity.txt
           git show "$G5A_REFERENCE_IMPLEMENTATION_SHA:tools/grotli_g5a_ordering.cpp" \
             > g5a_replay/grotli_g5a_ordering.cpp
           cp frozen-grotli_g3.cpp g5a_replay/frozen-grotli_g3.cpp
@@ -484,7 +536,7 @@ jobs:
               ./grotli_g5b_ordinal measure "$f" | tee -a results/g5b-discovery.jsonl
           done
           python3 - <<'PY'
-          import json, pathlib
+          import json, os, pathlib
           rows = [json.loads(x) for x in
                   pathlib.Path("results/g5b-discovery.jsonl").read_text().splitlines() if x.strip()]
           if len(rows) != 4:
@@ -503,17 +555,24 @@ jobs:
                   raise SystemExit(f"INVALID-G5B-ORDINAL backend parameters on {r['file']}")
               if not r["brotli_encoder_version"] or not r["brotli_encoder_version_dotted"]:
                   raise SystemExit(f"INVALID-G5B-ORDINAL missing Brotli identity on {r['file']}")
-              if "max_slots" not in r or "shared_ordinal_slots" not in r:
+              if r["brotli_encoder_version"] != int(
+                      os.environ["EXPECTED_BROTLI_ENCODER_VERSION"]):
+                  raise SystemExit(f"INVALID-G5B-ORDINAL Brotli identity drift on {r['file']}")
+              if "shape_count" not in r or "max_slots" not in r or \
+                      "shared_ordinal_slots" not in r:
                   raise SystemExit(f"INVALID-G5B-ORDINAL missing liveness on {r['file']}")
               if "b1_eq_b2" not in r or "b2_moved_token_count" not in r:
                   raise SystemExit(f"INVALID-G5B-ORDINAL missing degeneracy on {r['file']}")
-              # Fail closed on impossible liveness combinations (I11).
+              # Fail closed on the valid liveness invariants (I11, corrected):
+              # shared<=max; shape_count<2 => shared==0; b1_eq_b2 <=> moved==0.
+              # A multi-shape file whose shapes each have one slot is legitimately
+              # DEGENERATE with shared_ordinal_slots>0 and must NOT be rejected.
               if r["shared_ordinal_slots"] > r["max_slots"]:
                   raise SystemExit(f"INVALID-G5B-ORDINAL shared>max ordinals on {r['file']}")
+              if r["shape_count"] < 2 and r["shared_ordinal_slots"] != 0:
+                  raise SystemExit(f"INVALID-G5B-ORDINAL single-shape shared ordinals on {r['file']}")
               if (r["b1_eq_b2"] != (r["b2_moved_token_count"] == 0)):
                   raise SystemExit(f"INVALID-G5B-ORDINAL b1_eq_b2/n_moved contradiction on {r['file']}")
-              if bool(r["b1_eq_b2"]) and r["shared_ordinal_slots"] != 0:
-                  raise SystemExit(f"INVALID-G5B-ORDINAL degenerate/shared-ordinal contradiction on {r['file']}")
               env_hash = r["envelope_sha256"]
               multiset_hash = r["canonical_token_multiset_sha256"]
               if len(env_hash) != 64 or len(multiset_hash) != 64:
@@ -543,7 +602,7 @@ jobs:
           /usr/bin/time -v -o results/g5b-V1.time.txt \
             ./grotli_g5b_ordinal measure "$f" | tee results/g5b-v1.jsonl
           python3 - <<'PY'
-          import json, pathlib
+          import json, os, pathlib
           r = json.loads(pathlib.Path("results/g5b-v1.jsonl").read_text().strip().splitlines()[-1])
           if not (r["body_size_identity"] and r["envelope_len_identity"] and
                   r["token_region_len_identity"] and r["envelope_identity"] and
@@ -565,6 +624,9 @@ jobs:
                   raise SystemExit(f"INVALID-G5B-ORDINAL {key} hash identity on V1")
           if r["carrier_quality"] != 11 or r["carrier_window"] != 30:
               raise SystemExit("INVALID-G5B-ORDINAL backend parameters on V1")
+          if r["brotli_encoder_version"] != int(
+                  os.environ["EXPECTED_BROTLI_ENCODER_VERSION"]):
+              raise SystemExit("INVALID-G5B-ORDINAL Brotli identity drift on V1")
           print("V1 G5B-ORDINAL row present and invariant-clean (known-stress)")
           PY
 
@@ -652,12 +714,20 @@ jobs:
               if b1_arm["canonical_token_multiset_sha256"] != \
                       a3["canonical_token_multiset_sha256"]:
                   fail(f"{name}: B1 multiset sha256 != archived G5A A3")
-              # (f) carrier parameters.
-              if a3.get("carrier_quality") != 11 or a3.get("carrier_window") != 30:
-                  fail(f"{name}: archived G5A A3 carrier parameters unexpected")
-              if b1_arm.get("carrier_quality") != 11 or \
-                      b1_arm.get("carrier_window") != 30:
-                  fail(f"{name}: B1 carrier parameters != 11/30")
+              # (f) carrier parameters. carrier_quality/carrier_window are
+              # TOP-LEVEL row fields in BOTH frozen G5A and G5B rows; the arm
+              # objects carry no carrier fields. The archived G5A top-level row,
+              # the current G5B top-level row, and the same-run replay top-level
+              # row must all be q11/lgwin30 (I5/I8); backend comparability is
+              # checked again in (i).
+              if a3_top.get("carrier_quality") != 11 or a3_top.get("carrier_window") != 30:
+                  fail(f"{name}: archived G5A row carrier parameters unexpected")
+              if b1[name].get("carrier_quality") != 11 or \
+                      b1[name].get("carrier_window") != 30:
+                  fail(f"{name}: B1 row carrier parameters != 11/30")
+              if replay[name].get("carrier_quality") != 11 or \
+                      replay[name].get("carrier_window") != 30:
+                  fail(f"{name}: same-run G5A replay carrier parameters unexpected")
               # (g) archived structural counts where stable/useful.
               for key in ("shape_count", "token_chunk_count", "frame_count",
                           "structured_frame_count", "raw_frame_count"):
@@ -774,12 +844,18 @@ jobs:
                   invariants_ok = False
               if r["carrier_quality"] != 11 or r["carrier_window"] != 30:
                   invariants_ok = False
-              # I11 fail-closed liveness consistency.
+              if r["brotli_encoder_version"] != int(
+                      os.environ["EXPECTED_BROTLI_ENCODER_VERSION"]):
+                  invariants_ok = False
+              # I11 fail-closed liveness consistency (corrected): shared<=max;
+              # single-shape => shared==0; b1_eq_b2 <=> moved==0. A multi-shape
+              # one-slot-per-shape file is legitimately DEGENERATE with
+              # shared_ordinal_slots>0.
               if r["shared_ordinal_slots"] > r["max_slots"]:
                   invariants_ok = False
-              if r["b1_eq_b2"] != (r["b2_moved_token_count"] == 0):
+              if r["shape_count"] < 2 and r["shared_ordinal_slots"] != 0:
                   invariants_ok = False
-              if r["b1_eq_b2"] and r["shared_ordinal_slots"] != 0:
+              if r["b1_eq_b2"] != (r["b2_moved_token_count"] == 0):
                   invariants_ok = False
               backend_versions.add((r["brotli_encoder_version"],
                                     r["brotli_encoder_version_dotted"]))
@@ -847,17 +923,36 @@ jobs:
               if a["envelope_sha256"] != v1_env or a["canonical_token_multiset_sha256"] != v1_ms:
                   v1_ok = False
           if not v1_ok:
+              # I12 routing (r3 correction): a V1 re-gate failure must NOT preserve
+              # a potentially favorable discovery classification as the ruling or
+              # the workflow output. The source-of-record classification becomes
+              # INVALID-G5B-ORDINAL; the pre-V1 classification and aggregate
+              # anatomy survive only as clearly-labeled diagnostic fields.
+              discovery_diagnostic = {
+                  "pre_v1_classification": classification,
+                  "discovery_invariants_ok": invariants_ok,
+                  "B0_ordinal_null": B0,
+                  "B1_ordinal_floor": B1,
+                  "B2_ordinal_blocked": B2,
+                  "b2_smaller_nondegenerate_files": b2_smaller_nondegenerate,
+              }
+              classification = "INVALID-G5B-ORDINAL"
               pathlib.Path("results/g5b-ruling.json").write_text(
                   json.dumps({"schema": 1,
                               "classification": classification,
+                              "reason": "V1 known-stress invariants failed; "
+                                        "source-of-record classification routed to "
+                                        "INVALID-G5B-ORDINAL (I12)",
+                              "b2_interpretation_prohibited": True,
+                              "discovery_diagnostic": discovery_diagnostic,
                               "v1_known_stress": {"label": "V1-INVALID-G5B-ORDINAL",
                                                   "role": "known-stress-not-held-out"},
-                              "reason": "V1 invariants failed; no V1-ORDINAL-* label permitted",
-                              "b2_interpretation_prohibited": True}, indent=2) + "\n")
+                              }, indent=2) + "\n")
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
                   f.write(f"classification={classification}\n")
               raise SystemExit(
-                  "FAIL CLOSED: V1 invariants failed; no V1-ORDINAL-* label permitted")
+                  "FAIL CLOSED: V1 invariants failed; routed to INVALID-G5B-ORDINAL; "
+                  "B2 interpretation prohibited")
 
           v1_b0 = v1[ARM_KEYS[0]]["complete_bytes"]
           v1_b1 = v1[ARM_KEYS[1]]["complete_bytes"]
@@ -875,7 +970,7 @@ jobs:
               "g5b_source_sha256": os.environ.get("G5B_SOURCE_SHA256", ""),
               "frozen_g3_sha": os.environ["FROZEN_G3_SHA"],
               "prereg": "docs/I10-GROTLI-G5B-ORDINAL-PREREG.md",
-              "prereg_revision": "r2",
+              "prereg_revision": "r3",
               "selector_bytes": {"b1_ordinal_floor": 3, "b0_ordinal_null": 4,
                                  "b2_ordinal_blocked": 5},
               "carrier_magic": "G5AO",

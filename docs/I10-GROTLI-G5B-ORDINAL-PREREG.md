@@ -1,7 +1,7 @@
 # ANVIL I10 - GROTLI G5B-ORDINAL Preregistration
 
 **Status:** FROZEN BEFORE ANY G5B-ORDINAL D1-D4 / V1 CORPUS MEASUREMENT
-**Revision:** r2 (pre-outcome audit correction; supersedes the unrun r1 text)
+**Revision:** r3 (second pre-outcome audit correction; supersedes the unrun r2 text)
 **Date:** 2026-09-24
 **Parent evidence:** G5A `ORDER-MATERIAL / COLUMN-DOMINANT` (run `35985412906`),
 G4 `NO-GO-G4`, G3 `PASS-G3-NARROW`
@@ -20,6 +20,21 @@ lexical shapes fragment positional same-ordinal slot locality?
 > measurement has been run locally, in CI, or by any other means**, and no G5B-ORDINAL
 > ruling exists. r1 was never dispatched. The original **semantic** G5B lane remains
 > **OPEN**.
+
+> **Pre-outcome correction (r2 -> r3).** A second read-only audit, again **before
+> any G5B-ORDINAL D1-D4 or V1 measurement**, found and corrected four defects in
+> the r2 text and its workflow/source: (1) the I10 floor gate read
+> `carrier_quality`/`carrier_window` from the arm objects, but both are TOP-LEVEL
+> row fields in frozen G5A and G5B rows, so the gate could never pass; (2) I11
+> claimed `b1_eq_b2` implies `shared_ordinal_slots == 0`, which is FALSE (two
+> distinct one-slot shapes are a legitimate multi-shape DEGENERATE case with
+> `shared_ordinal_slots == 1`); (3) a V1 invariant failure preserved the discovery
+> classification as the source-of-record ruling instead of routing it to
+> INVALID-G5B-ORDINAL (I12); (4) the G5A prereg blob / Brotli encoder version
+> pins and the G5A run head SHA were recorded but never asserted. No arm,
+> corpus, threshold, null seed, backend parameter, representation, or
+> classification threshold/precedence is changed. r2 was never dispatched and no
+> G5B-ORDINAL measurement or ruling exists.
 
 > **No D1-D4 or V1 outcome was observed before this freeze.** This preregistration
 > and the frozen source and workflow it pins were written using only source
@@ -345,7 +360,12 @@ If `b1_eq_b2` is **true**, the file is **DEGENERATE**: the treatment changes
 nothing on that file, so that file **cannot count toward breadth** in any breadth
 requirement. `b1_eq_b2` is expected to be true on single-shape files
 (`shared_ordinal_slots == 0`), where both B1 and B2 equal the identity of the
-per-shape column order.
+per-shape column order. It is also true on a **multi-shape** file when every
+shape has exactly one slot: such a file shares ordinal 0 across shapes
+(`shared_ordinal_slots == 1 > 0`), yet B1 (shape-major) and B2 (ordinal-major)
+emit the same order. **DEGENERATE therefore never implies
+`shared_ordinal_slots == 0`** (r3 correction), and no invariant may reject that
+legitimate case.
 
 A `MATERIAL` ruling is **impossible** unless B2 is smaller than B1 on **at least
 two NON-DEGENERATE D1-D4 files**.
@@ -355,7 +375,7 @@ two NON-DEGENERATE D1-D4 files**.
 ## 6. Hard implementation invariants
 
 Every measured file must satisfy all of the following before any size result is
-used. I1-I9 mirror frozen G5A; I10-I11 are G5B-ORDINAL-specific.
+used. I1-I9 mirror frozen G5A; I10-I12 are G5B-ORDINAL-specific.
 
 ### I1 - exact source roundtrip every arm
 
@@ -455,8 +475,10 @@ or locally-inferred baseline). The strengthened minimum fact set is:
 - **token-region length**: `B1 token_region_len == G5A A3 token_region_len`;
 - **canonical multiset**: `B1 canonical_token_multiset_sha256 == G5A A3`
   `canonical_token_multiset_sha256`;
-- **carrier parameters**: `B1 carrier_quality == 11` and `B1 carrier_window == 30`
-  and equal to the archived G5A row's values;
+- **carrier parameters**: `carrier_quality == 11` and `carrier_window == 30` as
+  **TOP-LEVEL row fields** (r3 correction) on the current B1 row, on the archived
+  G5A top-level row, and on the same-run replay top-level row; the arm objects
+  carry no carrier fields and must not be read for them;
 - **archived structural counts where stable/useful**: `shape_count`,
   `token_chunk_count`, `frame_count`, `structured_frame_count`, `raw_frame_count`,
   and `structured_token_bytes` must equal the archived G5A row when the archived row
@@ -507,14 +529,20 @@ CI MUST emit `shape_count`, `max_slots`, `shared_ordinal_slots`,
 `b1_eq_b2`, the file is DEGENERATE and cannot count toward breadth. A `MATERIAL`
 ruling is impossible unless B2 is smaller on **>= 2 NON-DEGENERATE D1-D4 files**.
 The definitions of `shared_ordinal_slots` and `cross_shape_ordinal_tokens` are the
-precise ones in section 5, and the implementation must **fail closed on impossible
-combinations**:
+precise ones in section 5, and the implementation must **fail closed on the valid
+invariants** (r3 correction):
 
 - `shared_ordinal_slots <= max_slots` (each ordinal counted at most once);
 - a single-shape file (`shape_count < 2`) must have `shared_ordinal_slots == 0`;
 - `b1_eq_b2 == (b2_moved_token_count == 0)` (the two must agree; a contradiction is
-  an implementation bug and must never fall through to a favorable classification);
-- a DEGENERATE file (`b1_eq_b2`) cannot have `shared_ordinal_slots != 0`.
+  an implementation bug and must never fall through to a favorable classification).
+
+The r2 bullet "a DEGENERATE file (`b1_eq_b2`) cannot have
+`shared_ordinal_slots != 0`" was **false** and is **withdrawn** (r3 correction):
+two distinct one-slot shapes are a legitimate multi-shape DEGENERATE case with
+`shared_ordinal_slots == 1 > 0`, `b1_eq_b2 == true`, and
+`b2_moved_token_count == 0` (section 5.1). The implementation selftest MUST prove
+that case is valid rather than rejected.
 
 ### I12 - no failure falls through to a favorable classification
 
@@ -522,8 +550,14 @@ Any floor, provenance, invariant, or liveness failure MUST be routed to
 **INVALID-B1-FLOOR** or **INVALID-G5B-ORDINAL**, and artifact upload MUST use
 `if: always()` so invalid evidence is preserved. `V1` remains a known-stress
 diagnostic only and is separately re-gated (section 10.1); a `V1` invariant failure
-fails closed and emits no `V1-ORDINAL-*` label. A failure in any gate may never be
-allowed to fall through to a favorable classification.
+fails closed and emits no `V1-ORDINAL-*` label. In addition (r3 correction), a
+`V1` invariant/liveness failure MUST route the **source-of-record classification**
+to **INVALID-G5B-ORDINAL** (not merely annotate a `V1-INVALID-G5B-ORDINAL`
+sub-label): a potentially favorable discovery classification (`ORDINAL-*`) must
+never remain the ruling or the workflow output. Valid discovery anatomy facts
+(aggregates, per-file counts) may be preserved only in clearly-labeled
+**diagnostic** fields, and `b2_interpretation_prohibited` MUST be set. A failure
+in any gate may never be allowed to fall through to a favorable classification.
 
 ### Fail-closed additions
 
@@ -562,7 +596,8 @@ Sino-US DrugQA V1 is known.
 Label: **KNOWN-STRESS / NOT HELD-OUT FOR G5B-ORDINAL**. Its result cannot satisfy
 any generalization or promotion gate. No new held-out corpus is opened in
 G5B-ORDINAL. V1 correctness is re-gated inside the final ruling; on any V1
-invariant failure the run fails closed and emits no `V1-ORDINAL-*` label.
+invariant failure the run fails closed, emits no `V1-ORDINAL-*` label, and routes
+the source-of-record classification to INVALID-G5B-ORDINAL (I12).
 
 ### 7.3 Frozen G5A floor artifact (mandatory reproduction reference)
 
@@ -574,7 +609,8 @@ API on 2026-09-24).** The GitHub API **does** expose a stable artifact `digest`,
 is pinned:
 
 - run id: `35985412906`; run conclusion: `success` (= `head_sha`
-  `996c2dbe67736c42288287abba7ed6f3307a0b34`);
+  `996c2dbe67736c42288287abba7ed6f3307a0b34`; CI MUST assert this head SHA as a
+  checked identity pin, not merely record it);
 - artifact id: `10801714249`;
 - artifact name: `grotli-g5a-ordering-attribution-35985412906`;
 - artifact size: `15631` bytes;
@@ -591,9 +627,11 @@ pinned; extraction MUST require the **exact** expected member paths (see below),
 the run MUST fail closed if the artifact is expired or the digest differs.
 
 CI obtains the artifact read-only via the GitHub API and verifies it against the
-frozen expected identities in the workflow (workflow run id, artifact name, artifact
-id, artifact size, artifact SHA-256/digest, frozen implementation SHA, G5A source
-blob, frozen G3 identity, and the archived per-file A3/envelope/multiset/body facts).
+frozen expected identities in the workflow (workflow run id, run head SHA, artifact
+name, artifact id, artifact size, artifact SHA-256/digest, frozen implementation
+SHA, G5A source blob, G5A prereg blob, frozen G3 identity, BrotliEncoderVersion,
+and the archived per-file A3/envelope/multiset/body facts). These are fail-closed
+identity assertions, not recorded metadata.
 **Extraction requires exact expected member paths** (e.g.
 `results/g5a-discovery.jsonl`, `results/g5a-ruling.json`), **not** suffix or
 shallowest-path matching, so a decoy member cannot satisfy a required path. If the
@@ -714,6 +752,12 @@ discovery ruling:
 - `V1-ORDINAL-ADVERSE` if B2 > B1;
 - `V1-INVALID-G5B-ORDINAL` if any V1 invariant fails (fail closed; no ordering
   label is emitted).
+
+On the `V1-INVALID-G5B-ORDINAL` path (r3 correction, I12) the source-of-record
+classification is routed to **INVALID-G5B-ORDINAL**, `b2_interpretation_prohibited`
+is set, and any discovery `ORDINAL-*` value survives only inside a clearly-labeled
+diagnostic field; it is never the ruling and never the workflow output. The
+ordinary valid-V1 path is unchanged.
 
 Also report the B0/B1/B2 bytes and the B1->B2 decomposition. This diagnostic is not
 a held-out test.
@@ -869,7 +913,8 @@ Authoritative frozen identities for the CI run:
 - frozen G3 SHA `1a3d18fed76adb6fb33264e1994f9c357306b3fa`, blob
   `eedc7b7e6671c4a5fcaf7a5997671bd4be30bdde`, SHA-256
   `5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e`;
-- G5A floor reference run: `35985412906`;
+- G5A floor reference run: `35985412906` (run head SHA
+  `996c2dbe67736c42288287abba7ed6f3307a0b34`, asserted by CI as a checked pin);
 - G5A floor artifact: id `10801714249`, name
   `grotli-g5a-ordering-attribution-35985412906`, size `15631`, digest
   `sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278`,
