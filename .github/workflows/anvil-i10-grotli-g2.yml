@@ -14,20 +14,27 @@ jobs:
   discovery:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    env:
+      FROZEN_IMPLEMENTATION_SHA: c34b291f40db4037ae114a39dae181644260dfff
     outputs:
       implementation_sha: ${{ steps.freeze.outputs.sha }}
       pass_discovery: ${{ steps.ruling.outputs.pass_discovery }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FROZEN_IMPLEMENTATION_SHA }}
 
       - name: Freeze implementation identity
         id: freeze
         shell: bash
         run: |
-          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FROZEN_IMPLEMENTATION_SHA"
+          echo "sha=$FROZEN_IMPLEMENTATION_SHA" >> "$GITHUB_OUTPUT"
           test -z "$(git status --porcelain)"
-          git rev-parse HEAD
+          git show -s --format='%H %s' HEAD
+          sha256sum tools/grotli_g2.cpp
 
       - name: Install compiler and Brotli
         run: |
@@ -77,7 +84,7 @@ jobs:
               prov.append({"name": name, "bytes": len(data), "git_blob": blob, "sha256": sha256})
               print(name, len(data), blob, sha256)
           pathlib.Path("results/discovery-provenance.json").write_text(
-              json.dumps({"schema": 1, "implementation_sha": os.environ["GITHUB_SHA"], "files": prov}, indent=2) + "\n"
+              json.dumps({"schema": 2, "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"], "files": prov}, indent=2) + "\n"
           )
           PY
 
@@ -136,8 +143,8 @@ jobs:
               if name == "D3-gharchive-10mb.ndjson":
                   if r.get("structured_eligible"):
                       raise SystemExit("D3 unexpectedly became structured-eligible; frozen routing control changed")
-                  if r.get("selected_arm") != "raw" or selected != raw:
-                      raise SystemExit("D3 did not fall back exactly to raw")
+                  if r.get("selected_arm") != "RAW_BROTLI" or selected != raw:
+                      raise SystemExit("D3 did not fall back exactly to RAW_BROTLI")
                   report.append({"file": name, "structured_eligible": False,
                                  "raw_complete_bytes": raw, "selected_bytes": selected,
                                  "selected_arm": r["selected_arm"],
@@ -181,14 +188,14 @@ jobs:
                   "typed_best_vs_g1r_pct": typed_vs_g1r,
                   "typed_eligible_columns": r.get("typed_eligible_columns"),
                   "accepted_marginal_substitutions": r.get("accepted_marginal_substitutions"),
-                  "whole_carrier_evaluations": r.get("whole_carrier_evaluations"),
+                  "exact_whole_carrier_evaluations": r.get("exact_whole_carrier_evaluations"),
               })
 
           aggregate_delta = (selected_total / raw_total - 1.0) * 100.0
           passed = wins_5 >= 2 and aggregate_delta <= -3.0 and typed_1
           ruling = {
-              "schema": 1,
-              "implementation_sha": os.environ["GITHUB_SHA"],
+              "schema": 2,
+              "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
               "wins_ge_5pct": wins_5,
               "required_wins_ge_5pct": 2,
               "aggregate_raw_complete_bytes": raw_total,
