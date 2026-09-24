@@ -63,10 +63,10 @@ jobs:
       # Pinned public G5A implementation commit. The workflow lands AFTER this
       # commit so the implementation identity is immutable before CI. This is
       # the real G5A r6 implementation commit (source + prereg), not a guess.
-      FROZEN_IMPLEMENTATION_SHA: 547430f825c13a282d8c13431fe1f614f63c8012
+      FROZEN_IMPLEMENTATION_SHA: e6714e81aeff1579c4502f1fd9af4d7f205a8b4b
       # Expected git blob identities of the pinned implementation commit's G5A
       # source and prereg (checked before any measurement).
-      EXPECTED_G5A_SOURCE_BLOB: 522c2644702c524be5f897185cf0ad77cc8410c1
+      EXPECTED_G5A_SOURCE_BLOB: 2772d7eaf0a64be1fdbbb377f5d668d21dab9cbe
       EXPECTED_G5A_PREREG_BLOB: a84f42a3f414cc987d8c19cc70a578e2d4222467
       # Frozen G3 source identity whose parser/shape semantics G5A imports.
       FROZEN_G3_SHA: 1a3d18fed76adb6fb33264e1994f9c357306b3fa
@@ -357,7 +357,8 @@ jobs:
                   if not (arm["roundtrip"] and arm["permutation_ok"] and
                           arm["mode_pack_unpack_ok"]):
                       invariants_ok = False
-                  if arm["envelope_sha256"] != env_hash or                           arm["canonical_token_multiset_sha256"] != multiset_hash:
+                  if (arm["envelope_sha256"] != env_hash or
+                          arm["canonical_token_multiset_sha256"] != multiset_hash):
                       invariants_ok = False
           if len(backend_versions) != 1:
               invariants_ok = False
