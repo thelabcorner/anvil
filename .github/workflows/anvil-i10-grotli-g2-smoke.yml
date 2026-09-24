@@ -1,0 +1,36 @@
+name: ANVIL I10 Grotli G2 smoke
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-i10-grotli-g2-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install compiler and Brotli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 libbrotli-dev
+
+      - name: Compile frozen G2 prototype
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            tools/grotli_g2.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon \
+            -o grotli_g2
+          sha256sum grotli_g2
+
+      - name: Frozen G2 correctness self-test
+        run: ./grotli_g2 selftest
