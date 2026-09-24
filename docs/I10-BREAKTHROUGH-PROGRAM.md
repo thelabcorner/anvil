@@ -624,27 +624,32 @@ The external same-job reference-cost gate is now closed by GitHub Actions run
 The byte advantage survives, but there is no complete external crossing.
 Working-set size is now a measured binding axis.
 
-#### I10-1A.2 — BWT subblock bytes/decode/RSS sweep — **NEXT SYSTEMS / NO NEW MECHANISM**
+#### I10-1A.2 — BWT subblock bytes/decode/RSS sweep — **CLOSED / NO DEFAULT CHANGE**
 
-Before inventing another BWT representation, sweep the already-wired
-`--bwt-subblock` cap with `--bwt-aux=on` on GitHub Actions.
+GitHub Actions run `35930672607` completed both frozen corpora successfully.
+The sweep confirms that subblock size is a real rate/working-set lever, but it
+does **not** justify changing the 128 MiB max-ratio/default point.
 
-Initial grid:
+Silesia, relative to the frozen 128 MiB result (46,466,339 B; 4.2015 s decode;
+248.4 MiB peak decode RSS):
 
-- 8 MiB;
-- 16 MiB;
-- 32 MiB;
-- 64 MiB;
-- 128 MiB control.
+- 8 MiB: 47,365,274 B (**+1.9346%**), 3.7022 s, 124.4 MiB;
+- 16 MiB: 46,938,837 B (**+1.0169%**), 4.2232 s, 125.7 MiB;
+- 32 MiB: 46,648,642 B (**+0.3923%**), 4.2104 s, 203.4 MiB;
+- 64 MiB: byte-identical to 128 MiB, 4.2193 s, 248.4 MiB, internally dominated.
 
-Measure exact bytes, routing, paired decode timing, encode/decode peak RSS,
-roundtrip/hash, and subblock count. Preserve 128 MiB as the max-ratio/default
-point unless the experiment justifies a separately named memory/balanced
-profile.
+On enwik8, 8/16/32 MiB route away from BWT entirely and cost **+5.4075%**
+bytes versus the 128 MiB point; 64 MiB retains the BWT route but costs
+**+3.2259%** bytes while reducing peak decode RSS from 598.9 to 411.4 MiB.
+The enwik8 timing/Pareto classification is blocked by the sweep's own timing
+validity rule, so no speed claim is promoted from those rows.
 
-Historical evidence already proves this is a real rate/memory lever: small BWT
-subblocks can lose enough context to cost bytes, so the sweep is a genuine
-Pareto experiment rather than a free optimization.
+Ruling:
+
+- preserve 128 MiB for max-ratio/default;
+- retain the measured smaller-cap points as explicit rate/memory evidence;
+- do not reopen BWT representation research merely to chase working set;
+- active representation research moves to the Grotli-derived SRS lane.
 
 #### I10-1B — P4.1 bit-exact DEFLATE reconstruction — **NEXT ENGINEERING / ISOLATED**
 
