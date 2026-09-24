@@ -930,3 +930,40 @@ t4-orbit (multi-invariant) → t4-bench (both planes, inner loop q1/q4/q6/q9,
 q11 final-only) → t4-ledger (claims written only against Windows A/B;
 failures recorded). All claims pre-registered above; the gate stays the
 arbiter.
+
+# PART V - I10 Grotli representation series (G0-G5B; ledger A22)
+
+> Append-only status tracker for the I10 Grotli series. G4/G5A/G5B entries are
+> **results records**, not new agenda claims; nothing here reopens a closed
+> result or authorizes a production transform. Authoritative results docs are
+> named per entry. No new architecture claim is introduced.
+
+- **G0-G3 (representation) - closed.** Corpus freezes / preregs / results in
+  `docs/I10-GROTLI-G0-*` .. `G3-*`; frozen G3 identity
+  `1a3d18fed76adb6fb33264e1994f9c357306b3fa` (blob `eedc7b7e…`) is the shared
+  reference for G5A/G5B-ORDINAL.
+- **G4 - NO-GO-G4.** Standing; no planner promoted, no typed-leaf rescue.
+- **G5A ordering attribution - CLOSED (run `35985412906`).**
+  **ORDER-MATERIAL / COLUMN-DOMINANT** on frozen D1-D4
+  (-6.1189% aggregate, 4/4 files, null passed by 674,287 B, `column_share =
+  0.8019`). Results: `docs/I10-GROTLI-G5A-RESULTS.md`. No production transform.
+- **G5B-ORDINAL r3 - CLOSED (run `36011333908`).** **ORDINAL-ADVERSE** on
+  frozen D1-D4 (B0 `2,054,910` / B1 `1,380,245` / B2 `1,403,029`;
+  `b2_vs_b1 = -22,784`, +1.6507%; B2 smaller on 1/4 files; D1 DEGENERATE).
+  Results: `docs/I10-GROTLI-G5B-ORDINAL-RESULTS.md`; prereg
+  `docs/I10-GROTLI-G5B-ORDINAL-PREREG.md` (r3). **Raw ordinal cross-shape
+  coarsening is falsified** as a favorable mechanism on the frozen discovery
+  set; this closes only the **ordinal proxy**. V1 known-stress diagnostic
+  (not held out): B2 smaller by 2,137 B (`V1-ORDINAL-FAVORABLE`), descriptive
+  only. Predecessor run `36010649558` is infrastructure-invalid/premeasurement;
+  commit `a443f37c` is a transport-only workflow correction.
+- **Semantic G5B lane (flat shapes vs preregistered structural/semantic
+  hierarchy; later semantic-path fusion) - OPEN.** G5B-ORDINAL did not answer
+  or close it; it supplies architecture context only. Any successor must be its
+  own frozen prereg and may not retune G5A/G5B-ORDINAL arms, thresholds,
+  corpora, or ruling semantics. `semantic_hierarchy_lane_open: true`.
+
+Boundary rules for this series: raw Brotli remains the permanent fallback; no
+held-out corpus is opened by G5A/G5B-ORDINAL; no production transform ID is
+allocated; do not add random draws, retune thresholds, or reframe the adverse
+D1-D4 ruling using the favorable V1 diagnostic.
