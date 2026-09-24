@@ -8,30 +8,33 @@ name: ANVIL I10 Grotli G5A ordering attribution
 # changing ONLY the permutation of the exact same lexical scalar chunks before
 # the same Brotli q11/lgwin30 backend.
 #
-# Three arms, frozen:
-#   A1 SOURCE_ORDER  structured chunks in original structured-frame order
-#   A2 SHAPE_ROW     grouped by exact shape, row-major inside each shape
-#   A3 SHAPE_COLUMN  grouped by exact shape, slot-major inside each shape
+# Four arms, frozen:
+#   A0 RANDOM_PERMUTATION deterministic structure-destroying null draw
+#   A1 SOURCE_ORDER       structured chunks in original structured-frame order
+#   A2 SHAPE_ROW          grouped by exact shape, row-major inside each shape
+#   A3 SHAPE_COLUMN       grouped by exact shape, slot-major inside each shape
 #
 # Hard invariants that gate every size number (prereg section 6):
 #   I1 exact source roundtrip per arm (body + charged mode byte)
-#   I2 len(A1_body) == len(A2_body) == len(A3_body)
-#   I3 each arm's token stream is an exact permutation of the canonical chunks
-#   I4 common envelope prefix and raw-residual section byte-identical across arms
+#   I2 len(A0_body) == len(A1_body) == len(A2_body) == len(A3_body)
+#   I3 exact permutation + canonical token-multiset SHA-256 identity
+#   I4 common-envelope SHA-256 identity and unchanged raw residuals
 #   I5 same backend: Brotli q11/lgwin30
 #   I6 no typed leaf encoder
-#   I7 the one-byte order-mode field is charged in every complete-byte total
+#   I7 the one-byte order-mode field is charged and pack/unpack verified
+#   I8 Brotli implementation/package identity recorded
+#   I9 A0 null arm required
 # Any invariant failure => INVALID-G5A (correctness), no size interpretation.
 #
 # This workflow:
 #   1. checks out the pinned G5A implementation SHA and verifies identity;
-#   2. builds G5A warning-clean and runs its full adversarial selftest (which
-#      re-runs the frozen G3 suite inside the same translation unit);
-#   3. builds a SEPARATE frozen G3 reference from $FROZEN_G3_SHA and verifies its
-#      source identity and selftest, proving the imported parser/shape semantics;
+#   2. materializes the frozen G3 source and compiles G5A against those exact
+#      pinned bytes, warning-clean, then runs the full adversarial selftest;
+#   3. builds a SEPARATE frozen G3 reference from the same materialized source and
+#      selftests it, proving the imported parser/shape semantics;
 #   4. fetches and verifies the frozen D1-D4 discovery objects and the frozen
 #      known-stress V1 object;
-#   5. runs the three frozen arms on D1-D4 and on V1 (known-stress anatomy);
+#   5. runs frozen A0/A1/A2/A3 on D1-D4 and on V1 (known-stress anatomy);
 #   6. applies the frozen section-9/10/11 classification MECHANICALLY;
 #   7. uploads the complete evidence (JSONL rows, ruling, provenance).
 #
@@ -53,11 +56,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     env:
-      # Pinned public G5A implementation source commit. The workflow lands
-      # after this commit so the implementation identity is immutable before CI.
-      FROZEN_IMPLEMENTATION_SHA: 4618e5ab380271d589c0466c7dff5bf15a6e9d20
+      # Pinned public G5A implementation commit. The workflow lands AFTER this
+      # commit so the implementation identity is immutable before CI. This is
+      # the real G5A r5 implementation commit (source + prereg), not a guess.
+      FROZEN_IMPLEMENTATION_SHA: 0321e41c574b8651fce865cad1d7fc7d6789e35d
+      # Expected git blob identities of the pinned implementation commit's G5A
+      # source and prereg (checked before any measurement).
+      EXPECTED_G5A_SOURCE_BLOB: 5aa9dfe1593138b5e796afd7b627f1a8f8da8ddc
+      EXPECTED_G5A_PREREG_BLOB: 13111a2389747d75a68a065c28385adf48d7e573
       # Frozen G3 source identity whose parser/shape semantics G5A imports.
       FROZEN_G3_SHA: 1a3d18fed76adb6fb33264e1994f9c357306b3fa
+      # Authoritative blob/SHA-256 of the frozen G3 source at FROZEN_G3_SHA
+      # (verified against origin; the materialized file must match exactly).
+      EXPECTED_G3_SOURCE_BLOB: eedc7b7e6671c4a5fcaf7a5997671bd4be30bdde
+      EXPECTED_G3_SOURCE_SHA256: 5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e
     outputs:
       implementation_sha: ${{ steps.freeze.outputs.sha }}
       classification: ${{ steps.ruling.outputs.classification }}
@@ -87,23 +99,30 @@ jobs:
           echo "G5A_SOURCE_SHA256=$G5A_SOURCE_SHA256" >> "$GITHUB_OUTPUT"
           echo "G5A_SOURCE_SHA256=$G5A_SOURCE_SHA256" >> "$GITHUB_ENV"
           sha256sum docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md | tee grotli-g5a-prereg.sha256
+          # Hard blob-identity checks: the checked-out G5A source and prereg must
+          # be exactly the pinned implementation's blobs, so a measurement can
+          # never run against drifted sources.
+          ACTUAL_SRC_BLOB="$(git rev-parse HEAD:tools/grotli_g5a_ordering.cpp)"
+          ACTUAL_PRE_BLOB="$(git rev-parse HEAD:docs/I10-GROTLI-G5A-ORDERING-ATTRIBUTION-PREREG.md)"
+          test "$ACTUAL_SRC_BLOB" = "$EXPECTED_G5A_SOURCE_BLOB"
+          test "$ACTUAL_PRE_BLOB" = "$EXPECTED_G5A_PREREG_BLOB"
+          printf 'source_blob=%s\nprereg_blob=%s\nimplementation_sha=%s\n' \
+            "$ACTUAL_SRC_BLOB" "$ACTUAL_PRE_BLOB" "$FROZEN_IMPLEMENTATION_SHA" \
+            | tee grotli-g5a-implementation-identity.txt
           uname -a > results-runner.txt
 
-      - name: Install compiler and Brotli
+      - name: Install compiler and frozen backend dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang-18 libbrotli-dev python3 time
+          clang++-18 --version | tee compiler-identity.txt
+          dpkg-query -W -f='${Package}\t${Version}\n' libbrotli1 libbrotli-dev \
+            | sort | tee brotli-package-identity.txt
 
-      - name: Build and self-test G5A prototype (warning-clean)
-        run: |
-          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
-            tools/grotli_g5a_ordering.cpp \
-            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g5a_ordering
-          sha256sum grotli_g5a_ordering | tee grotli-g5a-binary.sha256
-          ./grotli_g5a_ordering selftest
-
-      - name: Build frozen G3 reference and verify its source identity
+      - name: Materialize and verify frozen G3 source
         shell: bash
         run: |
           set -euo pipefail
@@ -116,12 +135,34 @@ jobs:
           test -n "$EXPECTED_BLOB"
           git show "$FROZEN_G3_SHA:tools/grotli_g3.cpp" > frozen-grotli_g3.cpp
           ACTUAL_BLOB="$(git hash-object frozen-grotli_g3.cpp)"
+          WORKTREE_BLOB="$(git hash-object tools/grotli_g3.cpp)"
           test "$ACTUAL_BLOB" = "$EXPECTED_BLOB"
-          echo "$ACTUAL_BLOB" | tee grotli-g3-source.blob
+          test "$WORKTREE_BLOB" = "$EXPECTED_BLOB"
+          test "$EXPECTED_BLOB" = "$EXPECTED_G3_SOURCE_BLOB"
+          ACTUAL_SHA256="$(sha256sum frozen-grotli_g3.cpp | awk '{print $1}')"
+          test "$ACTUAL_SHA256" = "$EXPECTED_G3_SOURCE_SHA256"
+          printf '%s\n' "$ACTUAL_BLOB" | tee grotli-g3-source.blob
           sha256sum frozen-grotli_g3.cpp | tee grotli-g3-source.sha256
-          # G5A imports the exact semantic TU; the imported copy must equal the
-          # separately materialized frozen reference byte-for-byte.
-          test "$(git hash-object tools/grotli_g3.cpp)" = "$EXPECTED_BLOB"
+          printf 'frozen_blob=%s\nimplementation_tree_blob=%s\n' \
+            "$ACTUAL_BLOB" "$WORKTREE_BLOB" | tee grotli-g3-source-identity.txt
+
+      - name: Build and self-test G5A against materialized frozen G3 (warning-clean)
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -I. '-DG5A_FROZEN_G3_HEADER="frozen-grotli_g3.cpp"' \
+            -MMD -MF grotli-g5a.d -MT grotli_g5a_ordering \
+            tools/grotli_g5a_ordering.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g5a_ordering
+          grep -Fq 'frozen-grotli_g3.cpp' grotli-g5a.d
+          sha256sum grotli_g5a_ordering | tee grotli-g5a-binary.sha256
+          ./grotli_g5a_ordering selftest
+
+      - name: Build and self-test separate frozen G3 reference
+        shell: bash
+        run: |
+          set -euo pipefail
           clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
             frozen-grotli_g3.cpp \
             -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3
@@ -201,10 +242,29 @@ jobs:
                   pathlib.Path("results/g5a-discovery.jsonl").read_text().splitlines() if x.strip()]
           if len(rows) != 4:
               raise SystemExit(f"expected four D1-D4 rows, got {len(rows)}")
+          arm_keys = ("a0_random_permutation", "a1_source_order",
+                      "a2_shape_row", "a3_shape_column")
           for r in rows:
               if not (r["body_size_identity"] and r["envelope_identity"] and
-                      r["all_permutations_exact"] and r["all_roundtrip"]):
-                  raise SystemExit(f"INVALID-G5A invariants on {r['file']}")
+                      r["invariant_hashes_identical"] and r["all_permutations_exact"] and
+                      r["all_mode_pack_unpack"] and r["all_roundtrip"]):
+                  raise SystemExit(f"INVALID-G5A top-level invariants on {r['file']}")
+              if r["carrier_quality"] != 11 or r["carrier_window"] != 30:
+                  raise SystemExit(f"INVALID-G5A backend parameters on {r['file']}")
+              if not r["brotli_encoder_version"] or not r["brotli_encoder_version_dotted"]:
+                  raise SystemExit(f"INVALID-G5A missing Brotli identity on {r['file']}")
+              env_hash = r["envelope_sha256"]
+              multiset_hash = r["canonical_token_multiset_sha256"]
+              if len(env_hash) != 64 or len(multiset_hash) != 64:
+                  raise SystemExit(f"INVALID-G5A malformed invariant hashes on {r['file']}")
+              for key in arm_keys:
+                  arm = r[key]
+                  if not (arm["roundtrip"] and arm["permutation_ok"] and arm["mode_pack_unpack_ok"]):
+                      raise SystemExit(f"INVALID-G5A {key} correctness on {r['file']}")
+                  if arm["envelope_sha256"] != env_hash:
+                      raise SystemExit(f"INVALID-G5A {key} envelope hash on {r['file']}")
+                  if arm["canonical_token_multiset_sha256"] != multiset_hash:
+                      raise SystemExit(f"INVALID-G5A {key} multiset hash on {r['file']}")
           for r in rows:
               pathlib.Path("results", f"g5arow-{pathlib.Path(r['file']).name}.json").write_text(
                   json.dumps(r, separators=(",", ":")) + "\n")
@@ -222,8 +282,20 @@ jobs:
           import json, pathlib
           r = json.loads(pathlib.Path("results/g5a-v1.jsonl").read_text().strip().splitlines()[-1])
           if not (r["body_size_identity"] and r["envelope_identity"] and
-                  r["all_permutations_exact"] and r["all_roundtrip"]):
-              raise SystemExit("INVALID-G5A invariants on V1")
+                  r["invariant_hashes_identical"] and r["all_permutations_exact"] and
+                  r["all_mode_pack_unpack"] and r["all_roundtrip"]):
+              raise SystemExit("INVALID-G5A top-level invariants on V1")
+          env_hash = r["envelope_sha256"]
+          multiset_hash = r["canonical_token_multiset_sha256"]
+          for key in ("a0_random_permutation", "a1_source_order",
+                      "a2_shape_row", "a3_shape_column"):
+              arm = r[key]
+              if not (arm["roundtrip"] and arm["permutation_ok"] and arm["mode_pack_unpack_ok"]):
+                  raise SystemExit(f"INVALID-G5A {key} correctness on V1")
+              if arm["envelope_sha256"] != env_hash or                       arm["canonical_token_multiset_sha256"] != multiset_hash:
+                  raise SystemExit(f"INVALID-G5A {key} hash identity on V1")
+          if r["carrier_quality"] != 11 or r["carrier_window"] != 30:
+              raise SystemExit("INVALID-G5A backend parameters on V1")
           print("V1 G5A row present and invariant-clean (known-stress)")
           PY
 
@@ -251,11 +323,31 @@ jobs:
               raise SystemExit(f"unexpected discovery rows: {sorted(discs)}")
 
           invariants_ok = True
+          arm_keys = ("a0_random_permutation", "a1_source_order",
+                      "a2_shape_row", "a3_shape_column")
+          backend_versions = set()
           for r in discs.values():
               if not (r["body_size_identity"] and r["envelope_identity"] and
-                      r["all_permutations_exact"] and r["all_roundtrip"]):
+                      r["invariant_hashes_identical"] and r["all_permutations_exact"] and
+                      r["all_mode_pack_unpack"] and r["all_roundtrip"]):
                   invariants_ok = False
+              if r["carrier_quality"] != 11 or r["carrier_window"] != 30:
+                  invariants_ok = False
+              backend_versions.add((r["brotli_encoder_version"],
+                                    r["brotli_encoder_version_dotted"]))
+              env_hash = r["envelope_sha256"]
+              multiset_hash = r["canonical_token_multiset_sha256"]
+              for key in arm_keys:
+                  arm = r[key]
+                  if not (arm["roundtrip"] and arm["permutation_ok"] and
+                          arm["mode_pack_unpack_ok"]):
+                      invariants_ok = False
+                  if arm["envelope_sha256"] != env_hash or                           arm["canonical_token_multiset_sha256"] != multiset_hash:
+                      invariants_ok = False
+          if len(backend_versions) != 1:
+              invariants_ok = False
 
+          A0 = sum(discs[n]["a0_random_permutation"]["complete_bytes"] for n in DISCOVERY)
           A1 = sum(discs[n]["a1_source_order"]["complete_bytes"] for n in DISCOVERY)
           A2 = sum(discs[n]["a2_shape_row"]["complete_bytes"] for n in DISCOVERY)
           A3 = sum(discs[n]["a3_shape_column"]["complete_bytes"] for n in DISCOVERY)
@@ -263,6 +355,7 @@ jobs:
           shape_bytes = A1 - A2
           column_bytes = A2 - A3
           total_bytes = A1 - A3
+          random_null_bytes = A0 - A3
           decomposition_ok = (shape_bytes + column_bytes == total_bytes)
 
           a3_smaller_files = sum(
@@ -279,6 +372,8 @@ jobs:
               classification = "ORDER-WEAK"
           elif a3_smaller_files < MATERIAL_FILES_MIN:
               classification = "ORDER-CONCENTRATED"
+          elif A3 >= A0:
+              classification = "ORDER-UNSUPPORTED-BY-NULL"
           else:
               classification = "ORDER-MATERIAL"
 
@@ -301,6 +396,7 @@ jobs:
           # V1 diagnostic (known-stress; not a held-out test).
           v1 = load("results/g5a-v1.jsonl")
           v1 = v1[-1]
+          v1_a0 = v1["a0_random_permutation"]["complete_bytes"]
           v1_a1 = v1["a1_source_order"]["complete_bytes"]
           v1_a2 = v1["a2_shape_row"]["complete_bytes"]
           v1_a3 = v1["a3_shape_column"]["complete_bytes"]
@@ -325,25 +421,38 @@ jobs:
               },
               "invariants_ok": invariants_ok,
               "decomposition_ok": decomposition_ok,
+              "backend": {
+                  "brotli_encoder_versions": sorted(
+                      [{"integer": v[0], "dotted": v[1]} for v in backend_versions],
+                      key=lambda x: (x["integer"], x["dotted"])),
+                  "package_identity": pathlib.Path("brotli-package-identity.txt").read_text().splitlines(),
+              },
               "aggregate": {
+                  "A0_random_permutation": A0,
                   "A1_source_order": A1,
                   "A2_shape_row": A2,
                   "A3_shape_column": A3,
                   "shape_bytes": shape_bytes,
                   "column_bytes": column_bytes,
                   "total_bytes": total_bytes,
+                  "random_null_bytes": random_null_bytes,
                   "shape_share": shares(shape_bytes, total_bytes),
                   "column_share": shares(column_bytes, total_bytes),
                   "a3_smaller_files": a3_smaller_files,
               },
               "per_file": {
                   n: {
+                      "A0": discs[n]["a0_random_permutation"]["complete_bytes"],
                       "A1": discs[n]["a1_source_order"]["complete_bytes"],
                       "A2": discs[n]["a2_shape_row"]["complete_bytes"],
                       "A3": discs[n]["a3_shape_column"]["complete_bytes"],
                       "shape_bytes": discs[n]["shape_grouping_bytes"],
                       "column_bytes": discs[n]["column_increment_bytes"],
                       "total_bytes": discs[n]["total_order_bytes"],
+                      "random_null_bytes": discs[n]["random_null_bytes"],
+                      "envelope_sha256": discs[n]["envelope_sha256"],
+                      "canonical_token_multiset_sha256":
+                          discs[n]["canonical_token_multiset_sha256"],
                       "token_chunk_count": discs[n]["token_chunk_count"],
                       "shape_count": discs[n]["shape_count"],
                       "raw_frame_count": discs[n]["raw_frame_count"],
@@ -352,9 +461,10 @@ jobs:
               "classification": classification,
               "attribution": attribution,
               "v1_known_stress": {
-                  "A1": v1_a1, "A2": v1_a2, "A3": v1_a3,
+                  "A0": v1_a0, "A1": v1_a1, "A2": v1_a2, "A3": v1_a3,
                   "A1_to_A2_bytes": v1_a1 - v1_a2,
                   "A2_to_A3_bytes": v1_a2 - v1_a3,
+                  "A0_to_A3_bytes": v1_a0 - v1_a3,
                   "label": v1_label,
                   "role": "known-stress-not-held-out",
               },
@@ -368,11 +478,12 @@ jobs:
               f"- implementation SHA: `{ruling['implementation_sha']}`",
               f"- G5A source sha256: `{ruling['g5a_source_sha256']}`",
               f"- invariants ok: **{invariants_ok}**  decomposition ok: **{decomposition_ok}**",
-              f"- D1-D4 A1/A2/A3: **{A1}** / **{A2}** / **{A3}**",
+              f"- D1-D4 A0/A1/A2/A3: **{A0}** / **{A1}** / **{A2}** / **{A3}**",
               f"- shape_bytes: **{shape_bytes}**  column_bytes: **{column_bytes}**  total: **{total_bytes}**",
+              f"- random_null_bytes (A0-A3): **{random_null_bytes}**",
               f"- A3 smaller than A1 on: **{a3_smaller_files}/4** files",
               f"- classification: **{classification}**  attribution: **{attribution}**",
-              f"- V1 (known-stress): **{v1_label}** (A1={v1_a1} A2={v1_a2} A3={v1_a3})",
+              f"- V1 (known-stress): **{v1_label}** (A0={v1_a0} A1={v1_a1} A2={v1_a2} A3={v1_a3})",
               "",
               "No production transform ID. No new held-out corpus. Raw Brotli remains the permanent fallback.",
           ]
@@ -392,9 +503,13 @@ jobs:
             results/
             grotli-g5a-binary.sha256
             grotli-g5a-prereg.sha256
+            grotli-g5a.d
             grotli-g3-binary.sha256
             grotli-g3-source.blob
             grotli-g3-source.sha256
+            grotli-g3-source-identity.txt
+            compiler-identity.txt
+            brotli-package-identity.txt
             results-runner.txt
           if-no-files-found: error
           retention-days: 30
