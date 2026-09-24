@@ -2,9 +2,19 @@
 
 **Status:** FROZEN BEFORE IMPLEMENTATION
 **Date:** 2026-09-24
+**Freeze revision:** r2 — causal-hardening amendment made before any G3 implementation/workflow existed
+**Initial public freeze:** `9c65ae1`
 **Parent evidence:** `I10-GROTLI-G2-RESULTS.md`
 **Production integration authorized:** no
 **Held-out V1 authorized:** no
+
+Revision r2 does not change the G3 hypothesis, corpus, leaf basis, or discovery
+threshold. It closes two preregistration ambiguities before implementation:
+
+1. structured frames retain the frozen G2 LF-inclusive frame/parser semantics;
+   G3 may not gain from separately factoring line terminators;
+2. held-out success must be earned by a **G3 regionized arm**; `G2_WHOLE` may
+   remain a fallback/context candidate but cannot satisfy the G3 mechanism gate.
 
 ---
 
@@ -168,45 +178,51 @@ No schema merging or semantic normalization is introduced.
 
 ## 6. Exact line/fragment framing
 
-The source is scanned as bytes.
+The source is scanned as bytes using the **same framing rule as frozen G2**.
 
-A frame is:
+G2's `split_records()` ends a frame only on byte `0x0A` (LF) and includes that
+byte in the frame extent. Therefore G3 freezes the same rule:
 
-- bytes ending in the original newline sequence; or
-- the final remaining bytes if EOF occurs without a newline.
+- every extent ending at an LF includes the LF byte;
+- CRLF is not normalized or split specially: the CR and LF both remain inside
+  the exact frame bytes;
+- if bytes remain after the final LF, the entire remainder is one final frame;
+- no other byte sequence is promoted to a record boundary in G3.
 
-The framing layer must not canonicalize line endings.
+For a structured frame, the **entire original frame extent**, including its
+trailing LF/CRLF when present, is passed to the frozen G2 lexical parser. The
+parser already treats CR/LF as JSON whitespace, and the exact trailing bytes are
+therefore retained in the G2 structural/template parts.
 
-At minimum it must distinguish exact terminators needed for byte reconstruction,
-including:
+For a residual frame, the complete original frame bytes are retained literally.
 
-- LF;
-- CRLF;
-- no terminator at EOF.
+The primary G3 carrier must not introduce an independent line-terminator code or
+terminator side stream. That would be a second representation change and would
+confound the region-availability experiment.
 
-If the input contains other byte patterns, they must either be represented
-exactly by the framing contract or retained in raw form.
-
-The decoder never discovers line boundaries heuristically.
-
-All information needed for exact reconstruction is decoder-visible.
+The decoder never discovers line boundaries or line endings heuristically. It
+reconstructs exact source order from decoder-visible carrier state.
 
 ---
 
 ## 7. Structured versus residual record classification
 
-For each frame:
+For each exact G2-compatible frame extent:
 
-1. isolate record content from its exact line terminator;
-2. attempt the frozen G2 exact lexical structured parse on the content;
-3. if the record is accepted, classify it as structured;
-4. otherwise classify the complete original frame as raw residual.
+1. pass the **entire frame bytes** to the frozen G2 exact lexical parser;
+2. if accepted, classify the frame as structured and derive the same exact
+   scalar spans / structural parts / shape identity G2 would derive for that
+   frame;
+3. otherwise classify the complete original frame as raw residual.
 
-Blank/empty frames may be represented directly as raw residuals.
+Blank/whitespace-only frames are raw residuals because the frozen parser rejects
+them as blank JSON records.
 
 A malformed record must never make another valid record unavailable.
 
-A final incomplete fragment must be retained exactly as raw residual.
+A final remainder that is incomplete/invalid is retained exactly as raw
+residual. A final remainder that is itself a complete valid JSON value remains
+eligible for the structured path, matching G2 semantics.
 
 The classifier itself need not be transmitted; only the chosen representation
 and reconstruction data are decoder-visible.
@@ -248,7 +264,9 @@ Conceptually:
     raw_residual_frames:
         exact frame bytes
 
-    exact line-terminator / framing metadata where not already included
+Structured templates retain their original LF/CRLF bytes exactly as frozen G2
+does; raw residual frames retain their complete bytes. No separate terminator
+stream is part of the primary G3 hypothesis.
 
 The exact wire is an implementation detail, but every decoder-visible byte must
 be charged.
@@ -343,7 +361,7 @@ Charge:
 - source length;
 - frame count;
 - reconstruction-order metadata;
-- line-terminator metadata;
+- any frame/group length metadata not derivable from the carrier grammar;
 - shape dictionary;
 - shape IDs;
 - leaf IDs;
@@ -370,7 +388,7 @@ The decoder must validate before unsafe allocation or expansion:
 - frame/group counts;
 - shape IDs and occurrence counts;
 - structured/residual reconstruction counts;
-- line-terminator/framing enum values;
+- frame/group length and ordering bounds;
 - leaf IDs;
 - leaf payload lengths;
 - exact leaf consumption;
@@ -408,7 +426,7 @@ Self-tests must include at least:
 12. malformed/truncated residual payload;
 13. malformed reconstruction-order stream;
 14. impossible structured/residual counts;
-15. invalid line-terminator code;
+15. bad frame/group length metadata;
 16. bad dictionary ID/width;
 17. bad bitpack high bits;
 18. noncanonical varints;
@@ -502,6 +520,10 @@ All of the following must hold:
 8. no new leaf family or schema-unification mechanism is introduced.
 
 Because D1/D2/D4 are already measured, condition 5 is deliberately demanding.
+Condition 6 is a regression/integrity requirement, **not independent new evidence**:
+`G2_WHOLE` already gives known >=5% wins on D2 and D4. The new causal size evidence
+in G3 is whether regionization makes D3 useful without sacrificing the routed
+portfolio.
 
 With their frozen G2 selected bytes held constant, D3 would need approximately
 **14,555 additional bytes** of saving, about **1.126%** of its raw-Brotli
@@ -538,17 +560,37 @@ Validation must use the exact frozen G3 implementation SHA that passed discovery
 
 ### PASS-G3-BASE
 
+Define:
+
+    V1_REGION_BEST = min(
+      G3_REGION_RAW,
+      G3_REGION_DICT,
+      G3_REGION_INT,
+      G3_REGION_MIXED
+    )
+
 Require:
 
-1. exact roundtrip;
-2. selected V1 bytes at least **1% smaller than raw Brotli**;
+1. exact roundtrip for every emitted V1 arm;
+2. **V1_REGION_BEST** is at least **1% smaller than raw Brotli**;
 3. no representation/planner changes from discovery;
 4. complete metadata accounting.
 
+`G2_WHOLE` remains a legitimate final portfolio fallback/context arm, but it
+**cannot satisfy condition 2**. This prevents an already-established G2
+representation from validating a new G3 mechanism.
+
+Also report whether V1 contains any raw residual frames. If it contains none, a
+PASS-G3-BASE validates the regionized carrier on an independent fully structured
+population, but it does **not** establish held-out generalization of mixed
+structured+residual coverage; that stronger claim remains unsupported until a
+separate independent mixed-validity family is measured.
+
 ### PASS-G3-NARROW
 
-If discovery passes but V1 does not reach -1%, classify the measured mechanism as
-class-specific rather than broad.
+If discovery passes but `V1_REGION_BEST` does not reach -1%, classify the G3
+mechanism as class-specific even if `G2_WHOLE` or the overall fallback portfolio
+beats raw Brotli on V1.
 
 No tuning after opening V1.
 
@@ -578,7 +620,8 @@ Regionization:
 - residual frame count;
 - structured source bytes;
 - residual source bytes;
-- line-terminator counts;
+- LF/CRLF/final-remainder counts as **encoder diagnostics only** (not transmitted
+  terminator side information);
 - structured coverage fraction;
 - residual fraction;
 - shape count;
