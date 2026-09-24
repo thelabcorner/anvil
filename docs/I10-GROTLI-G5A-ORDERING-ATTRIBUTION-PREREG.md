@@ -1,7 +1,8 @@
 # ANVIL I10 - GROTLI G5A Ordering Attribution Preregistration
 
-**Status:** FROZEN r5 BEFORE ANY G5A D1-D4 / V1 CORPUS MEASUREMENT  
-**Freeze note:** r5 is the final pre-corpus contract. It makes A0 explicit in the I2 body-size equation and aligns the emitted evidence key with `canonical_token_multiset_sha256`; these are contract-consistency corrections only, made before any D1-D4 or V1 outcome was observed. r4 established the substantive design.  The original G5A preregistration existed before implementation; r2/r3 then closed edge cases and independent causal-audit blockers using source review plus correctness-only local compile/selftests and tiny synthetic fixtures. No D1-D4 or V1 outcome was observed while changing the arms, thresholds, or gates. r5 supersedes every earlier G5A source/prereg revision for admissible evidence. It requires: (a) compilation against materialized pinned frozen G3 source; (b) byte-level canonical token-multiset and common-envelope SHA-256 equality; (c) deterministic A0 RANDOM_PERMUTATION null control; (d) exact Brotli implementation/build identity; and (e) explicit out-of-band mode-byte pack/unpack verification.  
+**Status:** FROZEN r6 BEFORE ANY G5A D1-D4 / V1 CORPUS MEASUREMENT  
+**Freeze note:** r6 is the final pre-corpus contract and supersedes r5. No D1-D4 or V1 G5A result existed when r6 was frozen. r6 makes contract/provenance hardening corrections only, EXCEPT the classification-precedence serialization (null-control placement, section 10), which is frozen NOW before the first corpus run. r6 corrections: (A) explicit null-first precedence when the ordering direction is favorable; (B) honest reconciliation of the pre-freeze tiny synthetic fixtures; (C) exact implementation carrier grammar replacing the conceptual rendering; (D) fail-closed V1 re-gating in the final ruling; (E) exact linked libbrotli library hashes as additive provenance; (F) strengthened I2 (total body length + envelope length + token-region length identities). None of these changes the arms, the thresholds, the corpus, or the scientific question.  
+**Supersedes:** r5. Earlier revisions and their freeze notes are historical.  
 **Date:** 2026-09-24  
 **Parent evidence:** G3 `PASS-G3-NARROW`, G4 `NO-GO-G4`  
 **Purpose:** isolate the causal contribution of byte ordering/locality under a fixed structured representation  
@@ -102,41 +103,53 @@ G5A does **not** change parser eligibility or shape formation.
 
 ## 3. Common G5A carrier body
 
-The carrier body is deliberately independent of order mode.
-
-Conceptually:
+The carrier body is deliberately independent of order mode. The following is the
+EXACT implementation grammar (matching `tools/grotli_g5a_ordering.cpp`), not a
+conceptual sketch. All lengths/counts are `uvar` = unsigned LEB128 (7 data bits
+per byte, high bit = continuation, canonical shortest form).
 
 ```
-magic = "G5AO"
-version
-source_len
-frame_count
-group_count
-frame_group[frame_count]
-
-group_descriptors[group_count]:
-    group_kind
-    member_count
-    structured:
-        slot_count
-        template_part_count
-        (part_len, part_bytes)...
-
-raw_residual_section:
-    for raw members in frozen source order:
-        raw_len
-        raw_bytes
-
-structured_token_stream:
-    exactly N chunks, each:
-        token_len
-        exact_token_bytes
+BODY = ENVELOPE || TOKEN_STREAM            # byte concatenation
 ```
 
-The metadata and raw-residual section are byte-identical across all order arms.
+ENVELOPE (byte-identical across all four arms; equals body[0, prefix_len)):
 
-The structured token stream contains the same exact chunks in each arm; only their
-permutation changes.
+```
+magic              : 4 bytes = 'G','5','A','O'
+version            : u8 = 1
+source_len         : uvar   # original input length in bytes
+frame_count        : uvar
+ group_count        : uvar
+frame_group[frame_count] : uvar each    # group id per frame, in source order
+
+group_descriptors[group_count] (in group-id order):
+    group_kind     : u8     # 1 = raw residual group, 0 = structured shape
+    member_count   : uvar
+    (structured only):
+        slot_count : uvar
+        template_part_count : uvar
+        for each template part:
+            part_len : uvar
+            part_bytes : part_len raw bytes
+
+raw_residual_section (only if a raw group exists), in frozen source order:
+    for each raw member:
+        raw_len  : uvar
+        raw_bytes: raw_len raw bytes
+```
+
+TOKEN_STREAM (the ONLY region that changes between arms; length = token_region_len):
+
+```
+structured_token_stream: exactly N chunks, each:
+    token_len  : uvar   # length framing of one exact lexical scalar token
+    token_bytes: token_len raw bytes
+```
+
+A single scalar token is stored as its length framing followed by its exact
+bytes; the multiset of `(token_len, token_bytes)` records is identical across
+arms and only their ORDER differs. The envelope prefix and the raw-residual
+section are byte-identical across all arms.
 
 ### 3.1 Decoder-visible order mode
 
@@ -279,6 +292,20 @@ original source.
 len(A0_body) == len(A1_body) == len(A2_body) == len(A3_body)
 ```
 
+r6 STRENGTHENING: in addition to total body length, the implementation MUST
+expose, gate, and emit the ENVELOPE length and the TOKEN-REGION length identities
+across all four arms:
+
+```
+envelope_len       = prefix_len        (identical across A0/A1/A2/A3)
+token_region_len   = body_len - prefix_len   (identical across A0/A1/A2/A3)
+```
+
+These are pure derivations of the existing exact prefix/body construction and MUST
+NOT change any body byte. They are emitted as `envelope_len_identity`,
+`token_region_len_identity`, `envelope_len`, `token_region_len` and gated in both
+the source invariants and the CI row gates.
+
 ### I3 - exact permutation coverage AND canonical token-multiset identity
 
 The implementation must construct a canonical list of structured scalar chunk
@@ -343,6 +370,13 @@ quality/window parameters. Each result row MUST record:
 - the Brotli library identity as reported by the CI build (package version);
 - quality 11 and lgwin 30.
 
+r6 ADDITIVE PROVENANCE (E): the CI workflow MUST additionally capture and upload
+the exact SHA-256 of the actually linked libbrotli shared libraries, resolved at
+runtime from the built binary (e.g. via `ldd`/`readlink -f` to the real `.so`
+paths, then `sha256sum` each), together with the compiler identity and the
+distribution package versions. These are additive provenance fields; they do not
+change any arm, threshold, or measurement.
+
 The CI workflow must record the Brotli library package identity it linked against.
 
 ### I9 - A0 null arm is required
@@ -370,6 +404,21 @@ through G1-G4:
 
 These are no longer unseen. G5A makes no generalization claim from them.
 
+### 7.1a Pre-freeze tiny synthetic fixtures are inadmissible evidence (r6)
+
+During development, hand-written correctness fixtures existed under the gitignored
+`scratch/g4-r5-local/` directory (the largest about 305 bytes) and were used only
+for local compile/selftest and candidate-revision smoke checks before any corpus
+run. They are explicitly:
+
+- **NOT** D1-D4 or V1, and not drawn from any frozen corpus;
+- of **no attribution value** and **inadmissible as G5A evidence**;
+- superseded by this frozen contract;
+- never used to set, tune, or justify any arm, threshold, or gate.
+
+Only CI-produced rows measured on the frozen D1-D4 objects under the frozen
+implementation identity count as G5A evidence.
+
 ### 7.2 Known stress/anatomy object: V1
 
 Sino-US DrugQA V1 is now **known**, because G3 legitimately opened it.
@@ -381,6 +430,17 @@ Frozen identity:
 
 G5A may measure the exact same frozen A1/A2/A3 arms on V1 because the purpose is
 failure anatomy, not validation.
+
+### 7.2a Fail-closed V1 re-gating in the final ruling (r6)
+
+The final ruling MUST re-load and re-gate the V1 row's correctness invariants
+inside the ruling heredoc itself (not only inside the measurement step). If any V1
+invariant fails - body-size identity, envelope-length identity, token-region-length
+identity, envelope identity, canonical multiset identity, exact permutations, mode
+pack/unpack, roundtrip, backend identity - the run MUST fail closed and MUST NOT
+emit any `V1-COLUMN-*` label. The permitted outcomes are then either an abort or an
+explicit `V1-INVALID-G5A` marker; a V1 correctness failure may never be silently
+reported as a favorable ordering diagnostic.
 
 V1 must be labeled:
 
@@ -472,26 +532,40 @@ Correctness invariants dominate every classification.
 ### ORDER-ADVERSE
 
 If `S3 > S1`, shape-column ordering is worse than source ordering in aggregate.
+No favorable claim is made, so no null test is applied.
 
 ### ORDER-NEUTRAL
 
 If `S3 == S1`, the aggregate byte effect of shape-column versus source ordering is exactly zero.
+No favorable claim is made, so no null test is applied.
+
+### ORDER-UNSUPPORTED-BY-NULL
+
+If `S3 < S1` (a favorable ordering direction) but `S3 >= S0`, the shape-column
+ordering did NOT beat the deterministic structure-destroying null draw. Any
+A1-vs-A3 improvement is then not attributable to the specific locality mechanism.
+The null test is applied BEFORE the strength gates below, so an otherwise-MATERIAL
+result cannot be claimed when it fails the null.
 
 ### ORDER-WEAK
 
-If A3 is smaller than A1 but aggregate improvement is less than **1.0%**:
+Favorable direction and null passed (`S3 < S1` and `S3 < S0`) but aggregate
+improvement is less than **1.0%**:
 
 ```
-S3 < S1 && S3 / S1 > 0.99
+S3 < S1 && S3 < S0 && S3 / S1 > 0.99
 ```
 
 The effect is real but below the frozen engineering-materiality threshold.
 
 ### ORDER-CONCENTRATED
 
-If aggregate improvement is at least **1.0%** but A3 is smaller than A1 on fewer than
-**2 of 4** D1-D4 families, classify the result as `ORDER-CONCENTRATED` rather than
-calling the ordering mechanism broadly material on the frozen discovery set.
+Favorable direction, null passed, aggregate improvement at least **1.0%**, but A3
+is smaller than A1 on fewer than **2 of 4** D1-D4 families:
+
+```
+S3 < S1 && S3 < S0 && S3 / S1 <= 0.99 && a3_smaller_files < 2
+```
 
 This closes the classification surface without weakening the two-family requirement.
 
@@ -499,11 +573,29 @@ This closes the classification surface without weakening the two-family requirem
 
 Require all:
 
-1. all I1-I7 invariants pass;
+1. all I1-I9 invariants pass;
 2. `S3 / S1 <= 0.99` - at least **1.0% aggregate** improvement;
-3. A3 is smaller than A1 on at least **2 of 4** D1-D4 families.
+3. `S3 < S0` - A3 beats the single frozen null draw in aggregate;
+4. A3 is smaller than A1 on at least **2 of 4** D1-D4 families.
 
 Only then is ordering called materially causal on the frozen discovery set.
+
+### Frozen classification precedence (r6)
+
+Evaluated in this exact order; the first matching rule wins:
+
+```
+INVALID               if invariants/decomposition fail
+ADVERSE               if A3 > A1
+NEUTRAL               if A3 == A1
+UNSUPPORTED-BY-NULL   if A3 < A1 and A3 >= A0
+WEAK                  if A3 < A1 and A3 < A0 and A3 / A1 >  0.99
+CONCENTRATED          if A3 < A1 and A3 < A0 and A3 / A1 <= 0.99 and a3_smaller_files <  2
+MATERIAL              if A3 < A1 and A3 < A0 and A3 / A1 <= 0.99 and a3_smaller_files >= 2
+```
+
+ADVERSE and NEUTRAL are checked before the null because they make no favorable
+claim. The single deterministic null is NOT a statistical significance test.
 
 ### Attribution label inside ORDER-MATERIAL
 
@@ -522,17 +614,19 @@ These labels describe D1-D4 anatomy only. They do not authorize production.
 
 Let `S0 = sum(A0_complete)` over D1-D4 (the deterministic random-permutation null).
 
-An `ORDER-MATERIAL` classification additionally requires:
+The null test is applied to any FAVORABLE ordning direction BEFORE the strength
+gates (see the frozen precedence in section 10):
 
 ```
 S3 < S0        # A3 beats the single frozen null draw in aggregate
 ```
 
-If `S3 >= S0`, the classification is downgraded to **ORDER-UNSUPPORTED-BY-NULL**: the
-shape-column ordering did not beat a structure-destroying permutation of the same
-chunks, so any A1-vs-A3 improvement is not attributable to the specific locality
-mechanism. A0 comparison uses ONE deterministic draw and MUST NOT be reported as a
-significance test.
+If the direction is favorable (`A3 < A1`) but `A3 >= A0`, the classification is
+**ORDER-UNSUPPORTED-BY-NULL**: the shape-column ordering did not beat a
+structure-destroying permutation of the same chunks, so any A1-vs-A3 improvement
+is not attributable to the specific locality mechanism. A0 comparison uses ONE
+deterministic draw and MUST NOT be reported as a significance test; no p-value,
+no "random is worse on average" language is permitted.
 
 Report `random_null_bytes = S0 - S3` in the ruling.
 
@@ -547,6 +641,10 @@ V1 is reported separately.
 - `V1-COLUMN-ADVERSE` if A3 > A1.
 
 Also report A1->A2 and A2->A3 byte decomposition.
+
+FAIL-CLOSED (r6, section 7.2a): these labels are emitted ONLY if every V1 row
+invariant re-checks clean inside the final ruling heredoc. If any V1 invariant
+fails, the run fails closed and no `V1-COLUMN-*` label is produced.
 
 This diagnostic is intended to answer whether the G3 held-out failure is compatible
 with an ordering/locality failure even when parsing coverage is 100%.

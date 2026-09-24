@@ -164,6 +164,22 @@ static const char* order_name(G5Order m) {
 static constexpr uint8_t kG5Version = 1;
 static constexpr std::array<uint8_t, 4> kG5Magic = {'G','5','A','O'};
 
+// Single shared definition of the A0 null seed. BOTH the encoder
+// (`permutation_for`) and the decoder (`decode_g5_body`) hash exactly these
+// bytes; keeping one definition here prevents the two sites from drifting.
+// Changing these bytes changes the frozen A0 null and is forbidden post-freeze.
+static constexpr const char* kG5RandomPermutationSeed =
+    "G5A-RANDOM-PERMUTATION-SEED-v1";
+
+// The four frozen order selectors are exactly 0..3. Any other selector byte is
+// malformed and must be rejected deterministically (prereg I7).
+static bool is_valid_g5_selector(uint8_t s) {
+    return s == static_cast<uint8_t>(G5Order::RandomPermutation) ||
+           s == static_cast<uint8_t>(G5Order::SourceOrder) ||
+           s == static_cast<uint8_t>(G5Order::ShapeRow) ||
+           s == static_cast<uint8_t>(G5Order::ShapeColumn);
+}
+
 struct TokenCoord {
     uint32_t shape = 0;
     uint32_t occurrence = 0;
@@ -359,7 +375,7 @@ static std::vector<size_t> permutation_for(const G5Plan& p, G5Order mode) {
         // indices by SHA-256(seed || 0x1F || index_le_u64) as a big-endian
         // 256-bit integer, ties by lower index. No score, no content, no
         // observed byte influences this permutation.
-        static const char* const kSeed = "G5A-RANDOM-PERMUTATION-SEED-v1";
+        const char* const kSeed = kG5RandomPermutationSeed;
         std::vector<std::pair<std::array<uint8_t, 32>, size_t>> keyed;
         keyed.reserve(p.canonical.size());
         for (size_t i = 0; i < p.canonical.size(); ++i) {
@@ -410,6 +426,10 @@ struct BuiltArm {
     // Byte-level invariant hashes (prereg I3/I4).
     std::string envelope_sha256;
     std::string multiset_sha256;
+    // Strengthened I2 (r6): envelope and token-region lengths. Derived from the
+    // existing exact prefix/body construction; body bytes are UNCHANGED.
+    uint64_t envelope_len = 0;
+    uint64_t token_region_len = 0;
 };
 
 static BuiltArm build_arm(const G5Plan& p, G5Order mode) {
@@ -425,6 +445,11 @@ static BuiltArm build_arm(const G5Plan& p, G5Order mode) {
         const TokenCoord& c = p.canonical[id];
         append_token_chunk(r.body, token_at(p, c));
     }
+
+    // Strengthened I2: envelope is exactly the shared prefix; the token region
+    // is the remainder. These are pure derivations of the unchanged body.
+    r.envelope_len = static_cast<uint64_t>(p.prefix.size());
+    r.token_region_len = static_cast<uint64_t>(r.body.size()) - r.envelope_len;
 
     // Envelope hash is over the shared prefix; the multiset hash is over the
     // arm's own token region records (sorted), which must equal the plan hash.
@@ -610,7 +635,7 @@ static Bytes decode_g5_body(const Bytes& body, G5Order mode) {
             if (!groups[gid].raw && occ[gid] != groups[gid].members)
                 throw std::runtime_error("G5 A0 occurrence mismatch");
 
-        static const char* const kSeed = "G5A-RANDOM-PERMUTATION-SEED-v1";
+        const char* const kSeed = kG5RandomPermutationSeed;
         std::vector<std::pair<std::array<uint8_t, 32>, size_t>> keyed;
         keyed.reserve(canon.size());
         for (size_t i = 0; i < canon.size(); ++i) {
@@ -718,6 +743,8 @@ static void print_arm_json(const char* key, const MeasuredArm& m) {
               << "\"mode\":\"" << order_name(m.built.mode) << "\""
               << ",\"mode_byte\":" << static_cast<unsigned>(m.built.mode)
               << ",\"body_bytes\":" << m.built.body.size()
+              << ",\"envelope_len\":" << m.built.envelope_len
+              << ",\"token_region_len\":" << m.built.token_region_len
               << ",\"brotli_bytes\":" << m.brotli.size()
               << ",\"complete_bytes\":" << m.complete_bytes
               << ",\"roundtrip\":" << (m.roundtrip ? "true" : "false")
@@ -738,7 +765,11 @@ static bool mode_pack_unpack_roundtrip(G5Order mode, const Bytes& body) {
     packed.push_back(static_cast<uint8_t>(mode));
     packed.insert(packed.end(), body.begin(), body.end());
     if (packed.size() != body.size() + 1) return false;
-    const G5Order recovered = static_cast<G5Order>(packed.front());
+    // Selector-byte validation (prereg I7): the materialized out-of-band mode
+    // byte must be one of the four frozen selectors before it is accepted.
+    const uint8_t selector = packed.front();
+    if (!is_valid_g5_selector(selector)) return false;
+    const G5Order recovered = static_cast<G5Order>(selector);
     if (recovered != mode) return false;
     const Bytes unpacked(packed.begin() + 1, packed.end());
     return unpacked == body;
@@ -800,6 +831,22 @@ static int measure_g5a(const std::string& path) {
     if (!hashes_identical)
         throw std::runtime_error("G5 invariant-hash identity failure");
 
+    // Strengthened I2 (r6): expose and gate envelope-length and token-region
+    // length identities across all four arms, in addition to total body length.
+    // These are derived from the unchanged prefix/body construction.
+    const bool envelope_len_identity =
+        a0.built.envelope_len == a1.built.envelope_len &&
+        a1.built.envelope_len == a2.built.envelope_len &&
+        a2.built.envelope_len == a3.built.envelope_len;
+    const bool token_region_len_identity =
+        a0.built.token_region_len == a1.built.token_region_len &&
+        a1.built.token_region_len == a2.built.token_region_len &&
+        a2.built.token_region_len == a3.built.token_region_len;
+    if (!envelope_len_identity)
+        throw std::runtime_error("G5 envelope-length identity failure");
+    if (!token_region_len_identity)
+        throw std::runtime_error("G5 token-region-length identity failure");
+
     const bool all_perm =
         a0.built.permutation_ok && a1.built.permutation_ok &&
         a2.built.permutation_ok && a3.built.permutation_ok;
@@ -848,6 +895,10 @@ static int measure_g5a(const std::string& path) {
               << ",\"envelope_sha256\":\"" << plan.envelope_sha256 << "\""
               << ",\"canonical_token_multiset_sha256\":\"" << plan.multiset_sha256 << "\""
               << ",\"body_size_identity\":" << (same_body_size ? "true" : "false")
+              << ",\"envelope_len_identity\":" << (envelope_len_identity ? "true" : "false")
+              << ",\"token_region_len_identity\":" << (token_region_len_identity ? "true" : "false")
+              << ",\"envelope_len\":" << a1.built.envelope_len
+              << ",\"token_region_len\":" << a1.built.token_region_len
               << ",\"envelope_identity\":" << (envelope_identity ? "true" : "false")
               << ",\"invariant_hashes_identical\":" << (hashes_identical ? "true" : "false")
               << ",\"all_permutations_exact\":" << (all_perm ? "true" : "false")
@@ -891,10 +942,23 @@ static void g5a_fixture(const std::string& s, const char* label) {
             throw std::runtime_error(std::string(label) + ": envelope hash mismatch");
         if (a->multiset_sha256 != p.multiset_sha256)
             throw std::runtime_error(std::string(label) + ": multiset hash mismatch");
+        // Strengthened I2 (r6): envelope and token-region lengths are identical
+        // across arms and derive exactly from prefix + body.
+        if (a->envelope_len != p.prefix.size())
+            throw std::runtime_error(std::string(label) + ": envelope length mismatch");
+        if (a->token_region_len != a->body.size() - p.prefix.size())
+            throw std::runtime_error(std::string(label) + ": token region length mismatch");
         // Mode byte materialization (prereg section 3.2).
         if (!mode_pack_unpack_roundtrip(a->mode, a->body))
             throw std::runtime_error(std::string(label) + ": mode pack/unpack");
     }
+    if (a0.envelope_len != a1.envelope_len || a1.envelope_len != a2.envelope_len ||
+        a2.envelope_len != a3.envelope_len)
+        throw std::runtime_error(std::string(label) + ": envelope length not identical");
+    if (a0.token_region_len != a1.token_region_len ||
+        a1.token_region_len != a2.token_region_len ||
+        a2.token_region_len != a3.token_region_len)
+        throw std::runtime_error(std::string(label) + ": token region length not identical");
     if (decode_g5_body(a0.body, G5Order::RandomPermutation) != src)
         throw std::runtime_error(std::string(label) + ": random decode");
     if (decode_g5_body(a1.body, G5Order::SourceOrder) != src)
@@ -980,6 +1044,25 @@ static void g5a_selftest() {
         const BuiltArm a1 = build_arm(p, G5Order::SourceOrder);
         if (a0.permutation == a1.permutation)
             throw std::runtime_error("G5 A0 permutation equals identity (no null)");
+    }
+
+    // Selector-byte validation (prereg I7): only the four frozen G5Order values
+    // are valid; any other byte must be rejected deterministically.
+    for (uint8_t s : {static_cast<uint8_t>(0), static_cast<uint8_t>(1),
+                      static_cast<uint8_t>(2), static_cast<uint8_t>(3)})
+        if (!is_valid_g5_selector(s))
+            throw std::runtime_error("G5 valid selector rejected");
+    for (uint8_t s : {static_cast<uint8_t>(4), static_cast<uint8_t>(5),
+                      static_cast<uint8_t>(0x7f), static_cast<uint8_t>(0xff)})
+        if (is_valid_g5_selector(s))
+            throw std::runtime_error("G5 invalid selector accepted");
+    {
+        Bytes body = bytes("payload");
+        Bytes packed;
+        packed.push_back(0xff);  // invalid selector
+        packed.insert(packed.end(), body.begin(), body.end());
+        if (is_valid_g5_selector(packed.front()))
+            throw std::runtime_error("G5 invalid packed selector accepted");
     }
 
     std::cout << "PASS grotli_g5a_ordering selftest\n";
