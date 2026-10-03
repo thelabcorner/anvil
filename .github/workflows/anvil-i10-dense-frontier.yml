@@ -1,0 +1,1027 @@
+name: ANVIL I10 dense frontier
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: Canonical corpus
+        required: true
+        default: silesia
+        type: choice
+        options:
+          - silesia
+          - enwik8
+      reps:
+        description: Paired repetitions per timing panel cell
+        required: true
+        default: '7'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  group: anvil-i10-dense-frontier-${{ inputs.corpus }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dense-frontier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    env:
+      VEHICLE_DIR: ${{ github.workspace }}/vehicle
+      TOOLING_DIR: ${{ github.workspace }}/tooling
+      CANDIDATE_DIR: ${{ github.workspace }}/candidate
+      TOOLING_SHA: b6a243c9657776058a37e5f0ee2eaae2ff925dff
+      CANDIDATE_TAG: i10-aux-unbwt-final-v1
+      CANDIDATE_SHA: 0dce534e5df40945d518c9ef4a722f4a0ecfc0e6
+      CANDIDATE_SRC_BLOB: 755df76ae53795aea040f4c99784d1effb43b3ab
+      CMAKE_BLOB: 449ae00e0dd56cac5584e08fa725288870573667
+      BROTLI_LW_BLOB: c9a55893b827f6f45e6855a79514a91e0787346d
+      TOOLING_PAIRED_BLOB: f847c50e38d3b39b61deeb6b21bcf12e9c132fd5
+      TOOLING_FETCH_BLOB: c8f5cc71f9ade44db3b975d10aad39e901e26ebc
+      TOOLING_BENCH_BLOB: 6f2393e5673714b8ffc8d9637f994505269c14fb
+      CORPUS: ${{ inputs.corpus }}
+      REPS: ${{ inputs.reps }}
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      WORK_ROOT: ${{ runner.temp }}/anvil-dense-frontier
+      BUILD_ROOT: ${{ runner.temp }}/anvil-dense-build
+      PAYLOAD_ROOT: ${{ runner.temp }}/anvil-dense-payloads
+      WRAPPER_ROOT: ${{ runner.temp }}/anvil-dense-wrappers
+      OUT_DIR: ${{ github.workspace }}/dense-frontier-${{ inputs.corpus }}
+      ANVIL: ${{ runner.temp }}/anvil-dense-build/anvil
+      ANVIL_DECODER: ${{ runner.temp }}/anvil-dense-build/anvil_decoder_only
+      BROTLI_DENSE: ${{ runner.temp }}/anvil-dense-build/brotli_dense
+      BROTLI_DECODER: ${{ runner.temp }}/anvil-dense-build/brotli_decoder_only
+      BROTLI_LW: ${{ runner.temp }}/anvil-dense-build/brotli_lw
+
+    steps:
+      - name: Initialize evidence directory
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR" "$WORK_ROOT" "$BUILD_ROOT" "$PAYLOAD_ROOT" "$WRAPPER_ROOT"
+          printf 'workflow=%s\nrun_id=%s\nrun_attempt=%s\ncorpus=%s\nreps=%s\n' \
+            "$GITHUB_WORKFLOW" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$CORPUS" "$REPS" \
+            > "$OUT_DIR/workflow-intent.txt"
+
+      - name: Checkout vehicle source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          path: vehicle
+          fetch-depth: 1
+
+      - name: Checkout pinned measurement tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: b6a243c9657776058a37e5f0ee2eaae2ff925dff
+          path: tooling
+          fetch-depth: 1
+
+      - name: Checkout pinned codec candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 0dce534e5df40945d518c9ef4a722f4a0ecfc0e6
+          path: candidate
+          fetch-depth: 1
+
+      - name: Install and assert pinned toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            python3 time util-linux xz-utils zstd
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=$GITHUB_SHA"
+            echo "workflow_ref=$GITHUB_REF"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "image_os=${ImageOS:-unknown}"
+            echo "image_version=${ImageVersion:-unknown}"
+            uname -a
+            lscpu
+            clang-18 --version
+            clang++-18 --version
+            cmake --version
+            ninja --version
+            python3 --version
+            zstd --version
+            xz --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+            dpkg-query -W -f='libbrotli1=${Version}\n' libbrotli1
+            dpkg-query -W -f='zstd-dev=${Version}\n' libzstd-dev
+          } | tee "$OUT_DIR/provenance.txt"
+          test "$(git -C "$VEHICLE_DIR" rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C "$TOOLING_DIR" rev-parse HEAD)" = "$TOOLING_SHA"
+          test "$(git -C "$CANDIDATE_DIR" rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git -C "$CANDIDATE_DIR" rev-parse HEAD:src/anvil.cpp)" = "$CANDIDATE_SRC_BLOB"
+          test "$(git -C "$CANDIDATE_DIR" rev-parse HEAD:CMakeLists.txt)" = "$CMAKE_BLOB"
+          test "$(git -C "$CANDIDATE_DIR" rev-parse HEAD:tools/brotli_lw.cpp)" = "$BROTLI_LW_BLOB"
+          test "$(git -C "$TOOLING_DIR" rev-parse HEAD:tools/paired_bench.py)" = "$TOOLING_PAIRED_BLOB"
+          test "$(git -C "$TOOLING_DIR" rev-parse HEAD:tools/gha_fetch_corpus.py)" = "$TOOLING_FETCH_BLOB"
+          test "$(git -C "$TOOLING_DIR" rev-parse HEAD:tools/bench_ratio.py)" = "$TOOLING_BENCH_BLOB"
+          test -z "$(git -C "$VEHICLE_DIR" status --porcelain)"
+          test -z "$(git -C "$TOOLING_DIR" status --porcelain)"
+          test -z "$(git -C "$CANDIDATE_DIR" status --porcelain)"
+          test "$(nproc)" = 4
+          test "$(clang-18 --version | head -n1)" = 'Ubuntu clang version 18.1.3 (1ubuntu1)'
+          test "$(clang++-18 --version | head -n1)" = 'Ubuntu clang version 18.1.3 (1ubuntu1)'
+          test "$(cmake --version | head -n1)" = 'cmake version 3.31.6'
+          test "$(ninja --version)" = '1.13.2'
+          python3 --version | grep -F '3.12.3'
+          zstd --version | head -n1 | grep -F 'v1.5.7'
+          xz --version | head -n1 | grep -F '5.4.5'
+          test "$(dpkg-query -W -f='${Version}' libbrotli-dev)" = '1.1.0-2build2'
+          test "$(dpkg-query -W -f='${Version}' libbrotli1)" = '1.1.0-2build2'
+          test "$(dpkg-query -W -f='${Version}' libzstd-dev)" = '1.5.5+dfsg2-2build1.1'
+          test -x "$(command -v taskset)"
+          test -x /usr/bin/time
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          out = Path(os.environ["OUT_DIR"])
+          checks = {
+              "vehicle_sha": os.environ["GITHUB_SHA"],
+              "tooling_sha": "b6a243c9657776058a37e5f0ee2eaae2ff925dff",
+              "candidate_sha": "0dce534e5df40945d518c9ef4a722f4a0ecfc0e6",
+              "candidate_src_blob": "755df76ae53795aea040f4c99784d1effb43b3ab",
+              "cmake_blob": "449ae00e0dd56cac5584e08fa725288870573667",
+              "brotli_lw_blob": "c9a55893b827f6f45e6855a79514a91e0787346d",
+              "paired_bench_blob": "f847c50e38d3b39b61deeb6b21bcf12e9c132fd5",
+              "fetch_corpus_blob": "c8f5cc71f9ade44db3b975d10aad39e901e26ebc",
+              "bench_ratio_blob": "6f2393e5673714b8ffc8d9637f994505269c14fb",
+              "runner_logical_cpus": 4,
+              "clang": "18.1.3",
+              "cmake": "3.31.6",
+              "ninja": "1.13.2",
+              "python": "3.12.3",
+              "brotli": "1.1.0-2build2",
+              "zstd_cli": "1.5.7",
+              "zstd_dev": "1.5.5+dfsg2-2build1.1",
+              "xz": "5.4.5",
+          }
+          (out / "pin-checks.json").write_text(json.dumps(checks, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          (out / "toolchain.txt").write_text("\n".join(f"{k}={v}" for k, v in checks.items()) + "\n", encoding="utf-8")
+          PY
+
+      - name: Build frozen candidate and remote-only helper binaries
+        run: |
+          set -euo pipefail
+          cmake -S "$CANDIDATE_DIR" -B "$BUILD_ROOT" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_C_FLAGS_RELEASE='-O3 -DNDEBUG' \
+            -DCMAKE_CXX_FLAGS_RELEASE='-O3 -DNDEBUG' \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$BUILD_ROOT" --parallel 4 --target anvil brotli_lw
+          cat > "$WRAPPER_ROOT/anvil_decoder.cpp" <<CPP
+          #define ANVIL_NO_MAIN
+          #include "$CANDIDATE_DIR/src/anvil.cpp"
+          #include <exception>
+          #include <iostream>
+          int main(int argc, char** argv) {
+            if (argc != 3) return 2;
+            try {
+              auto input = anvil::read_file(argv[1]);
+              anvil::Options options;
+              options.decode_threads = 1;
+              auto output = anvil::decompress(input, options);
+              anvil::write_file(argv[2], output);
+              return 0;
+            } catch (const std::exception& error) {
+              std::cerr << error.what() << "\n";
+              return 1;
+            }
+          }
+          CPP
+          cat > "$WRAPPER_ROOT/brotli_dense.cpp" <<'CPP'
+          #include <brotli/decode.h>
+          #ifdef DENSE_DECODER_ONLY
+          #include <cstdint>
+          #include <fstream>
+          #include <iostream>
+          #include <stdexcept>
+          #include <string>
+          #include <vector>
+          static std::vector<uint8_t> read_file(const std::string& path) {
+            std::ifstream file(path, std::ios::binary);
+            if (!file) throw std::runtime_error("cannot open input");
+            file.seekg(0, std::ios::end);
+            auto size = file.tellg();
+            file.seekg(0);
+            std::vector<uint8_t> data(static_cast<size_t>(size));
+            if (size > 0) file.read(reinterpret_cast<char*>(data.data()), size);
+            return data;
+          }
+          static void write_file(const std::string& path, const std::vector<uint8_t>& data) {
+            std::ofstream file(path, std::ios::binary);
+            if (!file) throw std::runtime_error("cannot open output");
+            if (!data.empty()) file.write(reinterpret_cast<const char*>(data.data()), data.size());
+          }
+          int main(int argc, char** argv) {
+            if (argc != 4) return 2;
+            try {
+              auto expected = std::stoull(argv[3]);
+              auto input = read_file(argv[1]);
+              std::vector<uint8_t> output;
+              BrotliDecoderState* state = BrotliDecoderCreateInstance(nullptr, nullptr, nullptr);
+              if (!state) throw std::runtime_error("decoder allocation failed");
+              struct Guard { BrotliDecoderState* value; ~Guard() { BrotliDecoderDestroyInstance(value); } } guard{state};
+              if (!BrotliDecoderSetParameter(state, BROTLI_DECODER_PARAM_LARGE_WINDOW, 1)) throw std::runtime_error("large-window setup failed");
+              std::vector<uint8_t> buffer(expected);
+              size_t available_in = input.size();
+              size_t available_out = buffer.size();
+              const uint8_t* next_in = input.data();
+              uint8_t* next_out = buffer.data();
+              size_t total_out = 0;
+              auto result = BrotliDecoderDecompressStream(state, &available_in, &next_in, &available_out, &next_out, &total_out);
+              if (result != BROTLI_DECODER_RESULT_SUCCESS || available_in != 0 || total_out != expected) throw std::runtime_error("brotli decode failed");
+              buffer.resize(total_out);
+              write_file(argv[2], buffer);
+              return 0;
+            } catch (const std::exception& error) {
+              std::cerr << error.what() << "\n";
+              return 1;
+            }
+          }
+          #else
+          #include <brotli/encode.h>
+          #include <cstdint>
+          #include <fstream>
+          #include <iostream>
+          #include <stdexcept>
+          #include <string>
+          #include <vector>
+          static std::vector<uint8_t> read_file(const std::string& path) {
+            std::ifstream file(path, std::ios::binary);
+            if (!file) throw std::runtime_error("cannot open input");
+            file.seekg(0, std::ios::end);
+            auto size = file.tellg();
+            file.seekg(0);
+            std::vector<uint8_t> data(static_cast<size_t>(size));
+            if (size > 0) file.read(reinterpret_cast<char*>(data.data()), size);
+            return data;
+          }
+          static void write_file(const std::string& path, const std::vector<uint8_t>& data) {
+            std::ofstream file(path, std::ios::binary);
+            if (!file) throw std::runtime_error("cannot open output");
+            if (!data.empty()) file.write(reinterpret_cast<const char*>(data.data()), data.size());
+          }
+          int main(int argc, char** argv) {
+            if (argc != 4) return 2;
+            try {
+              auto input = read_file(argv[3]);
+              int quality = std::stoi(argv[1]);
+              size_t capacity = BrotliEncoderMaxCompressedSize(input.size());
+              if (!capacity) throw std::runtime_error("brotli size bound overflow");
+              std::vector<uint8_t> output(capacity);
+              size_t output_size = capacity;
+              const uint8_t* input_data = input.empty() ? reinterpret_cast<const uint8_t*>("") : input.data();
+              if (!BrotliEncoderCompress(quality, 30, BROTLI_MODE_GENERIC, input.size(), input_data, &output_size, output.data())) throw std::runtime_error("brotli encode failed");
+              output.resize(output_size);
+              write_file(argv[2], output);
+              return 0;
+            } catch (const std::exception& error) {
+              std::cerr << error.what() << "\n";
+              return 1;
+            }
+          }
+          #endif
+          CPP
+          clang++-18 -std=c++20 -O3 -DNDEBUG -ffunction-sections -fdata-sections \
+            -DANVIL_HAVE_LIBSAIS=1 -DANVIL_HAVE_BROTLI=1 -I"$CANDIDATE_DIR/third_party/libsais/include" \
+            "$WRAPPER_ROOT/anvil_decoder.cpp" "$BUILD_ROOT/libanvil_libsais.a" \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -pthread -Wl,--gc-sections \
+            -o "$ANVIL_DECODER"
+          clang++-18 -std=c++20 -O3 -DNDEBUG -ffunction-sections -fdata-sections \
+            -I/usr/include "$WRAPPER_ROOT/brotli_dense.cpp" \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -Wl,--gc-sections \
+            -o "$BROTLI_DENSE"
+          clang++-18 -std=c++20 -O3 -DNDEBUG -ffunction-sections -fdata-sections \
+            -DDENSE_DECODER_ONLY -I/usr/include "$WRAPPER_ROOT/brotli_dense.cpp" \
+            -lbrotlidec -lbrotlicommon -Wl,--gc-sections \
+            -o "$BROTLI_DECODER"
+          cp "$WRAPPER_ROOT/anvil_decoder.cpp" "$OUT_DIR/anvil_decoder.cpp"
+          cp "$WRAPPER_ROOT/brotli_dense.cpp" "$OUT_DIR/brotli_dense.cpp"
+          test -x "$ANVIL"
+          test -x "$ANVIL_DECODER"
+          test -x "$BROTLI_DENSE"
+          test -x "$BROTLI_DECODER"
+          test -x "$BROTLI_LW"
+          sha256sum "$ANVIL" "$ANVIL_DECODER" "$BROTLI_DENSE" "$BROTLI_DECODER" "$BROTLI_LW" > "$OUT_DIR/binary-sha256.txt"
+          cmake -LA -N "$BUILD_ROOT" > "$OUT_DIR/cmake-cache.txt"
+
+      - name: Fetch and verify canonical corpus
+        run: |
+          set -euo pipefail
+          python3 "$TOOLING_DIR/tools/gha_fetch_corpus.py" "$CORPUS" --out "$CORPUS_ROOT"
+
+      - name: Measure and record binary sizes
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK_ROOT/sizes"
+          {
+            printf 'key\toriginal_bytes\tstripped_bytes\tstripped_sha256\tscope\n'
+            for entry in \
+              "anvil-cli|$ANVIL|combined-cli" \
+              "anvil-decoder|$ANVIL_DECODER|decoder-linker-gc-harness" \
+              "brotli-dense|$BROTLI_DENSE|combined-cli" \
+              "brotli-decoder|$BROTLI_DECODER|decoder-linker-gc-harness" \
+              "brotli-lw|$BROTLI_LW|combined-cli" \
+              "zstd-cli|$(command -v zstd)|system-cli" \
+              "xz-cli|$(command -v xz)|system-cli"; do
+              IFS='|' read -r key path scope <<< "$entry"
+              safe="$WORK_ROOT/sizes/$key"
+              cp "$path" "$safe"
+              original=$(stat -c '%s' "$safe")
+              strip --strip-unneeded "$safe"
+              stripped=$(stat -c '%s' "$safe")
+              digest=$(sha256sum "$safe" | awk '{print $1}')
+              printf '%s\t%s\t%s\t%s\t%s\n' "$key" "$original" "$stripped" "$digest" "$scope"
+              size "$safe" > "$OUT_DIR/size-$key.txt"
+              readelf -S "$safe" > "$OUT_DIR/sections-$key.txt"
+            done
+            {
+              echo "key\tsize-report"
+              for report in "$OUT_DIR"/size-*.txt; do
+                printf '\n[%s]\n' "$(basename "$report")"
+                cat "$report"
+              done
+            } > "$OUT_DIR/size-report.txt"
+          } | tee "$OUT_DIR/binary-sizes.tsv"
+          python3 - <<'PY'
+          import csv
+          import json
+          import os
+          from pathlib import Path
+          out = Path(os.environ["OUT_DIR"])
+          with (out / "binary-sizes.tsv").open(newline="", encoding="utf-8") as f:
+              rows = list(csv.DictReader(f, delimiter="\t"))
+          (out / "binary-sizes.json").write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Prepare full-corpus payloads, hashes, and RSS census
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shlex
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          import time
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          payload_root = pathlib.Path(os.environ["PAYLOAD_ROOT"])
+          corpus = os.environ["CORPUS"]
+          anvil = os.environ["ANVIL"]
+          anvil_decoder = os.environ["ANVIL_DECODER"]
+          brotli_dense = os.environ["BROTLI_DENSE"]
+          brotli_decoder = os.environ["BROTLI_DECODER"]
+          brotli_lw = os.environ["BROTLI_LW"]
+          zstd = shutil.which("zstd")
+          xz = shutil.which("xz")
+          if not zstd or not xz:
+              raise RuntimeError("zstd and xz are required")
+
+          files = {
+              "silesia": [
+                  "dickens", "mozilla", "mr", "nci", "ooffice", "osdb",
+                  "reymont", "samba", "sao", "webster", "x-ray", "xml",
+              ],
+              "enwik8": ["enwik8"],
+          }[corpus]
+          source_root = pathlib.Path(os.environ["CORPUS_ROOT"]) / corpus
+
+          arms = ["anvil-legacy", "anvil-aux"]
+          arms += [f"brotli-q{q}-lw30" for q in (1, 4, 6, 9, 11)]
+          arms += [f"zstd-{level}" for level in (1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 22)]
+          arms += ["zstd-22-long27", "xz-9e"]
+
+          expected_anvil = {
+              ("silesia", "dickens"): (2571873, 2574367),
+              ("silesia", "mozilla"): (13806173, 13806173),
+              ("silesia", "mr"): (2382322, 2384760),
+              ("silesia", "nci"): (1365712, 1369810),
+              ("silesia", "ooffice"): (2478889, 2478889),
+              ("silesia", "osdb"): (2584657, 2587124),
+              ("silesia", "reymont"): (1144032, 1147270),
+              ("silesia", "samba"): (3761931, 3761931),
+              ("silesia", "sao"): (4586126, 4586126),
+              ("silesia", "webster"): (7317361, 7319896),
+              ("silesia", "x-ray"): (4017320, 4019394),
+              ("silesia", "xml"): (430599, 430599),
+              ("enwik8", "enwik8"): (23534368, 23537422),
+          }
+          expected_reference_totals = {
+              "silesia": {"brotli-q11-lw30": 49383136, "zstd-22-long27": 52364240, "xz-9e": 48456004},
+              "enwik8": {"brotli-q11-lw30": 24810180, "zstd-22-long27": 25272471, "xz-9e": 24831648},
+          }
+
+          def sha256(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1 << 20), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def run_rss(command):
+              with tempfile.NamedTemporaryFile(dir=out, delete=False) as handle:
+                  rss_file = pathlib.Path(handle.name)
+              start = time.perf_counter()
+              try:
+                  result = subprocess.run(
+                      ["/usr/bin/time", "-f", "%M", "-o", str(rss_file), "--", *command],
+                      stdout=subprocess.DEVNULL,
+                      stderr=subprocess.PIPE,
+                      check=False,
+                  )
+                  elapsed = time.perf_counter() - start
+                  if result.returncode:
+                      raise RuntimeError(f"command failed rc={result.returncode}: {shlex.join(command)}\n{result.stderr.decode(errors='replace')[-4000:]}")
+                  return elapsed, int(rss_file.read_text(encoding="utf-8").strip())
+              finally:
+                  rss_file.unlink(missing_ok=True)
+
+          def script(path, body):
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body + "\n", encoding="utf-8")
+              path.chmod(0o755)
+
+          wrapper = out / "observe.sh"
+          wrapper.write_text(
+              "\n".join(
+                  [
+                      "#!/usr/bin/env bash",
+                      "set -euo pipefail",
+                      "if [ \"$#\" -lt 2 ]; then",
+                      "    printf '%s\\n' 'invalid observation wrapper arguments' >&2",
+                      "    exit 2",
+                      "fi",
+                      "output=$1",
+                      "shift 1",
+                      "if [ \"$1\" = \"--\" ]; then shift; fi",
+                      "if [ \"$#\" -eq 0 ]; then",
+                      "    printf '%s\\n' 'missing observation command' >&2",
+                      "    exit 2",
+                      "fi",
+                      "if [ -d \"$output\" ]; then",
+                      "    printf '%s\\n' \"observation path is a directory: $output\" >&2",
+                      "    exit 1",
+                      "fi",
+                      "rm -f -- \"$output\"",
+                      "if [ -e \"$output\" ] || [ -L \"$output\" ]; then",
+                      "    printf '%s\\n' \"stale observation output remains: $output\" >&2",
+                      "    exit 1",
+                      "fi",
+                      "exec \"$@\"",
+                  ]
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          wrapper.chmod(0o755)
+
+
+          def observed_command(command, path):
+              return [
+                  str(wrapper),
+                  str(path),
+                  "--",
+                  *command,
+              ]
+
+
+          def commands_for(arm, source, packed, decoded):
+              size = source.stat().st_size
+              if arm == "anvil-legacy":
+                  return ([anvil, "c", str(source), str(packed), "--parse=ratio", "--ratio-backend=auto", "--ratio-context=off", "--ratio-lines=off", "--quiet"], [anvil_decoder, str(packed), str(decoded)])
+              if arm == "anvil-aux":
+                  return ([anvil, "c", str(source), str(packed), "--parse=ratio", "--ratio-backend=auto", "--ratio-context=off", "--ratio-lines=off", "--bwt-aux=on", "--quiet"], [anvil_decoder, str(packed), str(decoded)])
+              if arm.startswith("brotli-q"):
+                  quality = arm.split("-")[1][1:]
+                  return ([brotli_dense, quality, str(packed), str(source)], [brotli_decoder, str(packed), str(decoded), str(size)])
+              if arm == "zstd-22-long27":
+                  return ([zstd, "-q", "-f", "-T1", "--ultra", "-22", "--long=27", str(source), "-o", str(packed)], [zstd, "-q", "-f", "-T1", "-d", str(packed), "-o", str(decoded)])
+              if arm.startswith("zstd-"):
+                  level = int(arm.split("-")[1])
+                  level_command = [zstd, "-q", "-f", "-T1"]
+                  if level >= 20:
+                      level_command.append("--ultra")
+                  level_command.extend([f"-{level}", str(source), "-o", str(packed)])
+                  return (level_command, [zstd, "-q", "-f", "-T1", "-d", str(packed), "-o", str(decoded)])
+              if arm == "xz-9e":
+                  encode_script = payload_root / "xz-encode.sh"
+                  decode_script = payload_root / "xz-decode.sh"
+                  script(encode_script, f"exec {shlex.quote(xz)} -9e -T1 -c \"$1\" > \"$2\"")
+                  script(decode_script, f"exec {shlex.quote(xz)} -d -T1 -c \"$1\" > \"$2\"")
+                  shutil.copy2(encode_script, out / "xz-encode.sh")
+                  shutil.copy2(decode_script, out / "xz-decode.sh")
+                  return (["bash", str(encode_script), str(source), str(packed)], ["bash", str(decode_script), str(packed), str(decoded)])
+              raise RuntimeError(f"unknown arm {arm}")
+
+          cells = {}
+          census = []
+          source_manifest = []
+          helper_check = None
+          roundtrip_cells = 0
+          for file_name in files:
+              source = source_root / file_name
+              if not source.is_file():
+                  raise RuntimeError(f"missing source {source}")
+              source_digest = sha256(source)
+              source_manifest.append({"file": file_name, "bytes": source.stat().st_size, "sha256": source_digest})
+              cells[file_name] = {}
+              for arm in arms:
+                  safe = file_name.replace("/", "_")
+                  packed = payload_root / "packed" / arm / f"{safe}.bin"
+                  decoded = payload_root / "decoded" / arm / safe
+                  packed.parent.mkdir(parents=True, exist_ok=True)
+                  decoded.parent.mkdir(parents=True, exist_ok=True)
+                  encode_command, decode_command = commands_for(arm, source, packed, decoded)
+                  encode_seconds, encode_rss = run_rss(encode_command)
+                  decode_seconds, decode_rss = run_rss(decode_command)
+                  if not packed.is_file() or not decoded.is_file():
+                      raise RuntimeError(f"missing output {file_name}/{arm}")
+                  if decoded.stat().st_size != source.stat().st_size or sha256(decoded) != source_digest:
+                      raise RuntimeError(f"roundtrip mismatch {file_name}/{arm}")
+                  roundtrip_cells += 1
+                  packed_digest = sha256(packed)
+                  if arm in ("anvil-legacy", "anvil-aux"):
+                      expected = expected_anvil[(corpus, file_name)][0 if arm == "anvil-legacy" else 1]
+                      if packed.stat().st_size != expected:
+                          raise RuntimeError(f"ANVIL byte identity failed {file_name}/{arm}: {packed.stat().st_size} != {expected}")
+                  cells[file_name][arm] = {
+                      "source": str(source),
+                      "source_bytes": source.stat().st_size,
+                      "source_sha256": source_digest,
+                      "packed": str(packed),
+                      "decoded": str(decoded),
+                      "compressed_bytes": packed.stat().st_size,
+                      "compressed_sha256": packed_digest,
+                      "encode_command": encode_command,
+                      "decode_command": decode_command,
+                      "encode_observed_command": observed_command(encode_command, packed),
+                      "decode_observed_command": observed_command(decode_command, decoded),
+                   }
+                  census.append({
+                      "corpus": corpus,
+                      "file": file_name,
+                      "arm": arm,
+                      "input_bytes": source.stat().st_size,
+                      "compressed_bytes": packed.stat().st_size,
+                      "ratio": f"{packed.stat().st_size / source.stat().st_size:.9f}",
+                      "encode_s": f"{encode_seconds:.9f}",
+                      "decode_s": f"{decode_seconds:.9f}",
+                      "encode_peak_kib": encode_rss,
+                      "decode_peak_kib": decode_rss,
+                      "source_sha256": source_digest,
+                      "compressed_sha256": packed_digest,
+                      "roundtrip": "OK",
+                      "timing_class": "one-shot-scout",
+                  })
+                  if arm == "brotli-q11-lw30" and file_name == files[0]:
+                      check_path = payload_root / "brotli-lw-check.bin"
+                      subprocess.run([brotli_lw, "c", str(source), str(check_path)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                      helper_check = {
+                          "file": file_name,
+                          "dense_bytes": packed.stat().st_size,
+                          "helper_bytes": check_path.stat().st_size,
+                          "dense_sha256": packed_digest,
+                          "helper_sha256": sha256(check_path),
+                      }
+                      if helper_check["dense_bytes"] != helper_check["helper_bytes"] or helper_check["dense_sha256"] != helper_check["helper_sha256"]:
+                          raise RuntimeError("dense Brotli q11 helper does not match frozen brotli_lw")
+
+          totals = {}
+          for arm in arms:
+              totals[arm] = sum(cells[file_name][arm]["compressed_bytes"] for file_name in files)
+          if roundtrip_cells != len(files) * len(arms):
+              raise RuntimeError(f"incomplete roundtrip census: {roundtrip_cells} != {len(files) * len(arms)}")
+          for arm, expected in expected_reference_totals[corpus].items():
+              if totals[arm] != expected:
+                  raise RuntimeError(f"reference total mismatch {corpus}/{arm}: {totals[arm]} != {expected}")
+
+          with (out / "census.csv").open("w", newline="", encoding="utf-8") as handle:
+              fields = list(census[0])
+              writer = csv.DictWriter(handle, fieldnames=fields)
+              writer.writeheader()
+              writer.writerows(census)
+          with (out / "bytes.csv").open("w", newline="", encoding="utf-8") as handle:
+              fields = ["corpus", "arm", "input_bytes", "compressed_bytes", "ratio", "files", "roundtrip", "timing_class"]
+              writer = csv.DictWriter(handle, fieldnames=fields)
+              writer.writeheader()
+              for arm in arms:
+                  source_bytes = sum(cells[file_name][arm]["source_bytes"] for file_name in files)
+                  writer.writerow({"corpus": corpus, "arm": arm, "input_bytes": source_bytes, "compressed_bytes": totals[arm], "ratio": f"{totals[arm] / source_bytes:.9f}", "files": len(files), "roundtrip": "OK", "timing_class": "one-shot-scout"})
+          manifest = {
+              "schema": 1,
+              "corpus": corpus,
+              "files": files,
+              "arms": arms,
+              "source_manifest": source_manifest,
+              "totals": totals,
+              "cells": cells,
+              "helper_check": helper_check,
+              "expected_reference_totals": expected_reference_totals[corpus],
+          }
+          (out / "payload-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          (out / "corpus-manifest.json").write_text(json.dumps({"schema": 1, "corpus": corpus, "files": source_manifest}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          contract = {
+              "schema": 1,
+              "corpus": corpus,
+              "arms": arms,
+              "brotli": {"library": "1.1.0-2build2", "qualities": [1, 4, 6, 9, 11], "window": 30, "mode": "generic"},
+              "zstd": {"cli": "1.5.7", "levels": [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 22], "long_reference": "ultra-22-long27", "threads": 1},
+              "xz": {"version": "5.4.5", "preset": "9e", "threads": 1},
+              "anvil": {"legacy": "auto-direct", "aux": "auto-direct+bwt-aux", "decode_threads": 1},
+              "timing_panel": files if corpus == "enwik8" else ["dickens", "mozilla", "nci", "webster", "xml"],
+          }
+          (out / "arm-contract.json").write_text(json.dumps(contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          summary = {"schema": 1, "corpus": corpus, "files": len(files), "arms": len(arms), "roundtrip_cells": roundtrip_cells, "totals": totals, "roundtrip": "OK", "helper_check": helper_check, "observation_policy": "generated observe.sh unlinks before every timing invocation"}
+          (out / "prepare-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run same-job paired encode and decode timing
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import random
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path(os.environ["TOOLING_DIR"]) / "tools" / "paired_bench.py"
+          manifest = json.loads((out / "payload-manifest.json").read_text(encoding="utf-8"))
+          corpus = os.environ["CORPUS"]
+          reps = os.environ["REPS"]
+          panel = ["dickens", "mozilla", "nci", "webster", "xml"] if corpus == "silesia" else ["enwik8"]
+          arms = manifest["arms"]
+          paired_root = out / "paired"
+          paired_root.mkdir(parents=True, exist_ok=True)
+          ledger = []
+          seed_base = 41246
+
+          def sha256(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1 << 20), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def verify_raw(path, expectations, label, expected_rows):
+              if not path.is_file():
+                  raise RuntimeError(f"missing raw observations {label}: {path}")
+              with path.open(newline="", encoding="utf-8") as handle:
+                  rows = list(csv.DictReader(handle))
+              if len(rows) != expected_rows:
+                  raise RuntimeError(f"raw observation count mismatch {label}: {len(rows)} != {expected_rows}")
+              for row in rows:
+                  if row["arm"] not in expectations:
+                      raise RuntimeError(f"unknown raw arm {label}: {row}")
+                  expected_bytes, expected_sha = expectations[row["arm"]]
+                  if int(row["observed_bytes"]) != expected_bytes or row["observed_sha256"] != expected_sha:
+                      raise RuntimeError(f"observation hash/size mismatch {label}/{row['arm']}")
+
+          for plane in ("encode", "decode"):
+              for file_index, file_name in enumerate(panel):
+                  order = list(arms)
+                  random.Random(seed_base + file_index + (0 if plane == "encode" else 100000)).shuffle(order)
+                  for arm in order:
+                      control = manifest["cells"][file_name]["anvil-legacy"]
+                      candidate = manifest["cells"][file_name][arm]
+                      label = "aa-null" if arm == "anvil-legacy" else arm
+                      pair_dir = paired_root / plane / file_name / label
+                      pair_dir.mkdir(parents=True, exist_ok=True)
+                      control_command = control[f"{plane}_observed_command"]
+                      candidate_command = candidate[f"{plane}_observed_command"]
+                      control_observe = pathlib.Path(control["packed"] if plane == "encode" else control["decoded"])
+                      candidate_observe = pathlib.Path(candidate["packed"] if plane == "encode" else candidate["decoded"])
+                      observation_paths = {control_observe, candidate_observe}
+                      for observation in observation_paths:
+                          observation.unlink(missing_ok=True)
+                          if observation.exists():
+                              raise RuntimeError(f"observation path was not fresh: {observation}")
+                      for artifact in ("raw.csv", "summary.json"):
+                          (pair_dir / artifact).unlink(missing_ok=True)
+                      if plane == "encode":
+                          expectations = {
+                              "control": (int(control["compressed_bytes"]), control["compressed_sha256"]),
+                              "candidate": (int(candidate["compressed_bytes"]), candidate["compressed_sha256"]),
+                          }
+                      else:
+                          expectations = {
+                              "control": (int(control["source_bytes"]), control["source_sha256"]),
+                              "candidate": (int(candidate["source_bytes"]), candidate["source_sha256"]),
+                          }
+                      command = [
+                          sys.executable, str(driver),
+                          "--control-json", json.dumps(control_command),
+                          "--candidate-json", json.dumps(candidate_command),
+                          "--reps", reps,
+                          "--warmups", "2",
+                          "--seed", str(seed_base + file_index + (0 if plane == "encode" else 100000)),
+                          "--bootstrap", "20000",
+                          "--epsilon", "0.02",
+                          "--max-cv", "0.15",
+                          "--timeout-s", "3600",
+                          "--cpu", "0",
+                          "--ambient-reps", "5",
+                          "--ambient-iterations", "250000",
+                          "--ambient-max-cv", "0.10",
+                          "--control-observe", str(control_observe),
+                          "--candidate-observe", str(candidate_observe),
+                          "--out", str(pair_dir / "raw.csv"),
+                          "--summary", str(pair_dir / "summary.json"),
+                      ]
+                      log_path = pair_dir / "driver.log"
+                      with log_path.open("w", encoding="utf-8") as log:
+                          result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=False)
+                      ledger.append({"corpus": corpus, "plane": plane, "file": file_name, "arm": arm, "label": label, "returncode": result.returncode, "log": str(log_path.relative_to(out))})
+                      if result.returncode:
+                          raise RuntimeError(f"paired driver failed: {ledger[-1]}")
+                      for observation in observation_paths:
+                          if not observation.is_file():
+                              raise RuntimeError(f"paired driver did not create fresh observation: {observation}")
+                          arm_name = "control" if observation == control_observe else "candidate"
+                          expected_bytes, expected_sha = expectations[arm_name]
+                          if observation.stat().st_size != expected_bytes or sha256(observation) != expected_sha:
+                              raise RuntimeError(f"final observation hash/size mismatch {plane}/{file_name}/{label}/{arm_name}")
+                      verify_raw(pair_dir / "raw.csv", expectations, f"{plane}/{file_name}/{label}", 2 * int(reps))
+          with (out / "timing-ledger.csv").open("w", newline="", encoding="utf-8") as handle:
+              writer = csv.DictWriter(handle, fieldnames=list(ledger[0]))
+              writer.writeheader()
+              writer.writerows(ledger)
+          PY
+
+      - name: Validate hashes and compute descriptive frontier
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv
+          import json
+          import math
+          import os
+          import pathlib
+          import statistics
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          manifest = json.loads((out / "payload-manifest.json").read_text(encoding="utf-8"))
+          corpus = os.environ["CORPUS"]
+          panel = ["dickens", "mozilla", "nci", "webster", "xml"] if corpus == "silesia" else ["enwik8"]
+          arms = manifest["arms"]
+          census = list(csv.DictReader((out / "census.csv").open(newline="", encoding="utf-8")))
+          census_by = {(row["file"], row["arm"]): row for row in census}
+          paired_rows = []
+          input_rows = []
+          failures = []
+          correctness_failures = []
+          timing_failures = []
+          for plane in ("encode", "decode"):
+              for file_name in panel:
+                  for arm in arms:
+                      label = "aa-null" if arm == "anvil-legacy" else arm
+                      path = out / "paired" / plane / file_name / label / "summary.json"
+                      raw_path = out / "paired" / plane / file_name / label / "raw.csv"
+                      if not path.is_file() or not raw_path.is_file():
+                          timing_failures.append(f"missing paired result {plane}/{file_name}/{arm}")
+                          continue
+                      summary = json.loads(path.read_text(encoding="utf-8"))
+                      expected_source = manifest["cells"][file_name][arm]["source_sha256"]
+                      expected_output = manifest["cells"][file_name][arm]["compressed_sha256"] if plane == "encode" else expected_source
+                      expected_control = manifest["cells"][file_name]["anvil-legacy"]["compressed_sha256"] if plane == "encode" else expected_source
+                      observed = {}
+                      with raw_path.open(newline="", encoding="utf-8") as handle:
+                          for row in csv.DictReader(handle):
+                              observed.setdefault(row["arm"], set()).add((row["observed_bytes"], row["observed_sha256"]))
+                      for name, expected in (("control", expected_control), ("candidate", expected_output)):
+                          values = observed.get(name, set())
+                          if len(values) != 1:
+                              correctness_failures.append(f"non-deterministic raw observation {plane}/{file_name}/{label}/{name}: {values}")
+                          elif next(iter(values))[1] != expected:
+                              correctness_failures.append(f"hash mismatch {plane}/{file_name}/{label}/{name}")
+                      ratio = float(summary["paired_ratio_candidate_over_control"])
+                      lo, hi = [float(value) for value in summary["paired_ratio_ci95"]]
+                      if arm == "anvil-legacy" and not (lo <= 1.0 <= hi and not bool(summary["clears_speed_gate"])):
+                          timing_failures.append(f"A/A null failed {plane}/{file_name}")
+                      paired_rows.append({
+                          "corpus": corpus,
+                          "file": file_name,
+                          "plane": plane,
+                          "arm": arm,
+                          "label": label,
+                          "reps": int(summary["reps"]),
+                          "status": summary["status"],
+                          "timing_valid": summary["timing_valid"],
+                          "control_median_s": float(summary["control"]["median_s"]),
+                          "candidate_median_s": float(summary["candidate"]["median_s"]),
+                          "control_robust_cv": float(summary["control"]["robust_cv"]),
+                          "candidate_robust_cv": float(summary["candidate"]["robust_cv"]),
+                          "paired_ratio": ratio,
+                          "paired_ratio_ci95_low": lo,
+                          "paired_ratio_ci95_high": hi,
+                          "control_mbps": manifest["cells"][file_name][arm]["source_bytes"] / float(summary["control"]["median_s"]) / 1e6,
+                          "candidate_mbps": manifest["cells"][file_name][arm]["source_bytes"] / float(summary["candidate"]["median_s"]) / 1e6,
+                      })
+                      if not bool(summary["timing_valid"]):
+                          timing_failures.append(f"timing invalid {plane}/{file_name}/{arm}: {summary['status']}")
+                      c = census_by[(file_name, arm)]
+                      plane_median_s = float(summary["candidate"]["median_s"])
+                      plane_mbps = manifest["cells"][file_name][arm]["source_bytes"] / plane_median_s / 1e6
+                      input_rows.append({
+                          "corpus": corpus,
+                          "file": file_name,
+                          "plane": plane,
+                          "arm": arm,
+                          "source_bytes": int(c["input_bytes"]),
+                          "compressed_bytes": int(c["compressed_bytes"]),
+                          "ratio": float(c["ratio"]),
+                          "plane_median_s": plane_median_s,
+                          "plane_mbps": plane_mbps,
+                          "encode_median_s": plane_median_s if plane == "encode" else "",
+                          "decode_median_s": plane_median_s if plane == "decode" else "",
+                          "encode_mbps": plane_mbps if plane == "encode" else "",
+                          "decode_mbps": plane_mbps if plane == "decode" else "",
+                          "encode_peak_kib": int(c["encode_peak_kib"]),
+                          "decode_peak_kib": int(c["decode_peak_kib"]),
+                          "timing_status": summary["status"],
+                      })
+
+          size_rows = list(csv.DictReader((out / "binary-sizes.tsv").open(newline="", encoding="utf-8"), delimiter="\t"))
+          size_by = {row["key"]: row for row in size_rows}
+          size_key = {"anvil-legacy": "anvil-decoder", "anvil-aux": "anvil-decoder"}
+          for arm in arms:
+              if arm.startswith("brotli-"):
+                  size_key[arm] = "brotli-decoder"
+              elif arm.startswith("zstd-"):
+                  size_key[arm] = "zstd-cli"
+              elif arm == "xz-9e":
+                  size_key[arm] = "xz-cli"
+          for row in input_rows:
+              row["binary_size_scope"] = size_by[size_key[row["arm"]]]["scope"]
+              row["stripped_binary_bytes"] = int(size_by[size_key[row["arm"]]]["stripped_bytes"])
+
+          def dominates(left, right, include_binary):
+              left_rate = left["plane_mbps"]
+              right_rate = right["plane_mbps"]
+              axes = [
+                  left["compressed_bytes"] <= right["compressed_bytes"],
+                  left_rate >= right_rate,
+                  left["encode_peak_kib"] <= right["encode_peak_kib"],
+                  left["decode_peak_kib"] <= right["decode_peak_kib"],
+              ]
+              if include_binary:
+                  axes.append(left["stripped_binary_bytes"] <= right["stripped_binary_bytes"])
+              strict = [
+                  left["compressed_bytes"] < right["compressed_bytes"],
+                  left_rate > right_rate,
+                  left["encode_peak_kib"] < right["encode_peak_kib"],
+                  left["decode_peak_kib"] < right["decode_peak_kib"],
+                ]
+              if include_binary:
+                  strict.append(left["stripped_binary_bytes"] < right["stripped_binary_bytes"])
+              return all(axes) and any(strict)
+
+          pareto_rows = []
+          for plane in ("encode", "decode"):
+              for file_name in panel:
+                  group = [row for row in input_rows if row["plane"] == plane and row["file"] == file_name]
+                  for row in group:
+                      row["dominated_no_binary"] = any(dominates(other, row, False) for other in group if other is not row)
+                      row["dominated_full_cost"] = any(dominates(other, row, True) for other in group if other is not row)
+                      row["descriptive_class"] = "DEGENERATE_RATIO" if row["ratio"] >= 0.95 else ("DESCRIPTIVE_NON_DOMINATED" if not row["dominated_no_binary"] else "DOMINATED")
+                      pareto_rows.append(row)
+
+          with (out / "paired.csv").open("w", newline="", encoding="utf-8") as handle:
+              fields = list(paired_rows[0])
+              writer = csv.DictWriter(handle, fieldnames=fields)
+              writer.writeheader()
+              writer.writerows(paired_rows)
+          input_fields = list(pareto_rows[0])
+          with (out / "frontier-inputs.csv").open("w", newline="", encoding="utf-8") as handle:
+              writer = csv.DictWriter(handle, fieldnames=input_fields)
+              writer.writeheader()
+              writer.writerows(pareto_rows)
+          pareto_fields = ["corpus", "file", "plane", "arm", "compressed_bytes", "ratio", "encode_mbps", "decode_mbps", "encode_peak_kib", "decode_peak_kib", "binary_size_scope", "stripped_binary_bytes", "dominated_no_binary", "dominated_full_cost", "descriptive_class"]
+          with (out / "pareto.csv").open("w", newline="", encoding="utf-8") as handle:
+              writer = csv.DictWriter(handle, fieldnames=pareto_fields)
+              writer.writeheader()
+              writer.writerows([{key: row[key] for key in pareto_fields} for row in pareto_rows])
+          all_failures = correctness_failures + timing_failures
+          summary = {
+              "schema": 1,
+              "corpus": corpus,
+              "status": "INVALID" if correctness_failures else ("BLOCKED_TIMING" if timing_failures else "VALID_DENSE_EVIDENCE"),
+              "correctness_ok": not correctness_failures,
+              "timing_complete": not timing_failures,
+              "failure_count": len(all_failures),
+              "failures": all_failures,
+              "correctness_failures": correctness_failures,
+              "timing_failures": timing_failures,
+              "timing_panel": panel,
+              "arms": arms,
+              "no_automatic_crossing_claim": True,
+              "binary_size_comparability": "descriptive-only",
+          }
+          (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          if all_failures:
+              print(json.dumps(summary, indent=2, sort_keys=True))
+              raise SystemExit(2)
+          PY
+
+      - name: Write final manifest and run status
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          from datetime import datetime, timezone
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          files = []
+          for path in sorted(out.rglob("*")):
+              if not path.is_file() or path.name in {"manifest.json", "run-status.json"}:
+                  continue
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              files.append({"path": str(path.relative_to(out)).replace("\\", "/"), "bytes": path.stat().st_size, "sha256": digest})
+          status = {
+              "schema": 1,
+              "utc": datetime.now(timezone.utc).isoformat(),
+              "workflow": os.environ.get("GITHUB_WORKFLOW"),
+              "workflow_sha": os.environ.get("GITHUB_SHA"),
+              "run_id": os.environ.get("GITHUB_RUN_ID"),
+              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+              "corpus": os.environ.get("CORPUS"),
+              "reps": os.environ.get("REPS"),
+              "artifact_file_count": len(files),
+              "summary_present": (out / "summary.json").is_file(),
+              "pareto_present": (out / "pareto.csv").is_file(),
+          }
+          (out / "run-status.json").write_text(json.dumps(status, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          manifest = {
+              "schema": 1,
+              "project": "ANVIL",
+              "vehicle": "I10-DENSE-FRONTIER",
+              "timing_class": "same-job-paired-shared-runner",
+              "github": {key: os.environ.get(value, "") for key, value in {"repository": "GITHUB_REPOSITORY", "sha": "GITHUB_SHA", "ref": "GITHUB_REF", "run_id": "GITHUB_RUN_ID", "run_attempt": "GITHUB_RUN_ATTEMPT", "job": "GITHUB_JOB"}.items()},
+              "candidate": {"tag_label": "i10-aux-unbwt-final-v1", "checkout_mode": "immutable-sha", "sha": "0dce534e5df40945d518c9ef4a722f4a0ecfc0e6", "source_blob": "755df76ae53795aea040f4c99784d1effb43b3ab"},
+              "tooling": {"sha": "b6a243c9657776058a37e5f0ee2eaae2ff925dff", "paired_bench_blob": "f847c50e38d3b39b61deeb6b21bcf12e9c132fd5", "fetch_corpus_blob": "c8f5cc71f9ade44db3b975d10aad39e901e26ebc"},
+              "corpus": os.environ.get("CORPUS"),
+              "reps": os.environ.get("REPS"),
+              "observation_policy": "generated observe.sh unlinks before every timing invocation",
+              "observation_wrapper": "observe.sh",
+              "artifacts": files,
+          }
+          (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          PY
+
+      - name: Write job summary
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          {
+            echo '# ANVIL I10 dense frontier'
+            echo
+            echo "- corpus: \`$CORPUS\`"
+            echo "- repetitions: \`$REPS\`"
+            echo "- run: \`$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT\`"
+            if [ -f "$OUT_DIR/summary.json" ]; then
+              cat "$OUT_DIR/summary.json"
+            else
+              echo 'summary unavailable; inspect partial artifacts'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload complete or partial raw evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i10-dense-frontier-${{ inputs.corpus }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30

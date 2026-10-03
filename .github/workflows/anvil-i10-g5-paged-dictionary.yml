@@ -1,0 +1,577 @@
+name: ANVIL I10 G5 paged dictionary
+
+on:
+  workflow_dispatch:
+    inputs:
+      implementation_sha:
+        description: Frozen full commit SHA containing the G5D source and preregistration
+        required: true
+        type: string
+      g5a_results_sha:
+        description: Full commit SHA containing the frozen G5A source-of-record result
+        required: true
+        type: string
+      g5a_results_blob:
+        description: Git blob SHA-1 of docs/I10-GROTLI-G5A-RESULTS.md
+        required: true
+        type: string
+      g5a_results_sha256:
+        description: SHA-256 of docs/I10-GROTLI-G5A-RESULTS.md
+        required: true
+        type: string
+
+concurrency:
+  group: anvil-i10-g5-paged-dictionary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      FROZEN_IMPLEMENTATION_SHA: ${{ inputs.implementation_sha }}
+      G5A_RESULTS_SHA: ${{ inputs.g5a_results_sha }}
+      G5A_RESULTS_PATH: docs/I10-GROTLI-G5A-RESULTS.md
+      G5A_RESULTS_BLOB: ${{ inputs.g5a_results_blob }}
+      G5A_RESULTS_SHA256: ${{ inputs.g5a_results_sha256 }}
+      FROZEN_G2_SHA: c34b291f40db4037ae114a39dae181644260dfff
+      FROZEN_G3_SHA: 1a3d18fed76adb6fb33264e1994f9c357306b3fa
+      EXPECTED_G3_SOURCE_BLOB: eedc7b7e6671c4a5fcaf7a5997671bd4be30bdde
+      EXPECTED_G3_SOURCE_SHA256: 5b3ab1cdc67d1a8d8edd7eeb4265361a66f72e5b8620137149ce802233b58a9e
+    outputs:
+      classification: ${{ steps.ruling.outputs.classification }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FROZEN_IMPLEMENTATION_SHA }}
+          fetch-depth: 0
+
+      - name: Freeze implementation and parent identities
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(printf '%s' "$FROZEN_IMPLEMENTATION_SHA" | wc -c)" -eq 40
+          printf '%s' "$FROZEN_IMPLEMENTATION_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          test "$(printf '%s' "$G5A_RESULTS_SHA" | wc -c)" -eq 40
+          printf '%s' "$G5A_RESULTS_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          printf '%s' "$G5A_RESULTS_BLOB" | grep -Eq '^[0-9a-f]{40}$'
+          printf '%s' "$G5A_RESULTS_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+          test "$(git rev-parse HEAD)" = "$FROZEN_IMPLEMENTATION_SHA"
+          test -z "$(git status --porcelain)"
+          test -f tools/grotli_g5_paged_dictionary.cpp
+          test -f docs/I10-G5-PAGED-DICTIONARY-PREREG.md
+          grep -Fq '**Status:** FROZEN r1' docs/I10-G5-PAGED-DICTIONARY-PREREG.md
+          test "$(git rev-parse "$FROZEN_G2_SHA:tools/grotli_g2.cpp")" = "$(git hash-object tools/grotli_g2.cpp)"
+          if ! git cat-file -e "$G5A_RESULTS_SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth 1 origin "$G5A_RESULTS_SHA"
+          fi
+          git show "$G5A_RESULTS_SHA:$G5A_RESULTS_PATH" > frozen-g5a-results.md
+          test "$(git hash-object frozen-g5a-results.md)" = "$G5A_RESULTS_BLOB"
+          test "$(sha256sum frozen-g5a-results.md | awk '{print $1}')" = "$G5A_RESULTS_SHA256"
+          {
+            printf 'sha=%s\n' "$FROZEN_IMPLEMENTATION_SHA"
+            printf 'g5a_results_sha=%s\n' "$G5A_RESULTS_SHA"
+            printf 'g5a_results_blob=%s\n' "$G5A_RESULTS_BLOB"
+            printf 'g5a_results_sha256=%s\n' "$G5A_RESULTS_SHA256"
+          } >> "$GITHUB_OUTPUT"
+          {
+            git show -s --format='%H %s' "$FROZEN_IMPLEMENTATION_SHA"
+            git show -s --format='%H %s' "$G5A_RESULTS_SHA"
+            printf 'g5d_source_blob=%s\n' "$(git hash-object tools/grotli_g5_paged_dictionary.cpp)"
+            sha256sum tools/grotli_g5_paged_dictionary.cpp
+            printf 'g5d_prereg_blob=%s\n' "$(git hash-object docs/I10-G5-PAGED-DICTIONARY-PREREG.md)"
+            sha256sum docs/I10-G5-PAGED-DICTIONARY-PREREG.md
+            sha256sum frozen-g5a-results.md
+          } | tee identity.txt
+          uname -a | tee results-runner.txt
+
+      - name: Install compiler and pinned backend dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 libbrotli-dev python3 time
+          clang++-18 --version | tee compiler-identity.txt
+          dpkg-query -W -f='${Package}\t${Version}\n' libbrotli1 libbrotli-dev | sort | tee brotli-package-identity.txt
+
+      - name: Materialize and verify frozen G3 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "$FROZEN_G3_SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth 1 origin "$FROZEN_G3_SHA"
+          fi
+          test "$(git rev-parse "$FROZEN_G3_SHA:tools/grotli_g3.cpp")" = "$EXPECTED_G3_SOURCE_BLOB"
+          test "$(git hash-object tools/grotli_g3.cpp)" = "$EXPECTED_G3_SOURCE_BLOB"
+          git show "$FROZEN_G3_SHA:tools/grotli_g3.cpp" > frozen-grotli_g3.cpp
+          test "$(git hash-object frozen-grotli_g3.cpp)" = "$EXPECTED_G3_SOURCE_BLOB"
+          test "$(sha256sum frozen-grotli_g3.cpp | awk '{print $1}')" = "$EXPECTED_G3_SOURCE_SHA256"
+          printf 'sha256=%s\nblob=%s\n' "$EXPECTED_G3_SOURCE_SHA256" "$EXPECTED_G3_SOURCE_BLOB" > frozen-grotli_g3.identity
+
+      - name: Build warning-clean G5D, G3 reference, and G2 control
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -I. '-DG5D_FROZEN_G3_HEADER="frozen-grotli_g3.cpp"' \
+            -MMD -MF grotli-g5d.d -MT grotli_g5_paged_dictionary \
+            tools/grotli_g5_paged_dictionary.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g5_paged_dictionary
+          grep -Fq 'frozen-grotli_g3.cpp' grotli-g5d.d
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            frozen-grotli_g3.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g3
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            tools/grotli_g2.cpp \
+            -lbrotlienc -lbrotlidec -lbrotlicommon -o grotli_g2
+          sha256sum grotli_g5_paged_dictionary grotli_g3 grotli_g2 | tee binary-identities.txt
+
+      - name: Run mandatory correctness and malformed-input self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./grotli_g5_paged_dictionary selftest | tee g5d-selftest.log
+          ./grotli_g3 selftest | tee g3-selftest.log
+          ./grotli_g2 selftest | tee g2-selftest.log
+
+      - name: Fetch and verify discovery plus known-stress corpora
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p corpus results
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+          rows = [
+              ("D1-amazon-cellphones.ndjson",
+               "https://raw.githubusercontent.com/simdjson/simdjson-data/4197c425e857f0ec38e89822fdd0bd9ea21f4daf/jsonexamples/amazon_cellphones.ndjson",
+               277673, "9cbb6a071eaa2a10c24d9b4d1729dca501f2f72b",
+               "c1518fdaaed45e590c480ed707aa1adaaba8b84b10747f956bd431c708bd590e"),
+              ("D2-cdisc-adae.ndjson",
+               "https://raw.githubusercontent.com/cdisc-org/DataExchange-DatasetJson/a379f49a3f43c2aaed63bdeca761bdb7140df2c3/examples/adam/adae.ndjson",
+               615350, "4bb9ef50f650767967fc3f0a663c73d33c57c608",
+               "b795a59c5c92a8fc93d7d3f729fa0dae014e9b0f684a6a7a7bcf07e4104ba723"),
+              ("D3-gharchive-10mb.ndjson",
+               "https://raw.githubusercontent.com/rushikeshmore/DataCortex/9bf63551499974e7398b87b45d1a9d4b50936566/corpus/json-bench/gharchive-10mb.ndjson",
+               10485760, "59d1d00825053e9894a7895fcea0665912524ec8",
+               "a860af236f794779b5471b416b2e6d7ea68de00f6d17728dd3b088a7ecec8252"),
+              ("D4-crovia-dpi-receipts.ndjson",
+               "https://raw.githubusercontent.com/croviatrust/crovia-core/1798a9c9138c6efc3fcaf487ac5e9833008f6ad9/demo_dpi_2025-11/data/dpi_royalty_receipts.ndjson",
+               3585053, "24020a024a05a68731a2d4de4536bd7ca3eb8576",
+               "0db7ace9e46ce458a7055f48b09aabc7df15f4f74a23553d3660b7de61d0916f"),
+              ("V1-sino-us-drugqa-all.jsonl",
+               "https://raw.githubusercontent.com/DodgeLU/Sino-US-DrugQA/cd026a27a5e039863de9080b8d7d95acaf1f5a39/data/release/all.jsonl",
+               15374047, "8d9e6acf3f534194487532fa60d4f1d43fe71d00",
+               "757b9bc7e5ee2d38ab5ed43877b1d87809cb5131621d106671bc27996da1c499"),
+          ]
+          provenance = []
+          for name, url, expected_n, expected_blob, expected_sha in rows:
+              data = urllib.request.urlopen(url, timeout=300).read()
+              if len(data) != expected_n:
+                  raise SystemExit(f"{name}: size {len(data)} != {expected_n}")
+              blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              if blob != expected_blob:
+                  raise SystemExit(f"{name}: blob {blob} != {expected_blob}")
+              sha256 = hashlib.sha256(data).hexdigest()
+              if sha256 != expected_sha:
+                  raise SystemExit(f"{name}: sha256 {sha256} != {expected_sha}")
+              pathlib.Path("corpus", name).write_bytes(data)
+              provenance.append({
+                  "name": name,
+                  "bytes": len(data),
+                  "git_blob": blob,
+                  "sha256": sha256,
+                  "role": "known-stress-not-held-out" if name.startswith("V1") else "discovery",
+              })
+              print(name, len(data), blob, sha256)
+          out = {
+              "schema": 1,
+              "implementation_sha": os.environ["FROZEN_IMPLEMENTATION_SHA"],
+              "g5a_results_sha": os.environ["G5A_RESULTS_SHA"],
+              "g5a_results_sha256": os.environ["G5A_RESULTS_SHA256"],
+              "frozen_g2_sha": os.environ["FROZEN_G2_SHA"],
+              "frozen_g3_sha": os.environ["FROZEN_G3_SHA"],
+              "files": provenance,
+          }
+          pathlib.Path("results/discovery-provenance.json").write_text(json.dumps(out, indent=2) + "\n")
+          PY
+
+      - name: Reproduce frozen G2 and G3 controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > results/g3-control-index.txt
+          for f in corpus/D*.ndjson; do
+            base="$(basename "$f")"
+            ./grotli_g2 measure "$f" > "results/g2-$base.json"
+            ./grotli_g3 measure "$f" --g2-result "results/g2-$base.json" > "results/g3-$base.json"
+            printf '%s\n' "$base" >> results/g3-control-index.txt
+          done
+          ./grotli_g3 measure corpus/V1-sino-us-drugqa-all.jsonl > results/g3-V1-sino-us-drugqa-all.jsonl
+
+      - name: Run G5D discovery and known-stress arms
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in corpus/D*.ndjson; do
+            base="$(basename "$f")"
+            /usr/bin/time -v -o "results/g5d-$base.time.txt" \
+              ./grotli_g5_paged_dictionary measure "$f" > "results/g5d-$base.json"
+          done
+          /usr/bin/time -v -o results/g5d-V1.time.txt \
+            ./grotli_g5_paged_dictionary measure corpus/V1-sino-us-drugqa-all.jsonl \
+            > results/g5d-V1-sino-us-drugqa-all.json
+
+      - name: Validate schema, identities, controls, and frozen ruling
+        id: ruling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+
+          root = pathlib.Path("results")
+          implementation = os.environ["FROZEN_IMPLEMENTATION_SHA"]
+          g3sha = os.environ["FROZEN_G3_SHA"]
+          g5asha = os.environ["G5A_RESULTS_SHA"]
+          g5asha256 = os.environ["G5A_RESULTS_SHA256"]
+          policies = [4096, 16384, 65536]
+          orders = ["SOURCE_ORDER", "SHAPE_COLUMN"]
+          required_invariants = [
+              "exact_roundtrip_all",
+              "same_source_token_multiset",
+              "same_dictionary_plan_across_orders",
+              "same_table_content_across_orders",
+              "exact_reconstruction_order",
+              "complete_component_accounting",
+              "fixed_backend",
+              "mode_pack_unpack",
+              "no_excluded_family",
+              "no_production_authorization",
+          ]
+          int_fields = [
+              "page_policy", "complete_bytes", "outer_envelope_bytes",
+              "carrier_body_bytes", "brotli_payload_bytes",
+              "common_structure_metadata_bytes", "residual_bytes",
+              "leaf_descriptor_and_detection_bytes", "root_table_bytes",
+              "overlay_table_bytes", "entry_id_bytes", "escape_bytes",
+              "other_charged_bytes", "component_sum_bytes", "leaf_count",
+              "root_entry_count", "overlay_page_count", "overlay_entry_count",
+              "escape_count", "decode_peak_rss_kib",
+          ]
+          str_fields = [
+              "dictionary_plan_sha256", "table_content_sha256", "token_order_sha256",
+          ]
+          float_fields = ["build_ms", "encode_ms", "decode_ms"]
+
+          def load(path):
+              return json.loads(pathlib.Path(path).read_text())
+
+          def is_sha(value, size):
+              return isinstance(value, str) and len(value) == size and all(c in "0123456789abcdef" for c in value)
+
+          discovery = [
+              "D1-amazon-cellphones.ndjson",
+              "D2-cdisc-adae.ndjson",
+              "D3-gharchive-10mb.ndjson",
+              "D4-crovia-dpi-receipts.ndjson",
+          ]
+          v1 = "V1-sino-us-drugqa-all.jsonl"
+          names = discovery + [v1]
+          g5d = {n: load(root / f"g5d-{n}.json") for n in names}
+          g3 = {
+              n: load(root / (f"g3-{n}.json" if n.startswith("D") else f"g3-{n}"))
+              for n in names
+          }
+          reasons = []
+
+          for n in names:
+              r = g5d[n]
+              b = g3[n]
+              if r.get("schema") != 1 or r.get("experiment") != "G5D-PAGED-DICTIONARY":
+                  reasons.append(f"{n}: invalid G5D schema/experiment")
+              if r.get("implementation_sha") != implementation:
+                  reasons.append(f"{n}: implementation identity mismatch")
+              if r.get("frozen_g3_sha") != g3sha:
+                  reasons.append(f"{n}: frozen G3 identity mismatch")
+              if r.get("g5a_results_sha") != g5asha or r.get("g5a_results_sha256") != g5asha256:
+                  reasons.append(f"{n}: G5A identity mismatch")
+              if r.get("file_role") != ("known-stress-not-held-out" if n == v1 else "discovery"):
+                  reasons.append(f"{n}: corpus role mismatch")
+              if r.get("page_policies") != policies:
+                  reasons.append(f"{n}: page policy set mismatch")
+              if not is_sha(r.get("source_sha256", ""), 64):
+                  reasons.append(f"{n}: invalid source SHA-256")
+              source_bytes = pathlib.Path("corpus", n).stat().st_size
+              source_sha = hashlib.sha256(pathlib.Path("corpus", n).read_bytes()).hexdigest()
+              if r.get("source_bytes") != source_bytes or b.get("source_bytes") != source_bytes:
+                  reasons.append(f"{n}: source byte mismatch")
+              if r.get("source_sha256") != source_sha:
+                  reasons.append(f"{n}: source hash mismatch")
+              if r.get("raw_brotli_complete_bytes") != b.get("raw_complete_bytes"):
+                  reasons.append(f"{n}: raw Brotli control mismatch")
+              inv = r.get("invariants", {})
+              for key in required_invariants:
+                  if inv.get(key) is not True:
+                      reasons.append(f"{n}: invariant {key} failed")
+              order_obj = r.get("orders", {})
+              if set(order_obj) != set(orders):
+                  reasons.append(f"{n}: order set mismatch")
+                  continue
+              for policy in policies:
+                  plan_hashes = set()
+                  table_hashes = set()
+                  for order in orders:
+                      arms = order_obj.get(order, {}).get("arms", {})
+                      if set(arms) != {str(p) for p in policies}:
+                          reasons.append(f"{n}/{order}: policy set mismatch")
+                          continue
+                      arm = arms.get(str(policy), {})
+                      if arm.get("page_policy") != policy:
+                          reasons.append(f"{n}/{order}/{policy}: page policy mismatch")
+                      for key in int_fields:
+                          if not isinstance(arm.get(key), int) or arm.get(key) < 0:
+                              reasons.append(f"{n}/{order}/{policy}: invalid {key}")
+                      for key in float_fields:
+                          if not isinstance(arm.get(key), (int, float)) or arm.get(key) < 0:
+                              reasons.append(f"{n}/{order}/{policy}: invalid {key}")
+                      for key in str_fields:
+                          if not is_sha(arm.get(key, ""), 64):
+                              reasons.append(f"{n}/{order}/{policy}: invalid {key}")
+                      if arm.get("roundtrip") is not True or arm.get("pack_unpack_ok") is not True:
+                          reasons.append(f"{n}/{order}/{policy}: roundtrip/pack failure")
+                      if arm.get("complete_bytes") != arm.get("outer_envelope_bytes", -1) + arm.get("brotli_payload_bytes", -1):
+                          reasons.append(f"{n}/{order}/{policy}: complete byte identity failure")
+                      component_fields = [
+                          "common_structure_metadata_bytes", "residual_bytes",
+                          "leaf_descriptor_and_detection_bytes", "root_table_bytes",
+                          "overlay_table_bytes", "entry_id_bytes", "escape_bytes",
+                          "other_charged_bytes",
+                      ]
+                      component_sum = sum(arm.get(k, -1) for k in component_fields)
+                      if component_sum != arm.get("component_sum_bytes"):
+                          reasons.append(f"{n}/{order}/{policy}: component sum failure")
+                      if arm.get("carrier_body_bytes") != component_sum:
+                          reasons.append(f"{n}/{order}/{policy}: body/component mismatch")
+                      plan_hashes.add(arm.get("dictionary_plan_sha256"))
+                      table_hashes.add(arm.get("table_content_sha256"))
+                  if len(plan_hashes) != 1 or len(table_hashes) != 1:
+                      reasons.append(f"{n}/{policy}: order plan/table identity failure")
+
+          per_file = {}
+          current_selected_sum = 0
+          current_dict_sum = 0
+          new_policy_sums = {order: {str(p): 0 for p in policies} for order in orders}
+          routed_sums = {order: 0 for order in orders}
+          improved_counts = {order: 0 for order in orders}
+
+          for n in discovery:
+              b = g3[n]
+              current = b.get("selected_bytes")
+              current_dict = b.get("g3_region_dict_complete_bytes")
+              if not isinstance(current, int) or not isinstance(current_dict, int):
+                  reasons.append(f"{n}: missing reproduced G3 controls")
+                  continue
+              current_selected_sum += current
+              current_dict_sum += current_dict
+              r = g5d[n]
+              routed_best_by_order = {}
+              improved_by_order = {}
+              for order in orders:
+                  best_new = min(
+                      r["orders"][order]["arms"][str(p)]["complete_bytes"]
+                      for p in policies
+                  )
+                  new_policy_sums[order][str(p)] += r["orders"][order]["arms"][str(p)]["complete_bytes"]
+                  routed_best_by_order[order] = min(current, best_new)
+                  improved_by_order[order] = best_new < current_dict
+                  if improved_by_order[order]:
+                      improved_counts[order] += 1
+              per_file[n] = {
+                  "current_g3_selected_bytes": current,
+                  "current_g3_region_dict_bytes": current_dict,
+                  "g5d_best_bytes": min(
+                      r["orders"][order]["arms"][str(p)]["complete_bytes"]
+                      for order in orders for p in policies
+                  ),
+                  "routed_best_bytes": min(routed_best_by_order.values()),
+                  "routed_best_by_order": routed_best_by_order,
+                  "improved_over_current_dict": improved_by_order,
+              }
+
+          order_gate = {}
+          for order in orders:
+              best_new_sum = sum(
+                  min(g5d[n]["orders"][order]["arms"][str(p)]["complete_bytes"] for p in policies)
+                  for n in discovery
+              )
+              routed_order_sum = sum(
+                  min(
+                      g3[n]["selected_bytes"],
+                      min(g5d[n]["orders"][order]["arms"][str(p)]["complete_bytes"] for p in policies),
+                  )
+                  for n in discovery
+              )
+              routed_sums[order] = routed_order_sum
+              same_transform_pass = (
+                  best_new_sum <= 0.995 * current_dict_sum
+                  and improved_counts[order] >= 2
+              )
+              routed_pass = routed_order_sum <= 0.995 * current_selected_sum
+              order_gate[order] = {
+                  "best_new_sum": best_new_sum,
+                  "routed_sum": routed_order_sum,
+                  "same_transform_pass": same_transform_pass,
+                  "routed_pass": routed_pass,
+                  "passes": same_transform_pass and routed_pass,
+              }
+
+          fallback_regret = 0
+          if reasons:
+              classification = "INVALID-G5D"
+          elif any(v["passes"] for v in order_gate.values()):
+              classification = "PASS-G5D-DISCOVERY"
+          else:
+              classification = "NO-GO-G5D-DISCOVERY"
+
+          v1_r = g5d[v1]
+          v1_summary = {
+              "role": "known-stress-not-held-out",
+              "raw_brotli_complete_bytes": g3[v1]["raw_complete_bytes"],
+              "current_g3_selected_bytes": g3[v1]["selected_bytes"],
+              "g5d_best_bytes": min(
+                  v1_r["orders"][order]["arms"][str(p)]["complete_bytes"]
+                  for order in orders for p in policies
+              ),
+              "pass_gate_weight": 0,
+          }
+
+          ruling = {
+              "schema": 1,
+              "experiment": "G5D-PAGED-DICTIONARY",
+              "classification": classification,
+              "invalid_reasons": reasons,
+              "identity": {
+                  "implementation_sha": implementation,
+                  "g5a_results_sha": g5asha,
+                  "g5a_results_sha256": g5asha256,
+                  "frozen_g2_sha": os.environ["FROZEN_G2_SHA"],
+                  "frozen_g3_sha": g3sha,
+              },
+              "backend": {
+                  "quality": 11,
+                  "lgwin": 30,
+                  "package_identity": pathlib.Path("brotli-package-identity.txt").read_text().splitlines(),
+              },
+              "environment": {
+                  "runner": os.environ.get("RUNNER_NAME"),
+                  "os_image": os.environ.get("ImageOS"),
+                  "image_version": os.environ.get("ImageVersion"),
+              },
+              "thresholds": {
+                  "aggregate_complete_byte_ratio_max": 0.995,
+                  "same_transform_improved_files_min": 2,
+                  "discovery_files": 4,
+              },
+              "aggregate": {
+                  "current_g3_selected_sum": current_selected_sum,
+                  "current_g3_region_dict_sum": current_dict_sum,
+                  "g5d_by_order_and_policy": new_policy_sums,
+                  "routed_by_order": routed_sums,
+                  "order_gate": order_gate,
+                  "fallback_regret_bytes": fallback_regret,
+                  "mdl_oracle_regret_bytes": None,
+              },
+              "per_file": per_file,
+              "v1_known_stress": v1_summary,
+              "performance_gate": {
+                  "status": "NOT-RUN",
+                  "reasons": ["Discovery workflow does not accept timing as Pareto evidence."],
+              },
+              "held_out": {
+                  "opened": False,
+                  "corpus": None,
+              },
+              "production": {
+                  "transform_id_allocated": False,
+                  "source_changed": False,
+              },
+          }
+          (root / "g5d-ruling.json").write_text(json.dumps(ruling, indent=2) + "\n")
+          lines = [
+              "# G5D paged dictionary discovery ruling",
+              "",
+              f"- classification: **{classification}**",
+              f"- implementation SHA: `{implementation}`",
+              f"- G5A result SHA: `{g5asha}`",
+              f"- current G3 selected aggregate: **{current_selected_sum} B**",
+              f"- current G3 region-DICT aggregate: **{current_dict_sum} B**",
+          ]
+          for order in orders:
+              gate = order_gate[order]
+              lines.append(
+                  f"- {order}: routed **{gate['routed_sum']} B**, "
+                  f"same-transform improved **{improved_counts[order]}/4**, "
+                  f"pass **{gate['passes']}**"
+              )
+          lines.extend([
+              f"- V1 known stress: **{v1_summary['g5d_best_bytes']} B** versus raw **{v1_summary['raw_brotli_complete_bytes']} B**",
+              f"- fallback regret: **{fallback_regret} B**",
+              "- performance gate: **NOT-RUN**",
+              "- held-out opened: **no**",
+              "- production transform ID allocated: **no**",
+            ])
+          if reasons:
+              lines.extend(["", "## Invalid reasons", ""] + [f"- {x}" for x in reasons])
+          (root / "g5d-ruling.md").write_text("\n".join(lines) + "\n")
+          print(classification)
+          for reason in reasons:
+              print(f"INVALID: {reason}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"classification={classification}\n")
+          PY
+
+      - name: Build artifact manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          files = []
+          for path in sorted(pathlib.Path("results").iterdir()):
+              if not path.is_file() or path.name == "artifact-manifest.json":
+                  continue
+              data = path.read_bytes()
+              files.append({
+                  "path": path.as_posix(),
+                  "bytes": len(data),
+                  "sha256": hashlib.sha256(data).hexdigest(),
+              })
+          pathlib.Path("results/artifact-manifest.json").write_text(
+              json.dumps({"schema": 1, "files": files}, indent=2) + "\n"
+          )
+          PY
+
+      - name: Upload immutable G5D evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g5d-paged-dictionary-${{ github.run_id }}
+          path: |
+            results/
+            identity.txt
+            frozen-g5a-results.md
+            frozen-grotli_g3.identity
+            compiler-identity.txt
+            brotli-package-identity.txt
+            binary-identities.txt
+            g5d-selftest.log
+            g3-selftest.log
+            g2-selftest.log
+            results-runner.txt
+          if-no-files-found: error
+          retention-days: 90

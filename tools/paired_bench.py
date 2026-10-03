@@ -21,6 +21,7 @@ import random
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -141,7 +142,9 @@ def post_run_observation(
     if path is None:
         return {}
     if not path.exists():
-        raise RuntimeError(f"observation path does not exist after command: {path}")
+        raise RuntimeError(f"fresh observation output was not created: {path}")
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(f"observation output is not a regular file: {path}")
     digest = sha256(path)
     if expected_sha256 and digest.lower() != expected_sha256.lower():
         raise RuntimeError(
@@ -152,6 +155,58 @@ def post_run_observation(
         "bytes": path.stat().st_size,
         "sha256": digest,
     }
+
+
+def normalize_expected_sha256(value: str | None, option: str) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if len(normalized) != 64 or any(ch not in "0123456789abcdef" for ch in normalized):
+        raise SystemExit(f"{option} must be exactly 64 hexadecimal characters")
+    return normalized
+
+
+def expected_sha256_for_arm(
+    arm: str,
+    shared: str | None,
+    control: str | None,
+    candidate: str | None,
+) -> str | None:
+    if arm == "control":
+        return control if control is not None else shared
+    if arm == "candidate":
+        return candidate if candidate is not None else shared
+    raise RuntimeError(f"unknown arm: {arm}")
+
+
+def prepare_observation(path: Path | None) -> None:
+    if path is None:
+        return
+    if path.is_dir():
+        raise RuntimeError(f"observation path is a directory: {path}")
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RuntimeError(f"cannot remove stale observation output {path}: {exc}") from exc
+    if path.exists() or path.is_symlink():
+        raise RuntimeError(f"stale observation output still exists: {path}")
+
+
+def run_observed(
+    argv: list[str],
+    timeout_s: float,
+    env: dict[str, str],
+    stdout_path: Path | None,
+    stderr_path: Path | None,
+    observation_path: Path | None,
+    expected_sha256: str | None,
+) -> tuple[float, dict[str, Any]]:
+    prepare_observation(observation_path)
+    elapsed = run_once(argv, timeout_s, env, stdout_path, stderr_path)
+    observation = post_run_observation(observation_path, expected_sha256)
+    return elapsed, observation
 
 
 def bootstrap_paired_ratio(
@@ -192,6 +247,8 @@ def main() -> None:
     ap.add_argument("--control-observe", type=Path)
     ap.add_argument("--candidate-observe", type=Path)
     ap.add_argument("--expected-sha256")
+    ap.add_argument("--control-expected-sha256")
+    ap.add_argument("--candidate-expected-sha256")
     ap.add_argument("--out", type=Path, required=True, help="raw repetition CSV")
     ap.add_argument("--summary", type=Path, required=True, help="summary JSON")
     ap.add_argument("--stdout-dir", type=Path)
@@ -223,6 +280,32 @@ def main() -> None:
     env = os.environ.copy()
     env.update(env_delta)
 
+    shared_expected = normalize_expected_sha256(
+        args.expected_sha256, "--expected-sha256"
+    )
+    control_expected = normalize_expected_sha256(
+        args.control_expected_sha256, "--control-expected-sha256"
+    )
+    candidate_expected = normalize_expected_sha256(
+        args.candidate_expected_sha256, "--candidate-expected-sha256"
+    )
+    if (
+        expected_sha256_for_arm(
+            "control", shared_expected, control_expected, candidate_expected
+        )
+        is not None
+        and args.control_observe is None
+    ):
+        raise SystemExit("control expected SHA-256 requires --control-observe")
+    if (
+        expected_sha256_for_arm(
+            "candidate", shared_expected, control_expected, candidate_expected
+        )
+        is not None
+        and args.candidate_observe is None
+    ):
+        raise SystemExit("candidate expected SHA-256 requires --candidate-observe")
+
     affinity = set_affinity(args.cpu)
     ambient = ambient_probe(args.ambient_iterations, args.ambient_reps)
     blocked_ambient = ambient["robust_cv"] > args.ambient_max_cv
@@ -240,13 +323,26 @@ def main() -> None:
             args.stdout_dir / f"{arm}.stderr.log",
         )
 
+    warmup_observations: dict[str, list[dict[str, Any]]] = {
+        "control": [],
+        "candidate": [],
+    }
+
     # Symmetric warmup. Alternate which arm warms first.
     for w in range(args.warmups):
         order = ("control", "candidate") if w % 2 == 0 else ("candidate", "control")
         for arm in order:
             argv = control if arm == "control" else candidate
+            observe = args.control_observe if arm == "control" else args.candidate_observe
+            expected = expected_sha256_for_arm(
+                arm, shared_expected, control_expected, candidate_expected
+            )
             so, se = log_paths(arm)
-            run_once(argv, args.timeout_s, env, so, se)
+            _, observation = run_observed(
+                argv, args.timeout_s, env, so, se, observe, expected
+            )
+            if observation:
+                warmup_observations[arm].append(observation)
 
     rng = random.Random(args.seed)
     pair_orders = []
@@ -262,9 +358,13 @@ def main() -> None:
         for position, arm in enumerate(order):
             argv = control if arm == "control" else candidate
             observe = args.control_observe if arm == "control" else args.candidate_observe
+            expected = expected_sha256_for_arm(
+                arm, shared_expected, control_expected, candidate_expected
+            )
             so, se = log_paths(arm)
-            elapsed = run_once(argv, args.timeout_s, env, so, se)
-            obs = post_run_observation(observe, args.expected_sha256)
+            elapsed, obs = run_observed(
+                argv, args.timeout_s, env, so, se, observe, expected
+            )
             observations[arm].append(obs)
             times[arm] = elapsed
             raw.append(
@@ -380,6 +480,14 @@ def main() -> None:
         "reps": args.reps,
         "bootstrap_samples": args.bootstrap,
         "environment_overrides": env_delta,
+        "observation_policy": "unlink_before_each_run+verify_after_each_run",
+        "control_observation": str(args.control_observe) if args.control_observe else None,
+        "candidate_observation": (
+            str(args.candidate_observe) if args.candidate_observe else None
+        ),
+        "control_expected_sha256": control_expected,
+        "candidate_expected_sha256": candidate_expected,
+        "warmup_observations": warmup_observations,
         "observed_outputs": obs_summary,
         "python": sys.version,
     }
@@ -400,5 +508,75 @@ def main() -> None:
     # Only command/correctness failures raise nonzero before this point.
 
 
+def run_observation_self_test() -> None:
+    with tempfile.TemporaryDirectory(prefix="paired-bench-selftest-") as td:
+        root = Path(td)
+        env = os.environ.copy()
+
+        def writer(path: Path, payload: bytes) -> list[str]:
+            return [
+                sys.executable,
+                "-c",
+                "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.argv[2].encode())",
+                str(path),
+                payload.decode(),
+            ]
+
+        shared = "a" * 64
+        control = "b" * 64
+        candidate = "c" * 64
+        if expected_sha256_for_arm("control", shared, control, candidate) != control:
+            raise RuntimeError("control expected-hash override failed")
+        if expected_sha256_for_arm("candidate", shared, control, None) != shared:
+            raise RuntimeError("shared expected-hash fallback failed")
+
+        fresh = root / "fresh.bin"
+        fresh.write_bytes(b"stale")
+        expected = hashlib.sha256(b"fresh").hexdigest()
+        _, observed = run_observed(
+            writer(fresh, b"fresh"), 10.0, env, None, None, fresh, expected
+        )
+        if observed["sha256"] != expected or fresh.read_bytes() != b"fresh":
+            raise RuntimeError("fresh observation self-test failed")
+
+        missing = root / "missing.bin"
+        try:
+            run_observed(
+                [sys.executable, "-c", "pass"],
+                10.0,
+                env,
+                None,
+                None,
+                missing,
+                expected,
+            )
+        except RuntimeError as exc:
+            if "fresh observation output was not created" not in str(exc):
+                raise
+        else:
+            raise RuntimeError("missing observation was not rejected")
+
+        mismatch = root / "mismatch.bin"
+        try:
+            run_observed(
+                writer(mismatch, b"actual"),
+                10.0,
+                env,
+                None,
+                None,
+                mismatch,
+                "0" * 64,
+            )
+        except RuntimeError as exc:
+            if "hash mismatch" not in str(exc):
+                raise
+        else:
+            raise RuntimeError("mismatched observation was not rejected")
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--self-test-observation"]:
+        run_observation_self_test()
+        print("PASS observation validation self-test")
+    else:
+        main()

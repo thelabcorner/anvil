@@ -60,6 +60,10 @@ jobs:
       BUILD_DIR: build-q2
       CORPUS_DIR: ${{ github.workspace }}/tests/corpus
       FROZEN_SUITE: tests/benchmark-suite.frozen-bdc90474.plus-xz.csv
+      BROTLI_REPO: https://github.com/google/brotli.git
+      BROTLI_SHA: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d  # official v1.1.0 release commit
+      BROTLI_SRC: ${{ runner.temp }}/brotli-v1.1.0
+      BROTLI_BUILD: ${{ runner.temp }}/brotli-v1.1.0-build
       # Full public base SHA on the sanitised mirror (i10-aux-unbwt). Changed paths are
       # compared against THIS commit, not against HEAD~1.
       PUBLIC_BASE_SHA: 564e2cd92830da72bd0bb7d39b53fe9b7b7b4a29
@@ -159,7 +163,30 @@ jobs:
           # libzstd-dev is required: anvil_bench links zstd, and the second build-output
           # corpus slot cannot be materialised without it.
           sudo apt-get install -y --no-install-recommends \
-            clang-18 cmake ninja-build libbrotli-dev libzstd-dev python3 time
+            clang-18 cmake ninja-build libzstd-dev python3 time
+
+      - name: Fetch and build immutable Brotli reference producer
+        run: |
+          set -euo pipefail
+          rm -rf "$BROTLI_SRC" "$BROTLI_BUILD"
+          git init -q "$BROTLI_SRC"
+          git -C "$BROTLI_SRC" remote add origin "$BROTLI_REPO"
+          git -C "$BROTLI_SRC" fetch --quiet --depth=1 origin "$BROTLI_SHA"
+          git -C "$BROTLI_SRC" checkout --quiet --detach FETCH_HEAD
+          got="$(git -C "$BROTLI_SRC" rev-parse HEAD)"
+          test "$got" = "$BROTLI_SHA" || { echo "::error::Brotli producer SHA mismatch want=$BROTLI_SHA got=$got"; exit 1; }
+          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBROTLI_DISABLE_TESTS=ON \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18
+          cmake --build "$BROTLI_BUILD" --parallel 4 --target brotlienc brotlidec brotlicommon
+          for lib in brotlienc brotlidec brotlicommon; do
+            test -f "$BROTLI_BUILD/lib${lib}.a" || { echo "::error::missing pinned Brotli static lib lib${lib}.a"; exit 1; }
+          done
+          printf 'producer_repo=google/brotli\nproducer_version=v1.1.0\nproducer_sha=%s\nproducer_head=%s\n' \
+            "$BROTLI_SHA" "$got" > "$OUT_DIR/brotli-producer.txt"
 
       - name: Record provenance
         run: |
@@ -191,8 +218,12 @@ jobs:
             cmake --version | head -1
             ninja --version
             python3 --version
+            echo "brotli_reference_repo=google/brotli"
+            echo "brotli_reference_version=v1.1.0"
+            echo "brotli_reference_sha=$BROTLI_SHA"
+            echo "brotli_reference_head=$(git -C "$BROTLI_SRC" rev-parse HEAD)"
             dpkg-query -W -f='${Package} ${Version}\n' \
-              libbrotli-dev libzstd-dev time 2>/dev/null || true
+              libzstd-dev time 2>/dev/null || true
           } | tee "$OUT_DIR/provenance.txt"
 
       - name: Static validation of the prototype (no codec, no corpus compression)
@@ -261,8 +292,12 @@ jobs:
         run: |
           set -euo pipefail
           # Built BEFORE the collector, whose preflight gates on the helper being present.
-          c++ -O2 -std=c++17 "$PROTO/q2_brotli_geom.cpp" \
-            -lbrotlienc -lbrotlidec -o "$OUT_DIR/q2_brotli_geom"
+          clang++-18 -O2 -std=c++17 "$PROTO/q2_brotli_geom.cpp" \
+            -I"$BROTLI_SRC/c/include" \
+            "$BROTLI_BUILD/libbrotlienc.a" \
+            "$BROTLI_BUILD/libbrotlidec.a" \
+            "$BROTLI_BUILD/libbrotlicommon.a" \
+            -lm -o "$OUT_DIR/q2_brotli_geom"
           {
             echo "helper_binary_bytes=$(stat -c %s "$OUT_DIR/q2_brotli_geom")"
             echo "helper_binary_sha256=$(sha256sum "$OUT_DIR/q2_brotli_geom" | cut -d' ' -f1)"
@@ -298,27 +333,19 @@ jobs:
           fi
           echo "G-S-PASS" | tee "$OUT_DIR/verdict-g-s.txt"
 
-      - name: Reference producer pin (HARD HOLD prerequisite)
+      - name: Assert immutable reference producer pin
         run: |
           set -euo pipefail
-          # HONESTY GATE. R1/R3 are a same-run matched geometry-control pair. They are NOT a
-          # reproduction of the retained Brotli rows: those were produced at
-          # BROTLI_DEFAULT_WINDOW (lgwin 22, tools/bench_native.cpp:39) while R1 uses an
-          # EXPLICIT lgwin 30, so the two are never compared.
-          #
-          # The pair also requires a PINNED Brotli producer end-to-end. apt's libbrotli-dev is
-          # NOT a pin: its identity is whatever the runner image happens to carry. Until the
-          # coordinator supplies a pinned producer identity the reference half is HELD; the
-          # requirement is NOT weakened to accommodate the runner.
-          #
-          # The version below is RECORDED as provenance only. It is not a pin and confers no
-          # reproducibility claim.
+          got="$(git -C "$BROTLI_SRC" rev-parse HEAD)"
+          test "$got" = "$BROTLI_SHA" || { echo "::error::reference producer drift want=$BROTLI_SHA got=$got"; exit 1; }
           {
-            echo "recorded_libbrotli_dev_version=$(dpkg-query -W -f='${Version}' libbrotli-dev 2>/dev/null || echo absent)"
-            echo "pin_state=UNPINNED"
-            echo "reference_half=HOLD-BROTLI-PRODUCER-UNPINNED"
+            echo "producer_repo=google/brotli"
+            echo "producer_version=v1.1.0"
+            echo "producer_sha=$BROTLI_SHA"
+            echo "producer_head=$got"
+            echo "pin_state=PINNED"
+            echo "reference_role=same-run matched geometry-control pair"
             echo "identity_note=R1 uses explicit lgwin 30; retained rows used BROTLI_DEFAULT_WINDOW lgwin 22; never compared"
-            echo "consequence=D_ref residual is withheld; the geometry factorial contrasts depend on no reference arm and are unaffected"
           } | tee "$OUT_DIR/reference-producer-pin.txt"
 
       - name: Collect bytes, hashes and descriptive rows (all cells)
