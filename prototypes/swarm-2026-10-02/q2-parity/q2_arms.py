@@ -211,20 +211,17 @@ RETAINED_TWIN_BASIS = (
 # in one job, so D_ref = SUMpayloads(R3) - bytes(R1) prices the generic 256 KiB
 # fragmentation tax against a non-zero denominator. That is their entire role.
 #
-# The pinned producer identity is NOT supplied and cannot be established offline without
-# network ambiguity. Rather than weaken the requirement, the reference half is placed on a
-# HARD HOLD and its residual is withheld until the coordinator supplies the pin.
+# The reference producer is pinned to the official Brotli v1.1.0 release commit. This pin
+# was resolved from the upstream release/tag and verified against the GitHub commit object; the
+# workflow checks out/builds this exact source in runner temp and asserts HEAD before use.
 FROZEN_BROTLI_WINDOW = "BROTLI_DEFAULT_WINDOW (lgwin 22), tools/bench_native.cpp:39"
 R1_EXPLICIT_LGWIN = 30
-BROTLI_PRODUCER_PINNED = False
+BROTLI_PRODUCER_REPO = "google/brotli"
+BROTLI_PRODUCER_VERSION = "v1.1.0"
+BROTLI_PRODUCER_SHA = "ed738e842d2fbdf2d6459e39267a633c4a9b2f5d"
+BROTLI_PRODUCER_PINNED = True
 PRODUCER_HOLD = "HOLD-BROTLI-PRODUCER-UNPINNED"
-PRODUCER_HOLD_REASON = (
-    "The Brotli producer must be pinned end-to-end (version + commit/tag + a verified artefact "
-    "identity) rather than taken from an unversioned libbrotli-dev package. No such pinned "
-    "identity is available to this lane, and inventing one offline would be fabrication. The "
-    "reference half is therefore HELD, not weakened: the geometry factorial contrasts depend on "
-    "no reference arm and stand regardless."
-)
+PRODUCER_HOLD_REASON = "not applicable: producer pinned to official v1.1.0 release commit"
 
 
 def check_producer_pin() -> list[str]:
@@ -773,8 +770,11 @@ def plan(corpus: Iterable[CorpusFile], helper: str = "q2_brotli_geom") -> dict:
             "frozen_reference_window": FROZEN_BROTLI_WINDOW,
             "explicit_lgwin": R1_EXPLICIT_LGWIN,
             "producer_pin_required": True,
+            "producer_repo": BROTLI_PRODUCER_REPO,
+            "producer_version": BROTLI_PRODUCER_VERSION,
+            "producer_sha": BROTLI_PRODUCER_SHA,
             "producer_pin_state": "PINNED" if BROTLI_PRODUCER_PINNED else PRODUCER_HOLD,
-            "withheld_while_unpinned": ["descriptive_only_reference_residual"],
+            "withheld_while_unpinned": [] if BROTLI_PRODUCER_PINNED else ["descriptive_only_reference_residual"],
         },
         "retained_config_id_to_argv": retained_config_argv_map(),
         "retained_harness_baseline_stream_lambda": RETAINED_HARNESS_BASELINE_STREAM_LAMBDA,

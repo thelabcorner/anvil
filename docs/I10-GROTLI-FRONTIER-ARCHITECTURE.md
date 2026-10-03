@@ -92,8 +92,10 @@ Discovery run `35947013432` passed its frozen discovery gate:
 - >=5% structured wins: 2/3.
 
 Held-out V1 was therefore legitimately opened with the frozen G3
-implementation. At the time this architecture document was written, validation
-was still running.
+implementation. Validation completed in run `35947013432` as
+`PASS-G3-NARROW`: V1 was 2,179,615 B versus 2,112,235 B raw Brotli
+(+3.1900%), so the discovery win does not establish a general-purpose
+production representation.
 
 ---
 
@@ -567,51 +569,54 @@ the full Pareto set should be reported instead.
 
 ## 11. Research sequence
 
-### G4 — planner fidelity
+### G0-G3 — representation ceiling and regionization
 
-No new representation mechanism.
+G0 rejected padded row-major vertical XOR. G1 established an exact-shape
+row/column ceiling, and G2 established a real exact-dictionary effect. G3
+regionization passed discovery at -5.5984% but regressed fully structured V1
+by +3.1900%; its result is narrow, not a general production win.
 
-Question:
+### G4 — planner fidelity — closed negative
 
-> Can cheap scoring reproduce the frozen q11 leaf oracle closely enough while
-> eliminating almost all q11 ranking calls?
+The cheap proxy surfaces missed the frozen q11 carrier choices on per-file
+fidelity. The published speed ratios are withdrawn because the O11 denominator
+timed cached labels rather than q11 label construction. G4 remains
+`NO-GO-G4`; do not rescue it by post-outcome tuning.
 
-This is the immediate next lane.
+### G5A — ordering attribution — valid narrow positive
 
-### G5A — ordering attribution
+Holding the exact token multiset and leaf vocabulary fixed, shape-column order
+saved 89,960 B versus source order across D1-D4 and won 4/4. V1 reversed the
+effect, so the result is population-dependent and does not authorize a global
+column transform.
 
-Isolate how much of the gain comes from coordinate/order changes alone.
+### G5B-ORDINAL — closed negative
 
-Hold leaf vocabulary fixed.
+The corrected run reproduced the G5A floor exactly, but ordinal cross-shape
+placement was 1.6507% worse overall and won on only 1/4 non-degenerate files.
+The result is `ORDINAL-ADVERSE`; it kills ordinal placement, not semantic
+hierarchy.
 
-### G5B — shape hierarchy
+### G5D — paged base-plus-overlay dictionary — pending
 
-Test exact flat shapes versus explicitly preregistered structural hierarchy.
+The standalone prototype and preregistration are uncommitted local work. The
+mechanism must use mandatory escapes, fixed page policies, exact component
+accounting, same-order controls, and measured RSS/build fields before remote
+dispatch. It cannot promote from ratio alone.
 
-Hold leaf vocabulary fixed.
+### G5E — semantic hierarchy — open, unmeasured
 
-### G5C — genuine mixed-validity regional test
+Any successor must use exact MDL parent selection or bounded structural
+sharing. Ordinal distance, adjacency, frequency rank, and source order are not
+valid parent selectors. No hierarchy result exists yet.
 
-G3 D3 contained only one residual frame.
+### G6-G9 — later lanes
 
-A later corpus must deliberately contain substantial valid + unsupported/malformed
-mixture if we want a strong general claim about regional routing.
-
-### G6 — string symbolization
-
-FSST-like/string-prefix mechanisms, one family at a time.
-
-### G7 — default/RLE and specialized numeric/float lanes
-
-Only after planner cost is controlled.
-
-### G8 — interaction/cross-column lane
-
-Predictor + sparse innovation.
-
-### G9 — production planner + decode optimization
-
-SIMD, vector groups, bounded finalists, branchless hot paths.
+G6 string symbolization, G7 default/RLE and numeric families, G8 cross-column
+interaction, and G9 production planner/decode optimization remain separate
+falsifiable lanes. The immediate systems prerequisite is a committed,
+same-job dense frontier vehicle covering Brotli q1/q4/q6/q9/q11, ANVIL legacy
+and aux, dense zstd, xz, paired timings, RSS, hashes, and binary size.
 
 ---
 

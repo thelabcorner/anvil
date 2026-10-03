@@ -1,9 +1,14 @@
 # ANVIL I10-1A — Auxiliary-Index inverse-BWT Integration Plan
 
 **Date:** 2026-09-23
-**Status:** implementation-ready design; source change deferred until the I10 remote baseline is closed
+**Status:** integrated and remotely measured; default-off preserved
 **Evidence base:** `prototypes/i9-bwtinv/{RESULTS.md,INTEGRATION-SPEC.md}`
 **Novelty:** none; adopt-class decoder engineering
+
+The implementation and correctness evidence are recorded in
+`docs/I10-AUX-UNBWT-RESULTS.md`. Current source registration is in
+`src/anvil.cpp`, `FORMAT.md`, and `tests/fuzz.py`; the legacy/default-off
+wire remains byte-identical.
 
 ## 1. Purpose
 
@@ -15,7 +20,11 @@ The integration must preserve three things simultaneously:
 2. the auxiliary index's wire bytes are fully charged;
 3. the experiment can be forced on/off without silently changing the frozen I9 byte baseline.
 
-The measured prototype result is strong enough to justify integration but not strong enough to justify changing the default representation before a remote end-to-end Pareto measurement.
+The integrated remote result is strong enough to retain as an explicit
+balanced option, but not strong enough to change the default representation:
+the measured whole-codec decode gain is 1.364x/1.795x/2.339x on the paired
+targets, while the same-run reference-cost gate remains FRONT-GAP in decode
+throughput and peak RSS.
 
 ---
 

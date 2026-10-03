@@ -4694,6 +4694,275 @@ committed HEAD fc23d9a, recomputed at write time with
 Any citation of `463/468` must carry the label "uncommitted worktree grid
 C70179EA".*
 
+# PART XV — I10 live reconciliation, G4/G5 closure, and current frontier
+
+**Date:** 2026-09-24
+**Live source:** `i10-aux-unbwt` at `b8eae11fa353bb5e3c88e8e757fe3ad41e4bbd24`
+**Reconciliation artifact:** `docs/I10-FRONTIER-RECON-2026-09-24.md`
+
+This entry reconciles the live dirty tree, the public `thelabcorner/anvil`
+Actions lineage, downloaded artifacts, and the frozen I9/I10 evidence. It does
+not erase historical claims. Local generated files and concurrent worktree
+state were preserved; no reset, cleanup, stash, overwrite, or commit was
+performed.
+
+## Established current facts
+
+1. The frozen I9 multi-quality suite remains **zero FRONT-CROSSING** with xz
+   included. The canonical frozen tuple is `33 non-dominated | 5 FRONT-GAP |
+   0 FRONT-CROSSING | 28 DEGENERATE | 435/468 dominated`; `GRID-THIN`
+   remains binding.
+2. I10-1A auxiliary-index BWT is a real decoder-side tradeoff: +8,083 B
+   across the three paired targets, with 1.364x/1.795x/2.339x whole-codec
+   decode gains. Same-run reference-cost evidence still classifies it as
+   front-gap in decode throughput and peak RSS, not an external crossing.
+3. G3 discovery passed at -5.5984% aggregate, while fully structured V1 was
+   +3.1900% worse than raw Brotli. The failure is economic/representational,
+   not a parsing-coverage failure.
+
+## G4 — closed valid negative
+
+Run `35952830106`
+(`a3c9c5a2e4270449387d86f3a91d9ee56ceeaa67`) is valid: identity gate 16/16,
+correctness PASS, Q2 `SEPARABLE-ENOUGH`, but Q1 FAIL and decision
+`NO-GO-G4`. S0/S1/S2 overall worst-file regrets are 6.6056%, 7.0802%, and
+1.5388%; the previously quoted 7.0802% for S0 was the DICT-specific DSTAR
+metric, not the overall proxy metric. The published speed ratios
+1.0218x/0.4614x/0.0591x are withdrawn as `INVALID_SPEED_ACCOUNTING`: the
+workflow's O11 denominator reads cached ranking labels while actual q11 label
+construction is timed separately. The byte-fidelity negative remains valid;
+the result is not a reason to tune S0/S1/S2 or retrofit a learned planner into
+G4.
+
+Artifact identity: API artifact `10789896530`, digest
+`sha256:8a96fabc32cc0d6c5cef9a7ba35d07d881b8ca9b21e98f3062fbf82b79704f63`.
+Source identity: blob `977213641a6de55d771f091874d2aa886d3d3be3b`, source
+SHA-256 `08c2a9861e25511b15e00ae12e2a4cee8288e0c5974bca855e493b38b5683c85`,
+binary SHA-256 `b2851bfcaa8cf41f74073f6d91b947da036fbcd66a61b05f8e9eacc892f1e577`.
+
+The speed-accounting correction is independently supported by
+`tools/grotli_g4_planner.cpp:921-957,1411-1423` and
+`.github/workflows/anvil-i10-grotli-g4.yml:671-680`. Any future planner
+pilot must time equivalent work on both sides of the ratio and record q11 calls
+separately from cached-label reads.
+
+## G5A — valid ordering result
+
+Run `35985412906`
+(`996c2dbe67736c42288287abba7ed6f3307a0b34`) is valid with implementation
+`e6714e81aeff1579c4502f1fd9af4d7f205a8b4b`, frozen G3
+`1a3d18fed76adb6fb33264e1994f9c357306b3fa`, and artifact `10801714249`
+(`sha256:4765b317e7c01170cffbd96b08c639e001ec1e2f317152d1f83a20a5331a3278`).
+The charged same-multiset A0/A1/A2/A3 totals are 2,054,532 / 1,470,205 /
+1,452,383 / 1,380,245 B. A3 saves 89,960 B versus A1 and is smaller on 4/4
+discovery files; classification is `ORDER-MATERIAL`, attribution
+`COLUMN-DOMINANT`. V1 is `V1-COLUMN-ADVERSE` and remains known stress, not
+held-out evidence. No production transform or planner is authorized.
+
+G5A arithmetic corrections: A3 versus A0 is 32.8195% smaller, while the
+674,287 B margin is 45.8635% of A1; only D2 is sub-1% for A1→A3. A1 is
+extracted-chunk source order rather than raw source order and is already
+3,436 B above aggregate raw Brotli. The valid claim is therefore limited to
+ordering within the fixed carrier, not a general decomposition of G3's
+typed-leaf result.
+
+## G5B-ORDINAL — invalid first run quarantined, corrected run closed
+
+Run `36010649558`
+(`10490d5101801f78de17f0ab81e41f926e30d3fd`) is explicitly
+`INVALID-G5B-ORDINAL`: the discovery step was skipped after floor/provenance
+validation failed. The concrete infrastructure cause is HTTP 401 while the
+downloader forwarded the GitHub bearer token across a cross-host 302 redirect
+to signed blob storage; corpus, replay, discovery, V1, and floor steps were
+all skipped. Its ruling artifact prohibits all B2 interpretation.
+Its artifact is `10812316817`
+(`sha256:0d01e47e69624de06777407b58fa48f984278b7ff48b6ddcc2c6ea3e53ffbb56`). No
+bytes from this run are admissible.
+
+Corrected run `36011333908`
+(`a443f37c0076591dd7efd2175859630e1e20f6c9`) is valid. It verifies the
+archived G5A floor by same-run replay, uses the frozen G5A artifact rather than
+the stale G5BO lineage, and reports implementation
+`cf9306e34e98b35333b23757da88357cab92357e`. Corrected B0/B1/B2 totals are
+2,054,910 / 1,380,245 / 1,403,029 B; B2 is +1.6507% versus B1 and wins on
+only 1/4 non-degenerate files. The ruling is `ORDINAL-ADVERSE`. This kills
+the ordinal proxy, not semantic hierarchy as a separate hypothesis.
+The correction is transport/workflow-only: unredirected authorization headers
+were added; no scientific arm, threshold, corpus, selector, backend, or
+implementation changed.
+
+Diagnostic reference-cost reproduction run `36061511123`
+(`b6a243c9657776058a37e5f0ee2eaae2ff925dff`, 13 repetitions) rebuilt the
+frozen I10-1A candidate and reproduced the cost gap: Silesia ANVIL aux was
+46,466,339 B versus xz 48,456,004 B and Brotli 49,383,136 B, with decode
+ratios 1.7995x/3.3312x and peak-RSS ratios 4.5717x/2.0273x; enwik8 was
+23,537,422 B versus 24,831,648 B/24,810,180 B, with decode ratios
+3.5162x/10.1499x and peak-RSS ratios 9.0594x/2.3785x. Silesia ruling is
+`FRONT-GAP_COST`; enwik8 is `TIMING_BLOCKED` because the Brotli control robust
+CV was 0.1756. A/A nulls passed, but the legacy driver did not record
+per-run output hashes, so this is diagnostic evidence only, not a new Pareto
+claim. Artifacts are `10834858417` and `10835616518` with digests
+`sha256:30574a25c718fe45828e1c6e43278f188302c66ee4975ea3e74a35cbb034ac6e`
+and `sha256:837cf95daa310f1e11e58813f11ae9f41a2a560a1173f372c1fd1b3fd27c1c85`.
+
+## Portfolio decisions after reconciliation
+
+- **PROMOTE to remote pilot:** G5A-informed bounded finalist planner with
+  analytical MDL features, at most 80 sampled q4 calibration calls, and a
+  q1/q4/q6/q11 finalist ladder. It must be separately preregistered; G4
+  remains closed.
+- **PROMOTE to remote pilot:** one paged base-plus-overlay exact dictionary
+  with mandatory escape, isolated from FSST/defaults/hierarchy. This follows
+  the measured EXACT_DICT effect and directly targets table-transmission and
+  regional drift costs.
+- **CONTINUE cheaply:** decoder-first SIMD/stream layout and entropy-backend
+  co-design; require same-run paired evidence.
+- **CONTINUE cheaply:** bounded BWT subblocking for memory/decode tradeoff;
+  do not confuse it with an external frontier claim.
+- **KILL:** direct G4 proxy rescue; G5B ordinal placement; global lane
+  transposition; and any result that depends on omitted framing/model/
+  dictionary/planner cost. **PORDER** is killed as a standalone graph/layout
+  novelty: FastLanes, white-box compression, OpenZL, Corra, LeCo, BtrBlocks,
+  and ALP already cover the broad interaction. Retain only a frozen 2x2
+  relation-graph x width-aware-schedule anatomy probe if `F11` beats both
+  `F10` and `F01` by at least 1% complete bytes with metadata/codebook cost
+  at most 20% of gross savings; otherwise preserve the negative.
+
+No new held-out structured corpus is currently available. Promotion requires
+new locked independent structured, mixed-validity, executable, and numeric
+families. All CPU-heavy follow-up work remains GitHub Actions-only.
+
+**Pending handoff:** the dense-frontier and G5D workflow/source files are
+uncommitted local work. Dense-frontier YAML parses, but cannot be dispatched
+until an explicitly authorized commit/push publishes the workflow. G5D is not
+dispatchable yet: its prototype still emits a zero decode-RSS placeholder and
+hard-codes several invariant flags, and the corrected source must still be
+published with its prereg and workflow. The planner pivot likewise reports
+missing links and has no frozen workflow. No commit, push, local benchmark, or
+production edit was performed. The verification addendum below records the
+2026-09-25 checks; the G5A results document is already published on remote main
+rather than missing.
+
+## Verification addendum (2026-09-25, non-load-bearing control-plane checks)
+
+**Scope:** local verification of repository syntax, workflow parsing, paired
+driver self-test, and an explicit build-authority boundary. No benchmark, sweep,
+fuzz campaign, or production source edit was performed.
+
+Commands actually run and outcomes:
+
+- `python -m compileall -q tools tests` -> **PASS** (no syntax failures).
+- `python tools/paired_bench.py --self-test-observation` ->
+  **PASS observation validation self-test**.
+- Python `yaml.safe_load` over `.github/workflows/*.yml` -> **YAML OK, 16 files**,
+  including `.github/workflows/anvil-i10-dense-frontier.yml` and
+  `.github/workflows/anvil-i10-g5-paged-dictionary.yml`.
+- Frozen Class A grid recomputation: the harmonic input-byte aggregation
+  implemented by `tools/pareto_front.py` (total input / sum of per-file times, not
+  an arithmetic mean of per-file rates) reproduces every row of the current
+  frontier table exactly; e.g. Brotli q1 2,727,579 B / 432.106 encode /
+  471.702 decode, Brotli q11 1,788,233 B / 0.681 / 528.346, xz-9e 1,720,520 B /
+  1.310 / 159.369, and ANVIL dp-rANS 2,539,808 B / 1.321 / 357.571.
+- CMake configure check: `cmake -S . -B <temp> -G Ninja -DCMAKE_BUILD_TYPE=Release`
+  failed because this shell has no default C/C++ compiler; retrying with
+  `-DCMAKE_C_COMPILER='C:\Program Files\LLVM\bin\clang.exe'` and
+  `-DCMAKE_CXX_COMPILER='C:\Program Files\LLVM\bin\clang++.exe'` reached
+  `No CMAKE_RC_COMPILER could be found` at
+  `Platform/Windows-Clang.cmake:149`. Local Windows C++ build verification is
+  therefore **BLOCKED by missing local RC toolchain**, not by a repository error.
+  The authoritative build gate remains the pinned Ubuntu CI workflows; no local
+  load-bearing build was run.
+- G5D prototype verification: `clang-cl /std:c++20 /O2 /DNDEBUG /W4 /WX` compiled
+  `tools/grotli_g5_paged_dictionary.cpp` warning-clean with `psapi.lib`;
+  `selftest` printed `PASS grotli_g3 selftest` and
+  `PASS grotli_g5_paged_dictionary selftest`; a smoke `measure README.md` emitted
+  `decode_peak_rss_kib: 5416` with status
+  `MEASURED_WINDOWS_PEAK_WORKING_SET_AT_DECODE_COMPLETION` and all ten required
+  invariants true. The workflow's required schema fields were then validated
+  against that smoke output: 8/8 arms (2 rawlex + 6 dictionary) passed all
+  integer, string, and float field checks, and all ten required invariants were
+  true. Linux CI takes the `getrusage` maxrss branch instead.
+- Dense-wrapper syntax check: after the `observe.sh` argument-contract fix the
+  workflow still parses; the wrapper now reads the positional output path as
+  `$1`, removes stale output, and `exec`s, matching
+  `<wrapper> <path> -- <command>`.
+
+**Dense-frontier handoff status.** The `observe.sh` argument-contract mismatch
+is fixed: the wrapper now takes the declared output path as `$1`, shifts it,
+removes any stale output, and `exec`s, matching the existing
+`<wrapper> <path> -- <command>` invocation. The workflow still pins
+published-main `tools/paired_bench.py` blob
+`f847c50e38d3b39b61deeb6b21bcf12e9c132fd5` deliberately: that commit is
+immutable and already supports `--control-observe` / `--candidate-observe`, the
+wrapper supplies per-invocation freshness, and the workflow independently
+verifies post-run size/SHA-256 outside the timed command. The hardened local
+driver `bb2b2a7efcaa2959800e7ea27e7b5c6f65c1f2cd` is therefore not required for
+this dispatch; adopting it would need a separate published tooling commit and a
+pin change. Dense dispatch still requires explicit commit/push authorization.
+
+**G5A results-document handoff closed.** `docs/I10-GROTLI-G5A-RESULTS.md` is
+already present on published main at commit
+`668beb3853d1c8aef8f156ea1e4add8f60dd4f8c`, git blob
+`df57036a031b03e2c73152497dd3186d21ceea9d`, SHA-256
+`e9e4240040f4d1ffe129c8c7855edf492d0432edfc93262e5bf79d68b2c7781c`
+(20,210 bytes). This is the G5D `g5a_results_sha` / `g5a_results_blob` /
+`g5a_results_sha256` identity. The local `i10-aux-unbwt` branch simply lacks the
+file because it predates that commit; no competing local copy was created.
+
+**G5D dispatch status.** Source-level scientific blockers are fixed.
+`decode_peak_rss_kib` is now measured at decode completion
+(`GetProcessMemoryInfo`/`PeakWorkingSetSize` on Windows; `getrusage` maxrss on
+Linux and Darwin) with an explicit status string, and the required invariants are
+computed rather than hard-coded: token-multiset equality comes from sorting each
+arm's ordered token stream, `exact_reconstruction_order` from the roundtrip
+result, `complete_component_accounting` from component sums versus body size,
+`fixed_backend` from the observed Brotli versions, `no_excluded_family` from
+stored leaf-family tags, and `no_production_authorization` from the absence of
+`G5D_PRODUCTION_TRANSFORM_ID`. Local warning-clean compile, selftest, and a
+`measure` smoke all passed, and the workflow's required integer fields and
+invariant keys match the corrected source. Dispatch is still blocked on
+explicitly authorized commit/push of the uncommitted source, prereg, and workflow.
+
+**Frontier movement this cycle:** no complete production Pareto crossing was
+established. The frozen I9 multi-quality grid remains `33 non-dominated |
+5 FRONT-GAP | 0 FRONT-CROSSING | 28 DEGENERATE | 435/468 dominated`. Two
+newly completed public-main scout runs (5 repetitions, deterministic bytes,
+unpaired, `VALID_100MS_NONRECURSIVE`) confirm the legacy gap: Silesia ANVIL
+46,446,995 B / 0.219153 at 23.551 MB/s decode / 248.4 MiB versus Brotli q11
+49,383,136 B / 0.233007 at 140.267 MB/s / 114.4 MiB; enwik8 ANVIL 23,534,368 B /
+0.235344 at 12.407 MB/s / 598.9 MiB versus Brotli q11 24,810,180 B / 0.248102 at
+248.759 MB/s / 209.0 MiB. Scout artifacts are `10841382467`
+(`sha256:5bf0b868c65a0bcf7eb09202ac0b60a8c58d42752b6f029260da32d0f37747d9`) and
+`10837967799`
+(`sha256:aff30ddbdaa90fba1117492fa8cac02326491bc207e30b5cc6295aef708adde6`).
+Auxiliary-index unBWT remains an additive decode-side point at +8,083 B across
+paired targets with 1.364x/1.795x/2.339x whole-codec decode gains; the fresh
+reference-cost rerun reports Silesia `FRONT-GAP_COST` with ANVIL/Brotli decode
+ratio 3.3312x (95% CI [3.2473, 3.3828]) and enwik8 `TIMING_BLOCKED` at Brotli
+control robust CV 0.1756. G5A discovery ordering is -6.1189% on the fixed carrier
+(V1 adverse); G5B-ORDINAL is +1.6507% adverse; G4 remains `NO-GO-G4` with the
+speed column withdrawn as `INVALID_SPEED_ACCOUNTING`.
+
+**Next remote actions (in order):** (1) obtain explicit authorization to commit
+and push the corrected dense-frontier workflow, then dispatch it; (2) after its
+binding-knee result, publish the hardened G5D source/prereg/workflow and dispatch
+with the G5A identity above; (3) keep both planner and paged-dictionary pilots
+separate, correctness-first, and remote-only; (4) open a new held-out corpus only
+after a discovery effect clears its frozen gate.
+
+**Named publication blocker.** No commit or push was performed in this cycle.
+The dense-frontier and G5D experiments cannot be dispatched until the following
+uncommitted files are explicitly authorized, committed, and pushed:
+`.github/workflows/anvil-i10-dense-frontier.yml`,
+`docs/I10-DENSE-FRONTIER-PREREG.md`,
+`.github/workflows/anvil-i10-g5-paged-dictionary.yml`,
+`tools/grotli_g5_paged_dictionary.cpp`, and
+`docs/I10-G5-PAGED-DICTIONARY-PREREG.md` (plus `tools/paired_bench.py` and the
+planner files only if their pin/adoption is chosen). This is a user-authorization
+dependency, not a measurement or repository defect; the already-published G3/G4/
+G5A/G5B workflows and the research scout workflow remain independently
+dispatchable.
+
 ## PART XIV addendum (same session, 2026-09-12) - definitive decode multiples, P4.1, PR-1
 
 *Appended by `research-gate` after coordinator requests
