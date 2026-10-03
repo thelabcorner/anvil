@@ -1,0 +1,56 @@
+FILE C:\Users\slooshied\Documents\ANVIL\tests\corpus\pe-where.exe bytes=61440 pe=1 sections=6
+  runs=0 runBytes=0 coverage=0.0000% maxSlots=0 mode0bytes=0
+  tokenCostBound=0 netUpperBound=0 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 0 0 0 0 0 0 0 
+  sec .text     raw=32768 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rdata    raw=8192 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .data     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .pdata    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .reloc    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
+FILE C:\Users\slooshied\Documents\ANVIL\tests\corpus\pe-winver.exe bytes=28672 pe=1 sections=6
+  runs=0 runBytes=0 coverage=0.0000% maxSlots=0 mode0bytes=0
+  tokenCostBound=0 netUpperBound=0 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 0 0 0 0 0 0 0 
+  sec .text     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rdata    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .data     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .pdata    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .reloc    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
+FILE C:\Users\slooshied\Documents\ANVIL\tests\corpus\pe-python.exe bytes=103704 pe=1 sections=6
+  runs=1 runBytes=28 coverage=0.0270% maxSlots=7 mode0bytes=28
+  tokenCostBound=4 netUpperBound=24 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 0 0 0 0 0 1 0 
+  sec .text     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rdata    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .data     raw=512 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .pdata    raw=512 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=80896 runs=1 runBytes=28 secCoverage=0.035% align4=yes
+  sec .reloc    raw=512 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
+FILE C:\Users\slooshied\Documents\ANVIL\tests\corpus\anvil.exe bytes=268800 pe=1 sections=6
+  runs=0 runBytes=0 coverage=0.0000% maxSlots=0 mode0bytes=0
+  tokenCostBound=0 netUpperBound=0 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 0 0 0 0 0 0 0 
+  sec .text     raw=218112 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rdata    raw=43008 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .data     raw=1536 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .pdata    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=512 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .reloc    raw=512 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
+FILE C:\Users\slooshied\Documents\ANVIL\tests\corpus\pe-notepad.exe bytes=360448 pe=1 sections=7
+  runs=4 runBytes=60 coverage=0.0166% maxSlots=7 mode0bytes=60
+  tokenCostBound=18 netUpperBound=42 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 2 0 1 0 0 1 0 
+  sec .text     raw=163840 runs=1 runBytes=8 secCoverage=0.005% align4=yes
+  sec .rdata    raw=45056 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .data     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .pdata    raw=8192 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .didat    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=126976 runs=3 runBytes=52 secCoverage=0.041% align4=yes
+  sec .reloc    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+

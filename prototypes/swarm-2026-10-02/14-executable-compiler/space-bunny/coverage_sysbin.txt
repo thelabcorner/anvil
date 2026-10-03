@@ -1,0 +1,47 @@
+FILE C:\Windows\System32\kernel32.dll bytes=815520 pe=1 sections=7
+  runs=1 runBytes=8 coverage=0.0010% maxSlots=2 mode0bytes=8
+  tokenCostBound=5 netUpperBound=3 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 1 0 0 0 0 0 0 
+  sec .text     raw=528384 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rdata    raw=225280 runs=1 runBytes=8 secCoverage=0.004% align4=yes
+  sec .data     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .pdata    raw=24576 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .didat    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .reloc    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
+FILE C:\Windows\System32\notepad.exe bytes=360448 pe=1 sections=7
+  runs=4 runBytes=60 coverage=0.0166% maxSlots=7 mode0bytes=60
+  tokenCostBound=18 netUpperBound=42 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 2 0 1 0 0 1 0 
+  sec .text     raw=163840 runs=1 runBytes=8 secCoverage=0.005% align4=yes
+  sec .rdata    raw=45056 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .data     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .pdata    raw=8192 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .didat    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=126976 runs=3 runBytes=52 secCoverage=0.041% align4=yes
+  sec .reloc    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
+FILE C:\Windows\System32\cmd.exe bytes=327680 pe=1 sections=7
+  runs=4 runBytes=32 coverage=0.0098% maxSlots=2 mode0bytes=32
+  tokenCostBound=19 netUpperBound=13 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 4 0 0 0 0 0 0 
+  sec .text     raw=221184 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rdata    raw=40960 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .data     raw=4096 runs=1 runBytes=8 secCoverage=0.195% align4=yes
+  sec .pdata    raw=12288 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .didat    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=36864 runs=3 runBytes=24 secCoverage=0.065% align4=yes
+  sec .reloc    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
+FILE C:\Windows\SysWOW64\kernel32.dll bytes=675024 pe=1 sections=6
+  runs=4 runBytes=32 coverage=0.0047% maxSlots=2 mode0bytes=32
+  tokenCostBound=18 netUpperBound=14 (optimistic: no entropy coding, no literals for uncovered)
+  slotHist[1..8+]=0 4 0 0 0 0 0 0 
+  sec .text     raw=442368 runs=1 runBytes=8 secCoverage=0.002% align4=yes
+  sec .rdata    raw=180224 runs=3 runBytes=24 secCoverage=0.013% align4=yes
+  sec .data     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .didat    raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .rsrc     raw=4096 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+  sec .reloc    raw=20480 runs=0 runBytes=0 secCoverage=0.000% align4=yes
+
