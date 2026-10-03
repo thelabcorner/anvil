@@ -1,0 +1,417 @@
+# Q2 parity pilot -- WORKFLOW DRAFT. NOT DISPATCHABLE.
+#
+# This file deliberately lives in prototypes/swarm-2026-10-02/q2-parity/ and NOT in
+# .github/workflows/. Installing it is a coordinator action, and NOTHING here is authorised by
+# its own existence.
+#
+# HOLD PREREQUISITE (coordinator): a staging-only workflow file cannot be dispatched manually
+# until its path exists on an approved remote/default branch. That is a HOLD to be resolved by
+# tracking and approving the workflow path. It is explicitly NOT a reason to add a push
+# trigger: this repository's manual-only doctrine is preserved, even at the cost of the first
+# run.
+#
+# Design authority: docs/swarm-2026-10-02/Q2-PARITY-PLAN-SPACE-BUNNY.md (Rev 6)
+# Protocol authority: docs/github-actions-benchmark-protocol.md
+#
+# Properties enforced by construction:
+#   * workflow_dispatch ONLY. No push, no schedule, no pull_request, no release mutation.
+#     Manual-only doctrine is preserved even though it costs us the first run.
+#   * permissions: contents: read. No secrets are referenced or required.
+#   * actions pinned to major-version tags, matching every existing workflow in this repo.
+#     Pinning to commit SHAs is desirable but NOT done here: action SHAs cannot be verified
+#     offline, and a fabricated SHA would break the run. Open item for the coordinator at
+#     install time.
+#   * concurrency group, cancel-in-progress: false
+#   * finite timeout; artifact upload under if: always()
+#   * checkout the WORKFLOW/STAGING COMMIT ITSELF (github.sha), never a foreign ref
+#   * FAIL CLOSED: six measurement-critical production/evidence blobs must equal the
+#     coordinator-validated base blob ids BEFORE build and BEFORE any codec invocation;
+#     changed paths are compared against the FULL public base SHA, not HEAD~1
+#   * ANVIL_STREAM_LAMBDA asserted UNSET before anything is built or run
+#   * dependencies installed BEFORE provenance, which invokes clang/cmake/ninja
+#   * ANVIL_BUILD_NATIVE_BENCH=ON and BOTH targets built; fail closed if either is absent
+#   * both build-output corpus slots materialised, recorded, never asserted vs old hashes
+#   * NO timing job; NO classification step; no frontier vocabulary in any artifact
+#   * Q2 mints no label, no void trigger, no classification from any published number
+
+name: ANVIL Q2 block/window parity (2x2 factorial) -- DRAFT, manual dispatch only
+
+on:
+  # MANUAL-ONLY DOCTRINE. No push trigger, not even branch-scoped, and no schedule.
+  # A staging-only workflow that cannot yet be dispatched manually is a HOLD
+  # prerequisite for the coordinator to resolve by tracking/approving the workflow
+  # path -- it is NOT a reason to auto-trigger on push.
+  workflow_dispatch:
+
+concurrency:
+  group: anvil-q2-parity-${{ github.ref_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PROTO: prototypes/swarm-2026-10-02/q2-parity
+      OUT_DIR: ${{ github.workspace }}/q2-results
+      BUILD_DIR: build-q2
+      CORPUS_DIR: ${{ github.workspace }}/tests/corpus
+      FROZEN_SUITE: tests/benchmark-suite.frozen-bdc90474.plus-xz.csv
+      # Full public base SHA on the sanitised mirror (i10-aux-unbwt). Changed paths are
+      # compared against THIS commit, not against HEAD~1.
+      PUBLIC_BASE_SHA: 564e2cd92830da72bd0bb7d39b53fe9b7b7b4a29
+      # Coordinator-validated git BLOB object ids for the measurement-critical production and
+      # evidence files. These are git blob ids, not file digests.
+      BASE_SRC_ANVIL_BLOB: 755df76ae53795aea040f4c99784d1effb43b3ab
+      BASE_BENCH_NATIVE_BLOB: 4f6ceb5a103948f60d3bc73f7c9ac695f36f3232
+      BASE_CMAKELISTS_BLOB: 449ae00e0dd56cac5584e08fa725288870573667
+      BASE_FROZEN_SUITE_BLOB: 69bd30c3ba3f24a13f0766fc66f53b11cdc610d2
+      BASE_NOISE_FLOOR_BLOB: f7979be2954f8cfe423be3b629704be6e5b15824
+      # Q2's population and hashes depend on this manifest, so it is gated with the rest.
+      BASE_CHECKSUMS_BLOB: 523e44a48ee192a169d23decc1fb5516c90ac9ae
+
+    steps:
+      # ---- identity gate 1: environment -------------------------------------
+      - name: Assert identity-determinant environment is clean
+        run: |
+          set -euo pipefail
+          # src/anvil.cpp:4959 reads ANVIL_STREAM_LAMBDA into opt.stream_lambda. The
+          # explicit --stream-lambda flag is parsed later (:4977) and wins, but Q2 does not
+          # rely on that ordering: arm identity must be argv-determined.
+          if [ -n "${ANVIL_STREAM_LAMBDA+x}" ]; then
+            echo "::error::ANVIL_STREAM_LAMBDA is set to '${ANVIL_STREAM_LAMBDA}'; unset it"
+            exit 1
+          fi
+          echo "ANVIL_STREAM_LAMBDA: unset (ok)"
+
+      # ---- checkout the staging commit that CONTAINS this workflow -------------
+      # Rationale (coordinator correction): local b8eae11 does not exist on the sanitised
+      # mirror, and checking out the public base would DELETE prototypes/.../q2-parity/ --
+      # the very tooling this job runs. So the checkout target is the workflow's own commit,
+      # and correctness is guaranteed by the blob-identity assertion below, not by ref choice.
+      - name: Checkout the workflow/staging commit itself
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      # ---- FAIL CLOSED: production/evidence blob identity --------------------
+      - name: Assert measurement-critical blobs match the validated public base
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          status=0
+          check() {
+            local path="$1" want="$2" got
+            if [ ! -f "$path" ]; then
+              echo "INVALID_INFRA missing=$path want_blob=$want" | tee -a "$OUT_DIR/invalid-infra.txt"
+              status=1; return
+            fi
+            got="$(git rev-parse "HEAD:$path")"
+            if [ "$got" != "$want" ]; then
+              echo "INVALID_INFRA mismatch=$path want_blob=$want got_blob=$got" \
+                | tee -a "$OUT_DIR/invalid-infra.txt"
+              status=1; return
+            fi
+            echo "blob ok  $path  $got"
+          }
+          check src/anvil.cpp          "$BASE_SRC_ANVIL_BLOB"
+          check tools/bench_native.cpp  "$BASE_BENCH_NATIVE_BLOB"
+          check CMakeLists.txt         "$BASE_CMAKELISTS_BLOB"
+          check "$FROZEN_SUITE"         "$BASE_FROZEN_SUITE_BLOB"
+          check tests/noise-floor.csv   "$BASE_NOISE_FLOOR_BLOB"
+          check tests/corpus/CHECKSUMS.txt "$BASE_CHECKSUMS_BLOB"
+
+          # The Q2 commit may add ONLY prototype/docs/workflow files. Any change to a tracked
+          # production, tool, test, corpus or ledger path is an infra failure, not a result.
+          git fetch --quiet origin "$PUBLIC_BASE_SHA" 2>/dev/null || true
+          if git cat-file -e "$PUBLIC_BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --name-only "$PUBLIC_BASE_SHA" HEAD > "$OUT_DIR/changed-vs-base.txt" || true
+          else
+            echo "INVALID_INFRA public base $PUBLIC_BASE_SHA not fetchable" \
+              | tee -a "$OUT_DIR/invalid-infra.txt"
+            status=1
+          fi
+          grep -Ev '^(prototypes/swarm-2026-10-02/q2-parity/|docs/swarm-2026-10-02/|docs/contrib/|\.github/workflows/)' \
+            "$OUT_DIR/changed-vs-base.txt" > "$OUT_DIR/unexpected-changed-paths.txt" || true
+          if [ -s "$OUT_DIR/unexpected-changed-paths.txt" ]; then
+            echo "INVALID_INFRA unexpected_changed_paths_vs_public_base:" \
+              | tee -a "$OUT_DIR/invalid-infra.txt"
+            cat "$OUT_DIR/unexpected-changed-paths.txt" | tee -a "$OUT_DIR/invalid-infra.txt"
+            status=1
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error::INVALID_INFRA -- blob identity check failed. No codec was invoked."
+            echo "outcome=INVALID_INFRA" | tee "$OUT_DIR/verdict.txt"
+            exit 1
+          fi
+          echo "outcome=BLOB-IDENTITY-VERIFIED" | tee "$OUT_DIR/verdict.txt"
+
+      # ---- dependencies BEFORE anything invokes a toolchain -----------------
+      - name: Install pinned dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # libzstd-dev is required: anvil_bench links zstd, and the second build-output
+          # corpus slot cannot be materialised without it.
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev python3 time
+
+      - name: Record provenance
+        run: |
+          set -euo pipefail
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "evaluated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=${{ github.run_attempt }}"
+            echo "event=${{ github.event_name }}"
+            echo "ref_name=$GITHUB_REF_NAME"
+            echo "workflow_commit_sha=$GITHUB_SHA"
+            echo "checkout_ref=${{ github.sha }}"
+            echo "public_base_sha=$PUBLIC_BASE_SHA"
+            echo "source_tree_ref=$GITHUB_SHA"
+            # queue edit E8: dirtiness is asserted about THIS pinned checkout only.
+            echo "source_dirty_of_this_checkout=$(git status --porcelain | wc -l)"
+            echo "verified_blob=src/anvil.cpp:$BASE_SRC_ANVIL_BLOB"
+            echo "verified_blob=tools/bench_native.cpp:$BASE_BENCH_NATIVE_BLOB"
+            echo "verified_blob=CMakeLists.txt:$BASE_CMAKELISTS_BLOB"
+            echo "verified_blob=$FROZEN_SUITE:$BASE_FROZEN_SUITE_BLOB"
+            echo "verified_blob=tests/noise-floor.csv:$BASE_NOISE_FLOOR_BLOB"
+            echo "verified_blob=tests/corpus/CHECKSUMS.txt:$BASE_CHECKSUMS_BLOB"
+            echo "--- toolchain, recorded AFTER install ---"
+            uname -a
+            lscpu
+            clang-18 --version | head -1
+            clang++-18 --version | head -1
+            cmake --version | head -1
+            ninja --version
+            python3 --version
+            dpkg-query -W -f='${Package} ${Version}\n' \
+              libbrotli-dev libzstd-dev time 2>/dev/null || true
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Static validation of the prototype (no codec, no corpus compression)
+        run: |
+          set -euo pipefail
+          cd "$PROTO"
+          for f in q2_arms.py q2_factorial.py q2_collect.py q2_brotli_geom.cpp README.md; do
+            test -f "$f" || { echo "::error::missing prototype file $f"; exit 1; }
+          done
+          python3 q2_arms.py --list-arms          | tee "$OUT_DIR/arms.txt"
+          python3 q2_arms.py --verify-identity
+          python3 q2_arms.py --check-env
+          # Fail-closed population derivation: the 13 frozen files, NOT all of CHECKSUMS.
+          python3 q2_arms.py --population-report \
+            --plan "$CORPUS_DIR" --frozen-suite "$FROZEN_SUITE" \
+            | tee "$OUT_DIR/population-report.json"
+          python3 q2_factorial.py --self-test
+          python3 q2_arms.py --emit-retained-map  > "$OUT_DIR/retained-config-argv-map.json"
+          python3 q2_arms.py --plan "$CORPUS_DIR" --frozen-suite "$FROZEN_SUITE" \
+            --out "$OUT_DIR/arm-manifest.json"
+
+      - name: Build anvil AND anvil_bench
+        run: |
+          set -euo pipefail
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=ON
+          cmake --build "$BUILD_DIR" --parallel 4 --target anvil anvil_bench
+          # Fail closed: BOTH binaries are required, because both are build-output corpus slots.
+          for b in anvil anvil_bench; do
+            if [ ! -x "$BUILD_DIR/$b" ]; then
+              echo "::error::INVALID_INFRA missing build target: $b"
+              echo "INVALID_INFRA missing_build_target=$b" | tee "$OUT_DIR/verdict.txt"
+              exit 1
+            fi
+          done
+          {
+            echo "anvil_binary_bytes=$(stat -c %s "$BUILD_DIR/anvil")"
+            echo "anvil_binary_sha256=$(sha256sum "$BUILD_DIR/anvil" | cut -d' ' -f1)"
+            echo "anvil_bench_binary_bytes=$(stat -c %s "$BUILD_DIR/anvil_bench")"
+            echo "anvil_bench_binary_sha256=$(sha256sum "$BUILD_DIR/anvil_bench" | cut -d' ' -f1)"
+            echo "frozen_suite_file_sha256=$(sha256sum "$FROZEN_SUITE" | cut -d' ' -f1)"
+            echo "checksums_file_sha256=$(sha256sum tests/corpus/CHECKSUMS.txt | cut -d' ' -f1)"
+          } | tee -a "$OUT_DIR/provenance.txt"
+
+      - name: Materialise both build-output corpus slots
+        run: |
+          set -euo pipefail
+          # tests/corpus/anvil.exe and anvil_bench.exe are NOT git-tracked: in the retained
+          # grid they ARE the build outputs under test. On this run they are FRESH LINUX
+          # BUILD ARTIFACTS. Their SHA-256 and size are RECORDED; they are never asserted
+          # against the historical Windows manifest values, and the analyzer keeps them in a
+          # separate role stratum for exactly that reason.
+          cp "$BUILD_DIR/anvil" "$CORPUS_DIR/anvil.exe"
+          cp "$BUILD_DIR/anvil_bench" "$CORPUS_DIR/anvil_bench.exe"
+          {
+            echo "identity_role=build-output-under-test"
+            echo "slot=anvil.exe       bytes=$(stat -c %s "$CORPUS_DIR/anvil.exe") sha256=$(sha256sum "$CORPUS_DIR/anvil.exe" | cut -d' ' -f1)"
+            echo "slot=anvil_bench.exe bytes=$(stat -c %s "$CORPUS_DIR/anvil_bench.exe") sha256=$(sha256sum "$CORPUS_DIR/anvil_bench.exe" | cut -d' ' -f1)"
+            echo "historical_assertion=NEVER (retained-grid values were Windows builds)"
+          } | tee "$OUT_DIR/build-output-slots.txt"
+
+      - name: Build the reference geometry helper
+        run: |
+          set -euo pipefail
+          # Built BEFORE the collector, whose preflight gates on the helper being present.
+          c++ -O2 -std=c++17 "$PROTO/q2_brotli_geom.cpp" \
+            -lbrotlienc -lbrotlidec -o "$OUT_DIR/q2_brotli_geom"
+          {
+            echo "helper_binary_bytes=$(stat -c %s "$OUT_DIR/q2_brotli_geom")"
+            echo "helper_binary_sha256=$(sha256sum "$OUT_DIR/q2_brotli_geom" | cut -d' ' -f1)"
+          } | tee -a "$OUT_DIR/provenance.txt"
+
+      - name: "G-S PREFLIGHT: G0 on stratum A only, retained-twin substrate integrity"
+        run: |
+          set -euo pipefail
+          cd "$PROTO"
+          # FIRST STAGE, before any geometry arm. Runs G0 (262144 B, gate ON -- the frozen
+          # Class-A geometry) on the tracked stratum-A files only and requires byte identity
+          # with the frozen per-file candidate bytes. Build-output slots are excluded by
+          # construction, so a fresh Linux binary can never satisfy or fail this gate.
+          python3 q2_collect.py \
+            --corpus "$CORPUS_DIR" \
+            --frozen-suite "$FROZEN_SUITE" \
+            --anvil "$GITHUB_WORKSPACE/$BUILD_DIR/anvil" \
+            --helper "$OUT_DIR/q2_brotli_geom" \
+            --out "$OUT_DIR/g-s-preflight-rows.jsonl" \
+            --work "$RUNNER_TEMP/q2-work-preflight" \
+            --preflight-only \
+            --execute
+          # Fail closed. Non-zero => G-S did not pass => geometry contrasts are WITHHELD and
+          # the expensive geometry arms are never spent.
+          if ! python3 q2_factorial.py \
+                 --rows "$OUT_DIR/g-s-preflight-rows.jsonl" \
+                 --retained-suite "$FROZEN_SUITE" \
+                 --preflight-only \
+                 --out "$OUT_DIR/g-s-preflight.json"; then
+            echo "::error::BASELINE-VOID -- G0 on stratum A does not reproduce the retained per-file candidate bytes. Build, corpus bytes, or configuration identity has drifted. Geometry contrasts are WITHHELD and the geometry arms are not run."
+            echo "BASELINE-VOID" > "$OUT_DIR/verdict.txt"
+            exit 2
+          fi
+          echo "G-S-PASS" | tee "$OUT_DIR/verdict-g-s.txt"
+
+      - name: Reference producer pin (HARD HOLD prerequisite)
+        run: |
+          set -euo pipefail
+          # HONESTY GATE. R1/R3 are a same-run matched geometry-control pair. They are NOT a
+          # reproduction of the retained Brotli rows: those were produced at
+          # BROTLI_DEFAULT_WINDOW (lgwin 22, tools/bench_native.cpp:39) while R1 uses an
+          # EXPLICIT lgwin 30, so the two are never compared.
+          #
+          # The pair also requires a PINNED Brotli producer end-to-end. apt's libbrotli-dev is
+          # NOT a pin: its identity is whatever the runner image happens to carry. Until the
+          # coordinator supplies a pinned producer identity the reference half is HELD; the
+          # requirement is NOT weakened to accommodate the runner.
+          #
+          # The version below is RECORDED as provenance only. It is not a pin and confers no
+          # reproducibility claim.
+          {
+            echo "recorded_libbrotli_dev_version=$(dpkg-query -W -f='${Version}' libbrotli-dev 2>/dev/null || echo absent)"
+            echo "pin_state=UNPINNED"
+            echo "reference_half=HOLD-BROTLI-PRODUCER-UNPINNED"
+            echo "identity_note=R1 uses explicit lgwin 30; retained rows used BROTLI_DEFAULT_WINDOW lgwin 22; never compared"
+            echo "consequence=D_ref residual is withheld; the geometry factorial contrasts depend on no reference arm and are unaffected"
+          } | tee "$OUT_DIR/reference-producer-pin.txt"
+
+      - name: Collect bytes, hashes and descriptive rows (all cells)
+        run: |
+          set -euo pipefail
+          cd "$PROTO"
+          python3 q2_collect.py \
+            --corpus "$CORPUS_DIR" \
+            --frozen-suite "$FROZEN_SUITE" \
+            --anvil "$GITHUB_WORKSPACE/$BUILD_DIR/anvil" \
+            --helper "$OUT_DIR/q2_brotli_geom" \
+            --out "$OUT_DIR/rows.jsonl" \
+            --manifest "$OUT_DIR/arm-manifest-executed.json" \
+            --work "$RUNNER_TEMP/q2-work" \
+            --execute
+
+      - name: Compute contrasts, role-stratified totals and fidelity
+        run: |
+          set -euo pipefail
+          cd "$PROTO"
+          python3 q2_factorial.py \
+            --rows "$OUT_DIR/rows.jsonl" \
+            --retained-suite "$FROZEN_SUITE" \
+            --out "$OUT_DIR/contrasts.json"
+
+      - name: Assert no frontier vocabulary was emitted
+        run: |
+          set -euo pipefail
+          cd "$PROTO"
+          python3 q2_factorial.py --assert-no-frontier-vocabulary \
+            "$OUT_DIR/rows.jsonl" \
+            "$OUT_DIR/contrasts.json" \
+            "$OUT_DIR/arm-manifest-executed.json" \
+            "$OUT_DIR/arm-manifest.json" \
+            "$OUT_DIR/population-report.json" \
+            "$OUT_DIR/retained-config-argv-map.json" \
+            "$OUT_DIR/provenance.txt" \
+            "$OUT_DIR/build-output-slots.txt" \
+            "$OUT_DIR/arms.txt"
+
+      - name: Write step summary
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          {
+            echo "# ANVIL Q2 block/window parity (2x2 factorial)"
+            echo
+            echo "- event: \`${{ github.event_name }}\` on \`$GITHUB_REF_NAME\`"
+            echo "- workflow commit: \`$GITHUB_SHA\` (checkout target = this commit)"
+            echo "- public base compared against: \`$PUBLIC_BASE_SHA\`"
+            echo "- production/evidence blob identity: verified before build, else \`INVALID_INFRA\`"
+            echo "- 5 retained Class-A configs x 4 cells = 20 candidate cells, + 2 descriptive reference arms"
+            echo "- population: 13 files derived from the frozen suite (NOT all of CHECKSUMS)"
+            echo "- classifying axis: \`complete_bytes\` ONLY; totals are ROLE-STRATIFIED (A/B/C)"
+            echo "- timing / parallelism / reference codecs: descriptive, non-classifying"
+            echo "- materiality threshold: NONE. epsilon: NONE."
+            echo "- G0 minus G3 is the GATE main effect with geometry held fixed, not a window effect."
+            echo "- Q2 mints no label, no void trigger, no classification; no frontier vocabulary is emitted."
+            echo
+            if [ -f "$OUT_DIR/verdict.txt" ]; then
+              echo "## Infra verdict"; echo '```'; cat "$OUT_DIR/verdict.txt"; echo '```'
+            fi
+            if [ -f "$OUT_DIR/invalid-infra.txt" ]; then
+              echo "## INVALID_INFRA detail"; echo '```'; cat "$OUT_DIR/invalid-infra.txt"; echo '```'
+            fi
+            if [ -f "$OUT_DIR/population-report.json" ]; then
+              echo "## Population (fail-closed derivation)"
+              echo '```json'; cat "$OUT_DIR/population-report.json"; echo '```'
+            fi
+            if [ -f "$OUT_DIR/contrasts.json" ]; then
+              echo "## Role-stratified exact totals"
+              echo '```json'
+              python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(json.dumps({k:d['corpus_totals'][k] for k in ('stratified','A_tracked_q0_compatible','B_build_output_under_test','C_all_13_mixed_discovery_aggregate','pooling_warning')},indent=2,sort_keys=True))" "$OUT_DIR/contrasts.json"
+              echo '```'
+              echo "## Retained twin fidelity (recorded, non-decisional)"
+              echo '```json'
+              python3 -c "import json,sys;d=json.load(open(sys.argv[1]));t=d['retained_twin_fidelity'];print(json.dumps({k:t[k] for k in ('decisional','twin_groups','files_with_any_divergence')},indent=2,sort_keys=True))" "$OUT_DIR/contrasts.json"
+              echo '```'
+              echo "## Retained byte fidelity (byte/provenance only)"
+              echo '```json'
+              python3 -c "import json,sys;d=json.load(open(sys.argv[1]));f=d['retained_byte_fidelity'];print(json.dumps({k:f.get(k) for k in ('decisional','compared','byte_identical','byte_differing')},indent=2,sort_keys=True))" "$OUT_DIR/contrasts.json"
+              echo '```'
+            fi
+            if [ -f "$OUT_DIR/arms.txt" ]; then
+              echo "## Arm registry"; echo '```'; cat "$OUT_DIR/arms.txt"; echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-q2-parity-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
