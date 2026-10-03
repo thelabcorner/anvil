@@ -60,8 +60,8 @@ Q2 attaches **no verdict** to any of them.
 
 ## What Q2 must never do
 
-* **Never emit any frontier class** — `FRONT-CROSSING`, `FRONT-GAP`, `DOMINATED`, `DEGENERATE`,
-  `BASELINE-CROSSING-CANDIDATE`, or anything else in that vocabulary. The frontier predicate is
+* **Never emit any frontier class** — no retained crossing/gap label, dominance/degeneracy label,
+  candidate-crossing alias, or anything else in that vocabulary. The frontier predicate is
   **not run at all**: no dominance test, no bracket test, no classification order.
   `q2_factorial.py --assert-no-frontier-vocabulary` fails the job if any frontier token appears in
   any artifact.
@@ -79,7 +79,7 @@ Q2 attaches **no verdict** to any of them.
   fresh artifacts, not the historical Windows objects the retained grid measured.
 * **Never classify on timing, parallelism, or a reference codec.** Those axes are recorded,
   labelled `*_classifying: false`, and enter no contrast.
-* **Never collapse the five retained configurations.** The retained FRONT-GAP set spans
+* **Never collapse the five retained configurations.** The retained five-config set spans
   `stream_lambda` ∈ {0.04, 0.00, 0.01} across {mdl, shape}; `q2_arms.py` asserts the span and
   refuses a duplicate `(parse, lambda)` pair.
 * **Never let the environment define identity.** `ANVIL_STREAM_LAMBDA` is read at
