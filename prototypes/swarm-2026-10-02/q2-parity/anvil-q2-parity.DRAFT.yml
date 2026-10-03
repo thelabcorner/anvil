@@ -93,7 +93,7 @@ jobs:
       # the very tooling this job runs. So the checkout target is the workflow's own commit,
       # and correctness is guaranteed by the blob-identity assertion below, not by ref choice.
       - name: Checkout the workflow/staging commit itself
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # pinned v4 lineage; reused from audited dense-frontier workflow
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -409,7 +409,7 @@ jobs:
 
       - name: Upload raw evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # pinned v4 lineage; reused from audited dense-frontier workflow
         with:
           name: anvil-q2-parity-${{ github.sha }}-run${{ github.run_attempt }}
           path: ${{ env.OUT_DIR }}
