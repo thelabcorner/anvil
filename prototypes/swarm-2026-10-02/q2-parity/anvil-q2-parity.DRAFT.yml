@@ -10,17 +10,15 @@
 # trigger: this repository's manual-only doctrine is preserved, even at the cost of the first
 # run.
 #
-# Design authority: docs/swarm-2026-10-02/Q2-PARITY-PLAN-SPACE-BUNNY.md (Rev 6)
+# Design authority: docs/swarm-2026-10-02/Q2-PARITY-PLAN-SPACE-BUNNY.md (Rev 8)
 # Protocol authority: docs/github-actions-benchmark-protocol.md
 #
 # Properties enforced by construction:
 #   * workflow_dispatch ONLY. No push, no schedule, no pull_request, no release mutation.
 #     Manual-only doctrine is preserved even though it costs us the first run.
 #   * permissions: contents: read. No secrets are referenced or required.
-#   * actions pinned to major-version tags, matching every existing workflow in this repo.
-#     Pinning to commit SHAs is desirable but NOT done here: action SHAs cannot be verified
-#     offline, and a fabricated SHA would break the run. Open item for the coordinator at
-#     install time.
+#   * actions/checkout and actions/upload-artifact are commit-pinned using SHAs already audited
+#     in the repository's dense-frontier workflow; no floating major tag is used.
 #   * concurrency group, cancel-in-progress: false
 #   * finite timeout; artifact upload under if: always()
 #   * checkout the WORKFLOW/STAGING COMMIT ITSELF (github.sha), never a foreign ref
@@ -28,7 +26,8 @@
 #     coordinator-validated base blob ids BEFORE build and BEFORE any codec invocation;
 #     changed paths are compared against the FULL public base SHA, not HEAD~1
 #   * ANVIL_STREAM_LAMBDA asserted UNSET before anything is built or run
-#   * dependencies installed BEFORE provenance, which invokes clang/cmake/ninja
+#   * dependencies installed BEFORE provenance; Brotli reference source is fetched at immutable
+#     official v1.1.0 commit ed738e842d2fbdf2d6459e39267a633c4a9b2f5d and built static
 #   * ANVIL_BUILD_NATIVE_BENCH=ON and BOTH targets built; fail closed if either is absent
 #   * both build-output corpus slots materialised, recorded, never asserted vs old hashes
 #   * NO timing job; NO classification step; no frontier vocabulary in any artifact
@@ -384,7 +383,8 @@ jobs:
             "$OUT_DIR/retained-config-argv-map.json" \
             "$OUT_DIR/provenance.txt" \
             "$OUT_DIR/build-output-slots.txt" \
-            "$OUT_DIR/arms.txt"
+            "$OUT_DIR/arms.txt" \
+            "$PROTO/anvil-q2-parity.DRAFT.yml"
 
       - name: Write step summary
         if: ${{ always() }}
@@ -399,7 +399,7 @@ jobs:
             echo "- production/evidence blob identity: verified before build, else \`INVALID_INFRA\`"
             echo "- 5 retained Class-A configs x 4 cells = 20 candidate cells, + 2 descriptive reference arms"
             echo "- population: 13 files derived from the frozen suite (NOT all of CHECKSUMS)"
-            echo "- classifying axis: \`complete_bytes\` ONLY; totals are ROLE-STRATIFIED (A/B/C)"
+            echo "- measured decision surface: \`complete_bytes\` contrasts only; totals are ROLE-STRATIFIED (A/B/C)"
             echo "- timing / parallelism / reference codecs: descriptive, non-classifying"
             echo "- materiality threshold: NONE. epsilon: NONE."
             echo "- G0 minus G3 is the GATE main effect with geometry held fixed, not a window effect."

@@ -216,6 +216,11 @@ Negative preregistered results are not reinterpreted post hoc.
 
 ## 8. Immediate next action
 
-The next permissible implementation action is **packaging the already-built Q1a-XRUN identity/reproducibility workflow into a clean tracked commit/approved remote branch**.
+The Q1a-XRUN workflow now exists as the reviewed, non-installed draft
+`prototypes/swarm-2026-10-02/q1a-corpus-lock/space-bunny/anvil-i10-corpus-admissibility.DRAFT.yml`.
+The next permissible packaging action is to create the **dedicated tracked XRUN lock+tombstone**
+(only checkout-resident OPEN-role bytes; no current-worktree/host-installed dependency), freeze their
+expected artifact digests from a clean checkout, and install the draft as
+`.github/workflows/anvil-i10-corpus-admissibility.yml` in a clean approved remote commit.
 
 That action requires an explicit change to the current no-commit/no-push doctrine. Until then, **remote dispatch count = 0** and the research queue is intentionally paused at the reproducibility boundary.

@@ -1,20 +1,18 @@
-# Q2 — Block/window geometry parity: FINAL DESIGN (2×2 factorial, byte-only decision token)
+# Q2 — Block/window geometry parity: FINAL DESIGN (2×2 factorial, byte-only measurement)
 
-**Agent:** Space Bunny Free · **Date:** 2026-10-02 · **Rev 7** — final adjudication fixes. Supersedes
-Rev 6. Rev 7 changes **no algebra** and adds **no measurement scope**. It: (a) adds **G-S**, a
-fail-closed retained-twin **preflight** run as a true first workflow stage on **G0 / stratum A only**, so
-a drifted substrate is caught before any geometry arm is spent and the contrasts are **withheld** on
-mismatch; (b) removes the last frontier-vocabulary leaks and scans every emitted surface; (c) emits
-structural capacity **symbolically** as `min(N, nblocks) / block_count` rather than only at
-`decode_threads=1`; (d) fixes reference identity honestly — R1/R3 are a **same-run matched
-geometry-control pair**, R1 is **not** a reproduction of the retained rows (those used
-`BROTLI_DEFAULT_WINDOW` = lgwin 22 against R1's explicit lgwin 30), and the Brotli producer is a
-**HARD HOLD** until pinned end-to-end rather than weakened to an unversioned `libbrotli-dev`;
-(e) **no self-authorization**. Rev 6's manual-only doctrine (`workflow_dispatch`, no push trigger) and
-all Rev 5 items stand.
+**Agent:** Space Bunny Free · **Date:** 2026-10-02 · **Rev 8** — coordinator reference-pin closeout. Supersedes
+Rev 7. Rev 8 changes **no algebra** and adds **no measurement scope**. Rev 7's G-S first-stage retained-twin
+preflight, frontier-vocabulary removal, symbolic structural capacity, and no-self-authorization rules all
+stand. Rev 8 clears the reference-producer HOLD by pinning the official Brotli **v1.1.0** release to full
+commit `ed738e842d2fbdf2d6459e39267a633c4a9b2f5d`, building static Brotli libraries from that exact source
+in runner temp, asserting the fetched `HEAD` before use, and linking `q2_brotli_geom` directly against the
+pinned libraries. R1/R3 remain a **same-run matched geometry-control pair** and are still **not** claimed
+to reproduce the retained lgwin-22 Brotli rows. The workflow remains manual-only (`workflow_dispatch`),
+read-only, and non-authorizing.
 **Owners per queue:** Tracks 04 + 15 · **Class:** `adopt-class {engineering}` — **measurement parity only**
-**Dispatch status:** **NOT DISPATCHED.** Verdict in §11: *dispatchable as a byte-only parity-geometry
-census; explicitly NOT dispatchable as a classification, configuration-change, or novelty job.*
+**Dispatch status:** **PREPARED / NOT DISPATCHED.** The measurement design and reference producer are now
+fully pinned; the remaining HOLD is control-plane publication/approval of the workflow/prototype on an
+approved GitHub branch. The job is never a classification, configuration-change, frontier, or novelty job.
 
 No local compression, sweep, benchmark, timing, or fuzz run was performed. No codec was invoked. No
 commit, push, reset, clean, stash, restore, or rebase. **No coordinator file was created, edited, or
@@ -422,7 +420,7 @@ class.** Q2 reports byte movement; it does not adjudicate the bars.
 > **NOT DISPATCHABLE** — and this job is structurally incapable of it — as a **classification** job, a
 > **configuration-change** job, a **frontier** job, or a **novelty** job.
 
-**HOLD PREREQUISITE (rev 6).** Even the measurement half is **not dispatchable yet**. The workflow is
+**HOLD PREREQUISITE (rev 8).** The measurement half is **not dispatchable yet** only because the workflow is
 `workflow_dispatch` only, per the repo's manual-only doctrine — no push trigger, not even branch-scoped.
 A workflow file that exists only on a staging ref cannot be dispatched until its path is tracked and
 approved on an approved remote/default branch. That is a **coordinator prerequisite**, and this document
@@ -431,17 +429,16 @@ but **not installed**, and `.github/` remains untouched.
 
 Preconditions, in order:
 
-1. **Coordinator authorisation of this Rev 6** (2×2 algebra, no frontier vocabulary, non-classifying
-   timing/parallelism). Nothing here is authorised by the document itself.
+1. **Coordinator authorisation of Rev 8** (2×2 algebra, G-S preflight, immutable Brotli producer, no frontier vocabulary, non-classifying timing/parallelism). Nothing here is authorised by the document itself.
 2. **G-S: retained candidate fidelity passes on every tracked stratum-A G0 row before contrasts.**
-   Any difference is build drift and withholds all candidate geometry output. R1/R3 remain descriptive
-   until their Brotli producer is independently version-pinned; their status cannot block or validate
-   the core factorial.
+   Any difference is build drift and withholds all candidate geometry output. R1/R3 use the immutable
+   Brotli v1.1.0 producer at `ed738e842d2fbdf2d6459e39267a633c4a9b2f5d`; they remain a same-run
+   geometry-control pair and are never spliced to the historical lgwin-22 rows.
 3. **Coordinator ruling on the pinned commit, and on blob identity.** The checkout target is now the
    **workflow/staging commit itself** (`github.sha`), because local `b8eae11` does not exist on the
    sanitised mirror and checking out public base `564e2cd…` would delete the prototype directory.
-   Correctness is therefore guaranteed by **fail-closed blob identity**, not by ref selection: five
-   measurement-critical production blobs must match the coordinator-validated base blob ids, and the
+   Correctness is therefore guaranteed by **fail-closed blob identity**, not by ref selection: six
+   measurement-critical production/evidence blobs must match the coordinator-validated base blob ids, and the
    Q2 commit may add only prototype/docs/workflow files. Mismatch ⇒ **`INVALID_INFRA`** with **no codec
    invoked** (gates **G-O**, **G-P**).
 4. **Confirmation that queue E1/E2/E4 bind**: `evidence_role = discovery`,
@@ -449,8 +446,8 @@ Preconditions, in order:
 5. **HOLD cleared**: the workflow path tracked and approved so `workflow_dispatch` can reach it. Until
    then this job is prepared, not dispatchable, and no auto-trigger is added in its place.
 
-**Cost.** 4 candidate cells × 13 files + 2 reference arms × 13 files, encode+decode, largest file
-2.8 MB. Dominated by R1/R3 (Brotli q11). Comfortably inside a 120-minute timeout. **No timing job.**
+**Cost.** 5 retained configurations × 4 candidate cells × 13 files = **260 candidate rows**, plus
+2 reference arms × 13 files = **26 reference rows**, encode+decode, largest file 2.8 MB. Dominated by R1/R3 (Brotli q11). Comfortably inside a 120-minute timeout. **No timing job.**
 
 ---
 
@@ -497,20 +494,19 @@ Preconditions, in order:
 | G-C | `roundtrip_verified == true` for every cell, by **byte-compare**, never by exit code (E4 recorded a helper returning 0 with no output under load) | `INVALID-Q2` |
 | G-D | `block_count == ceil(n/block)` (final block short), Σ block lengths == `n`, all four cells | `INVALID-Q2` |
 | G-E | `bytes(R3) == Σpayloads + declared container framing`, reconciled exactly; `framing_ref` emitted | `INVALID-Q2` |
-| G-F | R1/R3 are explicitly labelled **descriptive-only** while the Brotli producer is unpinned; no equality-to-frozen claim is made | any reference-derived parity claim is rejected; candidate factorial unaffected |
+| G-F | R1/R3 are a same-run matched geometry-control pair built from **google/brotli v1.1.0** at immutable commit `ed738e842d2fbdf2d6459e39267a633c4a9b2f5d`; R1 uses explicit lgwin 30 and is never claimed equal to the historical lgwin-22 rows | producer SHA mismatch ⇒ `INVALID_INFRA`; no cross-window splice permitted |
 | G-G | router counters present for every candidate cell (`blocks`, `compressed_blocks`, `raw_blocks`) | `INVALID-Q2` |
-| **G-S** | retained **byte** fidelity is evaluated first on every tracked stratum-A G0 row; all must be byte-identical before contrasts are computed | **`BASELINE-VOID (build drift)`**, contrasts withheld, non-zero exit |
 | G-I | no arm string contains `--parse=ratio`, `--ratio-backend`, or `--bwt-aux=on` | `INVALID-Q2` |
 | G-J | contrast identity `interaction == (G1-G0)-(G2-G3)` verified in code before any quantity is published | `INVALID-Q2` |
 | G-K | `--decode-threads=1` present on every candidate cell and recorded | `INVALID-Q2` |
 | G-L | dual-bar status emitted per cell: `NO-FROZEN-SAME-TRANSFORM-CONTROL` for the four `{synthetic}` cells (`tests/xz-transform-controls-i9.csv` covers only the tombstoned `pe-*` set — byte-identical to queue E5) | recorded, never silently cleared |
 | G-M | both aggregates emitted (`aggregate_all_roles`, `aggregate_heldout_only` = `null`); `promotion_authorized: false` | `INVALID-Q2` |
 | G-N | `ANVIL_STREAM_LAMBDA` unset in the workflow environment, in the collector's child environment, and in the operator shell (`src/anvil.cpp:4959`) | `INVALID-Q2` |
-| G-O | measurement-critical production blobs equal the coordinator-validated base blob ids, asserted **before build and before any codec invocation**: `src/anvil.cpp` `755df76a…`, `tools/bench_native.cpp` `4f6ceb5a…`, `CMakeLists.txt` `449ae00e…`, the frozen suite CSV `69bd30c3…`, `tests/noise-floor.csv` `f7979be2…`. The Q2 commit may add **only** prototype/docs/workflow files. | **`INVALID_INFRA`** — job exits non-zero, no codec invoked |
+| G-O | measurement-critical production/evidence blobs equal the coordinator-validated base blob ids, asserted **before build and before any codec invocation**: `src/anvil.cpp` `755df76a…`, `tools/bench_native.cpp` `4f6ceb5a…`, `CMakeLists.txt` `449ae00e…`, frozen suite CSV `69bd30c3…`, `tests/noise-floor.csv` `f7979be2…`, and `tests/corpus/CHECKSUMS.txt` `523e44a4…`. The Q2 commit may add **only** prototype/docs/workflow files. | **`INVALID_INFRA`** — job exits non-zero, no codec invoked |
 | G-P | checkout target is the **workflow/staging commit itself** (`github.sha`), never a foreign ref: local `b8eae11` does not exist on the sanitised mirror, and checking out public base `564e2cd…` would delete `prototypes/swarm-2026-10-02/q2-parity/`. Correctness is guaranteed by G-O, not by ref selection. `workflow_commit_sha` and `base_parent_sha` recorded in provenance. | **`INVALID_INFRA`** |
 | G-R | the 13-file population is derived from the **frozen Class-A CSV**, never from `CHECKSUMS.txt` (which has 24 entries); exactly 13 names, equal to `Q0_FROZEN_FILES`, all present in `CHECKSUMS.txt`, all byte counts agreeing with the frozen `input_bytes` | **`INVALID_INFRA`** — population derivation is fail-closed (`q2_arms.py --population-report`) |
 | **G-S** | **retained-twin PREFLIGHT, first workflow stage.** G0 (262,144 B, gate ON — the frozen Class-A geometry) on **stratum-A tracked files only** must be **byte-identical** to the frozen per-file candidate bytes, checked **before any geometry arm runs and before any contrast is emitted or interpreted**. Build-output slots are excluded by construction. | **`BASELINE-VOID`** (build / corpus / configuration drift). Geometry contrasts are **withheld** (`records: []`, `contrasts_withheld: true`), the analyzer exits non-zero, and the G1/G2/G3 arms are **never spent**. Substrate outcome — no codec result, no interpretation. |
-| **G-T** | the Brotli producer must be **pinned end-to-end** (version + commit/tag + verified artefact identity) for the R1/R3 matched geometry-control pair. `apt libbrotli-dev` is **not** a pin; its recorded version is provenance only. | **HARD HOLD** — `HOLD-BROTLI-PRODUCER-UNPINNED`. The reference half is held, **not weakened**: `D_ref` is withheld while the geometry factorial contrasts (which depend on no reference arm) stand unaffected. Cleared only by a coordinator-supplied pin. |
+| **G-T** | Brotli reference producer is pinned end-to-end to official `google/brotli` v1.1.0 commit `ed738e842d2fbdf2d6459e39267a633c4a9b2f5d`; workflow fetches that exact commit, asserts `HEAD`, builds static libs with clang-18/CMake/Ninja, and links the helper directly against them | SHA/build mismatch ⇒ **`INVALID_INFRA`**; reference rows never run on an unpinned producer |
 
 ---
 
