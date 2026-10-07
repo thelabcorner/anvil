@@ -73,7 +73,7 @@ jobs:
           git -C "$BROTLI_SRC" fetch --quiet --depth 1 origin "$BROTLI_SHA"
           git -C "$BROTLI_SRC" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$BROTLI_SRC" rev-parse HEAD)" = "$BROTLI_SHA"
-          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -DCMAKE_BUILD_TYPE=Release -DBROTLI_DISABLE_TESTS=ON
+          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -DCMAKE_BUILD_TYPE=Release -DBROTLI_DISABLE_TESTS=ON -DBUILD_SHARED_LIBS=OFF
           cmake --build "$BROTLI_BUILD" --target brotlienc brotlidec brotlicommon -j 2
           for lib in brotlienc brotlidec brotlicommon; do
             find "$BROTLI_BUILD" -name "lib$lib.a" -print -quit | grep -q .
