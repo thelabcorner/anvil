@@ -1,0 +1,110 @@
+# I15 isolated, manually dispatched, no scheduled jobs or delegates.
+name: ANVIL I15 field-local innovations
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      SOURCE: prototypes/i15-field-diff/i15_field_diff.cpp
+      SOURCE_SHA: abda877c13689d8123ba7f963201bab9736a548c15aea7872ac2f604bf70c97e
+      SOURCE_BLOB: 120261b4b8ce3e9507ae9f84ed8f00f782f3fc93
+      CONTROL: prototypes/i13-strided/i13_strided.cpp
+      CONTROL_SHA: 274be4c8a5de222b4bbb16c586fc04310dd1deadd455dacc7741110b8dfcb7c0
+      CONTROL_BLOB: ca3f9e684917b276f6a4274de62c3b20ca73fa95
+      BROTLI_SHA: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
+      BROTLI_SRC: ${{ github.workspace }}/../i15-brotli-src
+      BROTLI_BUILD: ${{ github.workspace }}/../i15-brotli-build
+      OUT: ${{ github.workspace }}/i15-results
+    steps:
+      - name: Checkout exact dispatched revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Assert immutable identity of both source candidates and tracked corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "HEAD:$SOURCE")" = "$SOURCE_BLOB"
+          test "$(git rev-parse "HEAD:$CONTROL")" = "$CONTROL_BLOB"
+          echo "$SOURCE_SHA  $SOURCE" | sha256sum -c -
+          echo "$CONTROL_SHA  $CONTROL" | sha256sum -c -
+          test -z "$(git status --porcelain)"
+          mkdir -p "$OUT"
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "I14_blob=$SOURCE_BLOB I14_sha256=$SOURCE_SHA"
+            echo "I12_blob=$CONTROL_BLOB I12_sha256=$CONTROL_SHA"
+            echo "Brotli_source_commit=$BROTLI_SHA"
+            echo "class=discovery-only frontier_crossing=false"
+            g++ --version | head -n 1
+            cmake --version | head -n 1
+          } | tee "$OUT/provenance.txt"
+          for f in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            test -f "$f"
+            blob="$(git rev-parse "HEAD:$f")"
+            test "$(git hash-object "$f")" = "$blob"
+            echo "$f blob=$blob sha256=$(sha256sum "$f" | cut -d' ' -f1)" | tee -a "$OUT/provenance.txt"
+          done
+      - name: Build matched pinned Brotli static reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$BROTLI_SRC"
+          git -C "$BROTLI_SRC" remote add origin https://github.com/google/brotli.git
+          git -C "$BROTLI_SRC" fetch -q --depth 1 origin "$BROTLI_SHA"
+          git -C "$BROTLI_SRC" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$BROTLI_SRC" rev-parse HEAD)" = "$BROTLI_SHA"
+          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -DCMAKE_BUILD_TYPE=Release -DBROTLI_DISABLE_TESTS=ON -DBUILD_SHARED_LIBS=OFF
+          cmake --build "$BROTLI_BUILD" --target brotlienc brotlidec brotlicommon -j 2
+      - name: Compile I14 and frozen I12 on identical runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib() { find "$BROTLI_BUILD" -name "lib$1.a" -print -quit; }
+          for name in brotlienc brotlidec brotlicommon; do test -f "$(lib "$name")"; done
+          for v in 13 15; do
+            if [ "$v" = 13 ]; then input="$CONTROL"; else input="$SOURCE"; fi
+            g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -DI13_WITH_BROTLI -DI15_WITH_BROTLI \
+              -I "$BROTLI_SRC/c/include" "$input" -o "$RUNNER_TEMP/i$v" \
+              "$(lib brotlienc)" "$(lib brotlidec)" "$(lib brotlicommon)" -pthread
+            sha256sum "$RUNNER_TEMP/i$v" | tee -a "$OUT/binary-hashes.txt"
+            wc -c "$RUNNER_TEMP/i$v" | tee -a "$OUT/binary-sizes.txt"
+          done
+      - name: Exact roundtrip and malformed-wire selftest both candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in 13 15; do
+            "$RUNNER_TEMP/i$v" --selftest | tee "$OUT/selftest-$v.txt"
+            grep -F "SELFTEST PASS" "$OUT/selftest-$v.txt"
+            for f in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+              "$RUNNER_TEMP/i$v" --encode "$f" "$OUT/check-$v.bin"
+              "$RUNNER_TEMP/i$v" --decode "$OUT/check-$v.bin" "$OUT/decoded-$v.bin"
+              cmp "$f" "$OUT/decoded-$v.bin"
+              echo "ROUNDTRIP_PASS I$v $f" | tee -a "$OUT/roundtrips.txt"
+            done
+          done
+      - name: Full wire and digest-inclusive paired discovery benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in 13 15; do
+            "$RUNNER_TEMP/i$v" --bench \
+              tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin \
+              tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl \
+              tests/corpus/src.cpp | tee "$OUT/benchmark-$v.tsv"
+          done
+          python3 tools/i15_decide.py "$OUT/benchmark-13.tsv" "$OUT/benchmark-15.tsv" "$OUT/decision.json"
+      - name: Upload evidence regardless of benchmark verdict
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i15-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 90
