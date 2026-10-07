@@ -1,0 +1,129 @@
+# I16 independent flat/tiled local-DIFF fusion, manual-only and consumed discovery.
+name: ANVIL I16 residual predictor fusion
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SOURCE: prototypes/i16-fusion/i16_fusion.cpp
+      SOURCE_SHA: b214dcff0355293dd588bd762c7328dfce6e114749669f2b7a32d8c052f51dc3
+      SOURCE_BLOB: 9ef1eefee43a46a4fde0588df61e94770c7ad16f
+      FIELD: prototypes/i15-field-diff/i15_field_diff.cpp
+      FIELD_SHA: ce9ff217ca32cae761362e11261ee9fdacaca7b27dcb86d9b2d41fb6a73ff612
+      FIELD_BLOB: fa60ec8fdab9931b5befae6e6575de8eb5ff0321
+      TILED_COMMIT: dee232445fe303dcf555a37dd769cf9fca616a2c
+      TILED_PATH: prototypes/i15-tiled/i15_tiled.cpp
+      TILED_SHA: 2b2a891af077d51f53d26b22c05098e59a7ea2530015de75fcd9fb16d4afb4c7
+      TILED_BLOB: b63136b8d4cc38bd5deca0bbdca1e5c396d36e15
+      BROTLI_SHA: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
+      BROTLI_SRC: ${{ github.workspace }}/../i16-brotli-src
+      BROTLI_BUILD: ${{ github.workspace }}/../i16-brotli-build
+      OUT: ${{ github.workspace }}/i16-results
+    steps:
+      - name: Checkout pinned dispatched revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Attest I16 field source and frozen seven-file corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "HEAD:$SOURCE")" = "$SOURCE_BLOB"
+          test "$(git rev-parse "HEAD:$FIELD")" = "$FIELD_BLOB"
+          echo "$SOURCE_SHA  $SOURCE" | sha256sum -c -
+          echo "$FIELD_SHA  $FIELD" | sha256sum -c -
+          test -z "$(git status --porcelain)"
+          mkdir -p "$OUT"
+          {
+            echo "I16_dispatch_commit=$GITHUB_SHA"
+            echo "I16_source_sha256=$SOURCE_SHA I16_source_blob=$SOURCE_BLOB"
+            echo "I15_field_sha256=$FIELD_SHA I15_field_blob=$FIELD_BLOB"
+            echo "I15_tiled_commit=$TILED_COMMIT I15_tiled_blob=$TILED_BLOB"
+            echo "Brotli_source_commit=$BROTLI_SHA"
+            echo "research_role=consumed-discovery general_frontier_crossing=false"
+            g++ --version | head -n 1
+            cmake --version | head -n 1
+          } | tee "$OUT/provenance.txt"
+          for f in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            test -f "$f"
+            blob="$(git rev-parse "HEAD:$f")"
+            test "$(git hash-object "$f")" = "$blob"
+            echo "$f blob=$blob sha256=$(sha256sum "$f" | cut -d' ' -f1)" | tee -a "$OUT/provenance.txt"
+          done
+      - name: Fetch immutable I15-T source without merging candidate into checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch -q --no-tags origin "$TILED_COMMIT"
+          test "$(git rev-parse FETCH_HEAD)" = "$TILED_COMMIT"
+          test "$(git rev-parse "FETCH_HEAD:$TILED_PATH")" = "$TILED_BLOB"
+          git show "FETCH_HEAD:$TILED_PATH" > "$RUNNER_TEMP/i15t_source.cpp"
+          echo "$TILED_SHA  $RUNNER_TEMP/i15t_source.cpp" | sha256sum -c -
+          test -z "$(git status --porcelain)"
+      - name: Build pinned official Brotli q5 and q11 controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$BROTLI_SRC"
+          git -C "$BROTLI_SRC" remote add origin https://github.com/google/brotli.git
+          git -C "$BROTLI_SRC" fetch -q --depth 1 origin "$BROTLI_SHA"
+          git -C "$BROTLI_SRC" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$BROTLI_SRC" rev-parse HEAD)" = "$BROTLI_SHA"
+          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -DCMAKE_BUILD_TYPE=Release -DBROTLI_DISABLE_TESTS=ON -DBUILD_SHARED_LIBS=OFF
+          cmake --build "$BROTLI_BUILD" --target brotlienc brotlidec brotlicommon -j 2
+      - name: Compile all three codecs with identical flags and reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib() { find "$BROTLI_BUILD" -name "lib$1.a" -print -quit; }
+          for name in brotlienc brotlidec brotlicommon; do test -f "$(lib "$name")"; done
+          for v in 15field 15t 16; do
+            case "$v" in
+              15field) input="$FIELD" ;;
+              15t) input="$RUNNER_TEMP/i15t_source.cpp" ;;
+              16) input="$SOURCE" ;;
+            esac
+            g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -DI15_WITH_BROTLI \
+              -I "$BROTLI_SRC/c/include" "$input" -o "$RUNNER_TEMP/i$v" \
+              "$(lib brotlienc)" "$(lib brotlidec)" "$(lib brotlicommon)" -pthread
+            sha256sum "$RUNNER_TEMP/i$v" | tee -a "$OUT/binary-hashes.txt"
+            wc -c "$RUNNER_TEMP/i$v" | tee -a "$OUT/binary-sizes.txt"
+          done
+      - name: Validate independent inverses, safety selftests, and all 21 roundtrips
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in 15field 15t 16; do
+            "$RUNNER_TEMP/i$v" --selftest | tee "$OUT/selftest-$v.txt"
+            grep -F "SELFTEST PASS" "$OUT/selftest-$v.txt"
+            for f in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+              "$RUNNER_TEMP/i$v" --encode "$f" "$OUT/check-$v.bin"
+              "$RUNNER_TEMP/i$v" --decode "$OUT/check-$v.bin" "$OUT/decoded-$v.bin"
+              cmp "$f" "$OUT/decoded-$v.bin"
+              echo "ROUNDTRIP_PASS $v $f" | tee -a "$OUT/roundtrips.txt"
+            done
+          done
+      - name: Paired three-arm exact-wire and observed-decoder discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in 15field 15t 16; do
+            "$RUNNER_TEMP/i$v" --bench \
+              tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin \
+              tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl \
+              tests/corpus/src.cpp | tee "$OUT/benchmark-$v.tsv"
+          done
+          python3 tools/i16_fusion_decide.py "$OUT/benchmark-15field.tsv" "$OUT/benchmark-15t.tsv" "$OUT/benchmark-16.tsv" "$OUT/decision.json"
+      - name: Upload evidence irrespective of result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i16-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 90
