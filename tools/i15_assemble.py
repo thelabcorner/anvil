@@ -175,8 +175,10 @@ change("Bytes{'A','V','I','3',4,3,3}", "Bytes{'A','V','I','5',4,3,3}")
 change("  cases.push_back(numeric);cases.push_back(jitter);cases.push_back(wrapping);",
 r"""  Bytes drifting(8192);
   uint32_t counter=0xfffff000u;
+  uint64_t noiseSeed=0x9e3779b97f4a7c15ULL;
   for(size_t i=0;i<drifting.size()/4;++i) {
-    counter+=64u+(i%3==0?1u:0u);
+    noiseSeed^=noiseSeed<<13;noiseSeed^=noiseSeed>>7;noiseSeed^=noiseSeed<<17;
+    counter+=64u+uint32_t(noiseSeed%3u)-1u;
     setWord(drifting.data()+i*4,counter,4);
   }
   cases.push_back(drifting);
@@ -190,7 +192,8 @@ r"""  Stats driftStats;
   uint64_t mwseed=0xabcddcba12344321ULL;
   uint32_t mwval=0xfff00000u;
   for(size_t i=0;i<128;++i) {
-    mwval+=64u+(i%3==0?1u:0u);
+    mwseed^=mwseed<<13;mwseed^=mwseed>>7;mwseed^=mwseed<<17;
+    mwval+=64u+uint32_t(mwseed%3u)-1u;
     setWord(mixedWalk.data()+(i*7+0)*4,mwval,4);
     for(size_t lane=1;lane<7;++lane) {
       mwseed^=mwseed<<13;mwseed^=mwseed>>7;mwseed^=mwseed<<17;

@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-07. Locked before any I15 compilation, codec execution or benchmark.
 
-**Source:** prototypes/i15-field-diff/i15_field_diff.cpp — SHA-256 abda877c13689d8123ba7f963201bab9736a548c15aea7872ac2f604bf70c97e; Git blob 120261b4b8ce3e9507ae9f84ed8f00f782f3fc93.
+**Source:** prototypes/i15-field-diff/i15_field_diff.cpp — SHA-256 ce9ff217ca32cae761362e11261ee9fdacaca7b27dcb86d9b2d41fb6a73ff612; Git blob fa60ec8fdab9931b5befae6e6575de8eb5ff0321.
 
 **Control:** frozen I13 source prototypes/i13-strided/i13_strided.cpp — SHA-256 274be4c8a5de222b4bbb16c586fc04310dd1deadd455dacc7741110b8dfcb7c0; Git blob ca3f9e684917b276f6a4274de62c3b20ca73fa95.
 
@@ -52,3 +52,7 @@ Source drift, build failure, malformed acceptance, mismatch, invalid complete-by
 ## 7. Derivation and provenance
 
 tools/i15_assemble.py mechanically generates I15 by exact-match replacements against the frozen I13 source. The assembly script is file manipulation only, never a CPU benchmark. The preregistered immutable output source blob and SHA above bind the workflow. All subsequent corrections must be logged as invalid-premeasurement infra if discovered before a valid remote result.
+
+## Premeasurement fixture correction — run 37700369378
+
+First I15 Actions run 37700369378 passed immutable source provenance, the pinned Brotli static build, compilation, and all seven frozen I13 controls. It stopped **before I15 corpus measurements** when an artificially periodic walking selftest was encoded more efficiently by the retained strided candidate than by a whole-block DIFF; it did not test the intended local innovation branch. Correction changes ONLY two in-source selftest fixtures to deterministic, bounded nonperiodic modular step noise; source format, actual codec encoder/decoder, frozen seven inputs, reference, thresholds, and adjudication are unchanged. No efficacy evidence from run 37700369378. New source SHA-256 ce9ff217ca32cae761362e11261ee9fdacaca7b27dcb86d9b2d41fb6a73ff612; blob fa60ec8fdab9931b5befae6e6575de8eb5ff0321. The tracked reproducible assembler produces exactly these source bytes. A new source-attested remote run is mandatory.
