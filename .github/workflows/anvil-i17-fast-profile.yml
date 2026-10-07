@@ -8,8 +8,11 @@ jobs:
     timeout-minutes: 90
     env:
       SOURCE: prototypes/i17-fast/i17_fast.cpp
-      SOURCE_SHA: a81d7de528992da94dce305a5099370f1083c7e03d70b8520dbb8a8b8e9138d0
-      SOURCE_BLOB: 4ae591f7a04b3a9836721ceb77fd2057d69ed7fd
+      SOURCE_SHA: 727469a41c5506d73f85d0fdc1405f067c1206ad5de94063f1a06605b15c9cf6
+      SOURCE_BLOB: 6d3e79dae00bdb5879427bdd16c9cf630cc8d2e1
+      MIRROR: prototypes/i17-fast/i16_leaf_renamed.inc
+      MIRROR_SHA: 28e97f5c407d0d7b9d3aaa7c5ed0d5dab4d1739129019e8fe01cdb0d02aa50a6
+      MIRROR_BLOB: 2b189985faf82ad94260d507e69c506ef2506f11
       LEAF: prototypes/i16-envelope/i16_envelope.cpp
       LEAF_SHA: 0162ccfab90607393698e12d410509e3d09e31cf77336139e42a830a4837a418
       LEAF_BLOB: 617147803d519e12cf3a6c74878c7125aef6b96c
@@ -40,12 +43,26 @@ jobs:
             test "$(git rev-parse "HEAD:$path")" = "$expected"
             echo "$hash  $path" | sha256sum -c -
           done
+          test "$(git rev-parse "HEAD:$MIRROR")" = "$MIRROR_BLOB"
+          echo "$MIRROR_SHA  $MIRROR" | sha256sum -c -
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('prototypes')
+          src=(root/'i16-envelope/i16_envelope.cpp').read_bytes()
+          mirror=(root/'i17-fast/i16_leaf_renamed.inc').read_bytes()
+          before=b'int main(int argc,char** argv)'
+          after=b'int i16_frozen_command_main(int argc,char** argv)'
+          assert src.count(before)==1, 'frozen I16 entry point not unique'
+          assert mirror==src.replace(before,after), 'I16 mirror contains uncontrolled modifications'
+          print('SOURCE_DERIVATION_PASS exact one entrypoint rename')
+          PY
           test -z "$(git status --porcelain)"
           mkdir -p "$OUT"
           {
             echo "workflow_commit=$GITHUB_SHA"
             echo "candidate=$SOURCE_BLOB sha=$SOURCE_SHA"
             echo "I16_leaf=$LEAF_BLOB sha=$LEAF_SHA"
+            echo "I16_entrypoint_rename_only=$MIRROR_BLOB sha=$MIRROR_SHA"
             echo "I14_leaf=$NUMERIC_BLOB sha=$NUMERIC_SHA"
             echo "Brotli_source=$BROTLI_SHA"
             echo "class=consumed-discovery no-novelty no-frontier"

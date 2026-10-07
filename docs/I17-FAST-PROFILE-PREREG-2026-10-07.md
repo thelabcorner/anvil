@@ -35,3 +35,16 @@ Therefore byte regret B_fast-B_full is >=0, measured and published per source. T
 All experiments obey frozen window/geometry from I14's 4 KiB numeric blocks plus independent whole-file q5/q11. Codec library binary/RSS/startup remain separate axes; reference selector inherits Brotli's decoder. Underlying code includes only the two source-pinned prior leaves and a small fast-selector; original research modes are immutable.
 
 **Next if successful:** replace expensive all-candidate size search with a cheap conservative selector, but only under a new preregistration with a fixed maximum byte-regret or encode-time budget and independent real-source validation. Do not call a synthetic Class-A crossing. Return to typed numeric codecs Sprintz/FastLanes and modern LZ controls before mechanism claims.
+
+
+## Premeasurement source revision (2026-10-07)
+
+The first GitHub Actions [I17 run 37701260209](https://github.com/thelabcorner/anvil/actions/runs/37701260209) passed source identity and reference build but failed while compiling I17, before selftests, roundtrips or benchmark. Nested C++ CLI translation units yielded duplicate `main` definitions. **INVALID-PREMEASUREMENT**, not a speed-profile hypothesis failure.
+
+The corrected I17 source references a mechanically derived I16 source mirror with exactly one entrypoint identifier changed; immutable I16 and I14 algorithms remain unchanged. GitHub Actions checks exact byte equality between the original I16 source and the derived mirror after the one allowed replacement, additionally attesting all source SHA-256 and Git blobs. No hypotheses, population, reference quality, or thresholds have changed.
+
+**Revised source:** SHA-256 `727469a41c5506d73f85d0fdc1405f067c1206ad5de94063f1a06605b15c9cf6`, Git blob `6d3e79dae00bdb5879427bdd16c9cf630cc8d2e1`.
+
+**Entry-renamed I16 mirror:** SHA-256 `28e97f5c407d0d7b9d3aaa7c5ed0d5dab4d1739129019e8fe01cdb0d02aa50a6`, Git blob `2b189985faf82ad94260d507e69c506ef2506f11`.
+
+Preserve the failed initial run separately. Only the re-attested revised source can support subsequent efficacy results.

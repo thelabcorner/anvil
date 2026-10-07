@@ -1,9 +1,9 @@
 // ANVIL I17: work-aware fast compression profile of source-pinned I16.
 // This only tests a portfolio operating point; there is no mechanism novelty.
 // Compilation and benchmarks: pinned GitHub Actions ONLY.
-#define main i16_frozen_command_main
-#include "../i16-envelope/i16_envelope.cpp"
-#undef main
+// Entry point renamed only in the mechanically checked I16 source mirror.
+// Original I16 and I14 leaf blobs remain immutable and fully attested.
+#include "i16_leaf_renamed.inc"
 
 static Bytes fastEncode(const Bytes& source,HybridStats& stats) {
   if(source.size()>OUTPUT_LIMIT)fail("fast source size limit");
