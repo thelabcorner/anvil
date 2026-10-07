@@ -22,6 +22,15 @@ NOAA, USGS, NASA, UCI are distinct publishers/dataset families, but measurement 
 
 Manual workflow: .github/workflows/anvil-i19-phase0-origin-acquisition.yml.
 
+**GitHub manual-dispatch registration:** GitHub does not register a new
+workflow_dispatch workflow ID until it exists on the default branch. For this
+I19-only branch, .github/workflows/anvil-i18-budgeted-fusion.yml is replaced
+with a two-step bridge that invokes the I19 reusable workflow via
+workflow_call. Dispatch the *registered I18 workflow ID* with --ref pointing to
+research/anvil-i19-origin-lock-20261007. That run must show only the Phase-0
+job and may never run I18. Do not merge this temporary filename overlay into
+default: the original I18 workflow is preserved on the measured I18 branch.
+
 1. Checkout exact commit, verify Git blob identities and run cheap contract tests.
 2. Fetch each nominated HTTPS response with host-restricted redirects, 60-second request timeout, source-specific byte cap, no credentials.
 3. Save original downloaded entity bytes in raw/<source-id>.source and record SHA-256, size, timestamp, URL, HTTP metadata, source Git commit, assigned split, and pending rights review.
