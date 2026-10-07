@@ -59,3 +59,11 @@ E. General-purpose BWT decode/memory engineering, Q2 fair geometry attribution a
 ## 5. Work hygiene
 
 I14 exists in a separate Git worktree; the original 427-entry working tree is untouched. Do not merge into canonical ANVIL until independent, meaningful evidence supports integration. Follow documented predeclared decisions even if the result is negative.
+
+## 6. Post-freeze incident and narrowly scoped selftest correction (2026-10-07)
+
+The **original frozen source remains preserved by git blob** `e94f31ea8ce0634b62010e7006c62479b85c03dd` and SHA-256 `7d2305f857d81887d9cfa155b04763c2c9c620b47a4def916e66e67090158346`. Initial [GitHub Actions run 37699173826](https://github.com/thelabcorner/anvil/actions/runs/37699173826) passed source/corpus identity, pinned Brotli build, compilation and all seven *I12* roundtrips. The I14 selftest stopped with `I12_FAIL I14 local difference mode not selected` **before I14 corpus roundtrips and benchmarking**. This is **INVALID-INFRA**, not evidence for/against I14 performance; artifact `11517435519` retains the failed job's provenance.
+
+The synthetic `walking` selftest inadvertently used a short periodic step perturbation. Such periodic increments may leave the error relative to an affine line bounded, making the existing AFFINE candidate just as inexpensive as DIFF. It is not a discriminating test of accumulating innovations. Only the deterministic selftest *input construction* was amended to use an explicitly seeded xorshift pseudo-random sequence of bounded differences in `{-1,0,+1}`. No codec encode/decode logic, objective, frozen population, thresholds, hypotheses, decision rules, negative controls or benchmarking were changed. This is a **source-revision correction** and must never be concealed as a frozen-source reproduction.
+
+Corrected source SHA-256: `f4f75b098feee9753084fa5cc132e31064f107fbd8ffa621f5e415b57d825150`; corrected Git blob: `365348ac5b8295f32eed97fb9427bb5516c43b16`. GitHub Actions must attest this revised identity before testing. If the revised run still fails, report it rather than altering the predeclared efficacy gates.

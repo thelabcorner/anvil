@@ -304,8 +304,13 @@ static void selftest() {
   for(auto &x:noise){random^=random<<13;random^=random>>7;random^=random<<17;x=uint8_t(random);}
   Bytes walking(8192);
   uint64_t progress=0xfffff000ULL;
+  uint64_t walkRng=0x7bd972c847a91d03ULL;
   for(size_t i=0;i<walking.size()/4;++i) {
-    progress+=64u+uint64_t(int(i%3)-1);
+    // A deterministic *non-periodic* bounded local innovation: periodic
+    // [-1,0,+1] has bounded cumulative error and is also well modeled by
+    // the I12 global affine candidate; it cannot isolate I14's hypothesis.
+    walkRng^=walkRng<<13;walkRng^=walkRng>>7;walkRng^=walkRng<<17;
+    progress+=uint64_t(64+int(walkRng%3)-1);
     setWord(walking.data()+i*4,progress,4);
   }
   cases.push_back(numeric);cases.push_back(jitter);cases.push_back(wrapping);
