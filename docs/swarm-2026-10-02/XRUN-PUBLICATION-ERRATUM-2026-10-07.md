@@ -52,3 +52,7 @@ XRUN is infrastructure attestation only. Expected fixture result is `CORPUS_BLOC
 - [ ] Gate A explicitly adjudicated from immutable remote artifacts.
 
 Do **not** use this erratum as authorization to change any historical frontier metric or silently advance to the next experiment.
+
+## Post-publication workflow parse correction (2026-10-07)
+
+The first GitHub dispatch returned **HTTP 422 before a runner was allocated**: `runner.temp` is not an allowed context at `jobs.xrun.env`. This is a workflow parsing failure; it provides no Q1a result. The corrected job-level `OUT_DIR` is `${{ github.workspace }}/../q1a-xrun-results` (a sibling of the checkout, outside the repository). This preserves all Q1a tool/emitter/fixture/summary hash anchors, but changes the installed workflow Git blob again. The canonical source and emitter remain immutable; rerun manual XRUN after the corrected workflow reaches `main` and record that workflow's committed Git blob. No compute jobs are authorized merely because the parser error was fixed.
