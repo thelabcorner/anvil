@@ -1,0 +1,156 @@
+# ANVIL I13 bounded innovations: manual-only, discovery-only.
+name: ANVIL I13 strided-column reconstruction
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: anvil-i13-${{ github.ref_name }}-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      SOURCE: prototypes/i13-strided/i13_strided.cpp
+      SOURCE_SHA256: 274be4c8a5de222b4bbb16c586fc04310dd1deadd455dacc7741110b8dfcb7c0
+      SOURCE_BLOB: ca3f9e684917b276f6a4274de62c3b20ca73fa95
+      BROTLI_SHA: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
+      BROTLI_SRC: ${{ github.workspace }}/../i13-brotli-src
+      BROTLI_BUILD: ${{ github.workspace }}/../i13-brotli-build
+      OUT_DIR: ${{ github.workspace }}/i13-results
+    steps:
+      - name: Checkout dispatched Git revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Assert immutable source and fixed tracked discovery population
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "HEAD:$SOURCE")" = "$SOURCE_BLOB"
+          echo "$SOURCE_SHA256  $SOURCE" | sha256sum -c -
+          test -z "$(git status --porcelain)"
+          mkdir -p "$OUT_DIR"
+          {
+            echo "workflow_commit=$GITHUB_SHA"
+            echo "source=$SOURCE"
+            echo "source_blob=$SOURCE_BLOB"
+            echo "source_sha256=$SOURCE_SHA256"
+            echo "brotli_source_commit=$BROTLI_SHA"
+            echo "runner=ubuntu-24.04"
+            echo "role=discovery_only"
+            echo "promotion_authorized=false"
+            echo "frontier_crossing=false"
+            g++ --version | head -n 1
+            cmake --version | head -n 1
+          } | tee "$OUT_DIR/provenance.txt"
+          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            test -f "$path"
+            blob="$(git rev-parse "HEAD:$path")"
+            test "$(git hash-object "$path")" = "$blob"
+            sha="$(sha256sum "$path" | cut -d' ' -f1)"
+            echo "$path blob=$blob sha256=$sha" | tee -a "$OUT_DIR/provenance.txt"
+          done
+      - name: Build pinned Brotli static controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$BROTLI_SRC"
+          git -C "$BROTLI_SRC" remote add origin https://github.com/google/brotli.git
+          git -C "$BROTLI_SRC" fetch -q --depth 1 origin "$BROTLI_SHA"
+          git -C "$BROTLI_SRC" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$BROTLI_SRC" rev-parse HEAD)" = "$BROTLI_SHA"
+          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -DCMAKE_BUILD_TYPE=Release -DBROTLI_DISABLE_TESTS=ON -DBUILD_SHARED_LIBS=OFF
+          cmake --build "$BROTLI_BUILD" --target brotlienc brotlidec brotlicommon -j 2
+      - name: Compile and identify I13 pilot binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib() { find "$BROTLI_BUILD" -name "lib$1.a" -print -quit; }
+          for name in brotlienc brotlidec brotlicommon; do test -f "$(lib "$name")"; done
+          g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -DI13_WITH_BROTLI \
+            -I "$BROTLI_SRC/c/include" "$SOURCE" -o "$RUNNER_TEMP/i13_strided" \
+            "$(lib brotlienc)" "$(lib brotlidec)" "$(lib brotlicommon)" -pthread
+          sha256sum "$RUNNER_TEMP/i13_strided" | tee "$OUT_DIR/binary-sha256.txt"
+          ls -l "$RUNNER_TEMP/i13_strided" | tee "$OUT_DIR/binary-size.txt"
+      - name: Exhaustive fixture roundtrips and adversarial selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/i13_strided" --selftest | tee "$OUT_DIR/selftest.txt"
+          grep -F "SELFTEST PASS" "$OUT_DIR/selftest.txt"
+          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            "$RUNNER_TEMP/i13_strided" --encode "$path" "$OUT_DIR/check.avi3"
+            "$RUNNER_TEMP/i13_strided" --decode "$OUT_DIR/check.avi3" "$OUT_DIR/check.raw"
+            cmp "$path" "$OUT_DIR/check.raw"
+            echo "ROUNDTRIP_PASS $path" | tee -a "$OUT_DIR/roundtrip.txt"
+          done
+      - name: Complete-wire paired discovery measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/i13_strided" --bench \
+            tests/corpus/synth-arith.bin \
+            tests/corpus/synth-timeseries.bin \
+            tests/corpus/synth-jitter.bin \
+            tests/corpus/random.bin \
+            tests/corpus/generated.repeat.jsonl \
+            tests/corpus/generated.jsonl \
+            tests/corpus/src.cpp | tee "$OUT_DIR/benchmark.tsv"
+          python3 - "$OUT_DIR/benchmark.tsv" "$OUT_DIR/decision.json" <<'PY'
+          import csv, json, math, sys
+          names = ["synth-arith.bin", "synth-timeseries.bin", "synth-jitter.bin",
+                   "random.bin", "generated.repeat.jsonl", "generated.jsonl", "src.cpp"]
+          with open(sys.argv[1], newline="", encoding="utf-8") as f:
+              rows = list(csv.DictReader(f, delimiter="\t"))
+          if len(rows) != 7 or [r["file"] for r in rows] != names:
+              raise SystemExit("invalid I13 discovery population")
+          out = {"schema": "anvil.i13.discovery/v1", "role": "discovery",
+                 "promotion_authorized": False, "frontier_crossing": False, "records": []}
+          for r in rows:
+              n, wire, b5, b11 = (int(r[x]) for x in
+                  ("input_bytes", "wire_bytes", "brotli_q5_bytes", "brotli_q11_bytes"))
+              models, raw = int(r["model_blocks"]), int(r["raw_blocks"])
+              columns, fields = int(r["column_blocks"]), int(r["modeled_columns"])
+              if raw + models + columns != (n+4095)//4096 or min(wire,b5,b11) <= 0:
+                  raise SystemExit("I13 invalid block selection count")
+              if columns and fields < columns:
+                  raise SystemExit("mode/size integrity failure")
+              dec, ref = float(r["decode_MBps"]), float(r["brotli_q11_decode_MBps"])
+              if not all(math.isfinite(x) and x > 0 for x in (dec,ref)):
+                  raise SystemExit("nonfinite or invalid timings")
+              out["records"].append({
+                  "file": r["file"], "source_bytes": n, "avi3_wire_bytes": wire,
+                  "brotli_q5_bytes": b5, "brotli_q11_bytes": b11,
+                  "delta_vs_q11_bytes": wire-b11,
+                  "raw_blocks": raw, "model_blocks": models,
+                  "column_blocks": columns, "modeled_columns": fields,
+                  "packed_residual_bytes": int(r["packed_bytes"]),
+                  "max_innovation_bits": int(r["model_bits_max"]),
+                  "avi3_encode_MBps": float(r["encode_MBps"]),
+                  "avi3_decode_MBps": dec, "brotli_q11_decode_MBps": ref})
+          ar = out["records"][1]
+          out["H1_selected"] = ar["column_blocks"] > 0 and ar["modeled_columns"] > 0
+          out["H2_byte_win"] = ar["avi3_wire_bytes"] < ar["brotli_q11_bytes"]
+          out["H3_decode_win"] = out["H1_selected"] and ar["avi3_decode_MBps"] > ar["brotli_q11_decode_MBps"]
+          out["H4_arithmetic_nonregression"] = out["records"][0]["avi3_wire_bytes"] <= 62458
+          out["ruling"] = ("KILL-STRIDE-DISCOVERY" if not out["H1_selected"] else
+                           "STRUCTURE-BUT-NO-BYTE-WIN" if not out["H2_byte_win"] else
+                           "RATIO-ONLY-DISCOVERY" if not out["H3_decode_win"] else
+                           "STRIDED-SPECIALIZED-DISCOVERY")
+          with open(sys.argv[2], "w", encoding="utf-8") as f:
+              json.dump(out, f, sort_keys=True, indent=2)
+              f.write("\n")
+          print(json.dumps(out, sort_keys=True, indent=2))
+          PY
+      - name: Upload I13 evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i13-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: warn
+          retention-days: 90
