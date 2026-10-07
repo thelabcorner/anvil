@@ -10,8 +10,8 @@ jobs:
     timeout-minutes: 75
     env:
       SOURCE: prototypes/i14-differential/i14_differential.cpp
-       SOURCE_SHA: f4f75b098feee9753084fa5cc132e31064f107fbd8ffa621f5e415b57d825150
-       SOURCE_BLOB: 365348ac5b8295f32eed97fb9427bb5516c43b16
+      SOURCE_SHA: f4f75b098feee9753084fa5cc132e31064f107fbd8ffa621f5e415b57d825150
+      SOURCE_BLOB: 365348ac5b8295f32eed97fb9427bb5516c43b16
       CONTROL: prototypes/i12-bounded-innovation/i12_innovation.cpp
       CONTROL_SHA: 3e6c24c90eb4026cca2520e88413caece25f847771f4e0c6513c48964a05992c
       CONTROL_BLOB: 2e6ea6492f970ee56366b5530872da193a815226
