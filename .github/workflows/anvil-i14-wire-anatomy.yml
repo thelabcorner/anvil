@@ -1,0 +1,120 @@
+# ANVIL I14: deterministic existing AVI3 byte anatomy; no new codec.
+name: ANVIL I14 exact wire anatomy
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: anvil-i14-${{ github.ref_name }}-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  anatomy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      I13: prototypes/i13-strided/i13_strided.cpp
+      I13_SHA256: 274be4c8a5de222b4bbb16c586fc04310dd1deadd455dacc7741110b8dfcb7c0
+      I13_BLOB: ca3f9e684917b276f6a4274de62c3b20ca73fa95
+      ANALYZER: prototypes/i14-wire-anatomy/analyze_avi3.py
+      ANALYZER_SHA256: f6a14a466fb85678274e3c037dbc96d6eaf63e7caff14f13b0b5d3b9987e7c57
+      ANALYZER_BLOB: c73f8a9a168e1273760f86eac59c65b5f35747f9
+      OUT: ${{ github.workspace }}/i14-evidence
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Attest exact code and discovery inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse "HEAD:$I13")" = "$I13_BLOB"
+          test "$(git rev-parse "HEAD:$ANALYZER")" = "$ANALYZER_BLOB"
+          echo "$I13_SHA256  $I13" | sha256sum -c -
+          echo "$ANALYZER_SHA256  $ANALYZER" | sha256sum -c -
+          for f in tests/corpus/synth-timeseries.bin tests/corpus/synth-arith.bin tests/corpus/generated.repeat.jsonl; do
+            test "$(git hash-object "$f")" = "$(git rev-parse "HEAD:$f")"
+          done
+          mkdir -p "$OUT"
+          {
+            echo "schema=anvil.i14.provenance/v1"
+            echo "workflow_sha=$GITHUB_SHA"
+            echo "source_sha256=$I13_SHA256"
+            echo "analyzer_sha256=$ANALYZER_SHA256"
+            echo "runner=ubuntu-24.04"
+            echo "role=discovery_only"
+            echo "promotion_authorized=false"
+            echo "frontier_crossing=false"
+            echo "brotli_q11_timeseries_frozen_bytes=134718"
+            python3 --version
+            g++ --version | head -n 1
+          } | tee "$OUT/provenance.txt"
+          for f in tests/corpus/synth-timeseries.bin tests/corpus/synth-arith.bin tests/corpus/generated.repeat.jsonl; do
+            echo "$f blob=$(git hash-object "$f") sha256=$(sha256sum "$f" | cut -d' ' -f1)" | tee -a "$OUT/provenance.txt"
+          done
+
+      - name: I14 deterministic parser self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$ANALYZER" --selftest | tee "$OUT/selftest.txt"
+          grep -F "SELFTEST PASS" "$OUT/selftest.txt"
+
+      - name: Compile and selftest frozen I13 encoder on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Wpedantic "$I13" -o "$RUNNER_TEMP/anvil_i13"
+          "$RUNNER_TEMP/anvil_i13" --selftest | tee "$OUT/i13-selftest.txt"
+          grep -F "SELFTEST PASS" "$OUT/i13-selftest.txt"
+          sha256sum "$RUNNER_TEMP/anvil_i13" | tee "$OUT/i13-binary-hash.txt"
+          wc -c "$RUNNER_TEMP/anvil_i13" | tee "$OUT/i13-binary-size.txt"
+
+      - name: Generate and account exact existing AVI3 wire
+        shell: bash
+        run: |
+          set -euo pipefail
+          for case in synth-timeseries.bin synth-arith.bin generated.repeat.jsonl; do
+            path="tests/corpus/$case"
+            case "$case" in
+              synth-timeseries.bin) expected=139387 ;;
+              synth-arith.bin) expected=62256 ;;
+              generated.repeat.jsonl) expected=916835 ;;
+            esac
+            "$RUNNER_TEMP/anvil_i13" --encode "$path" "$OUT/$case.avi3"
+            "$RUNNER_TEMP/anvil_i13" --decode "$OUT/$case.avi3" "$OUT/roundtrip.raw"
+            cmp "$path" "$OUT/roundtrip.raw"
+            python3 "$ANALYZER" --wire "$OUT/$case.avi3" --name "$case" \
+              --expected-bytes "$expected" --out "$OUT/$case.json" | tee "$OUT/$case.summary.txt"
+            echo "BYTE_CONSERVATION_PASS $case $expected" | tee -a "$OUT/roundtrip.txt"
+          done
+          rm "$OUT/roundtrip.raw"
+          python3 - "$OUT" <<'PY'
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          rows=[json.loads((root/(n+".json")).read_text()) for n in
+                ("synth-timeseries.bin","synth-arith.bin","generated.repeat.jsonl")]
+          assert [r["wire_bytes"] for r in rows] == [139387,62256,916835]
+          assert all(r["conserved_bytes"]==r["wire_bytes"] for r in rows)
+          assert rows[0]["modeled_columns"]==407
+          assert rows[0]["block_modes"]["column"]==69
+          for r in rows:
+            print(r["file"], "wire",r["wire_bytes"],
+                  "modeled",r["modeled_columns"],
+                  "headers",r["model_lane_headers_bytes"],
+                  "tiled_capacity",r["tile_potential_adaptively_nonnegative_bytes"])
+          print("I14 CONSERVATION VALIDATED")
+          PY
+
+      - name: Upload I14 complete evidence on every outcome
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i14-anatomy-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 90
