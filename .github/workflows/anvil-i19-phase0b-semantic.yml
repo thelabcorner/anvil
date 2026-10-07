@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 20
     env:
       OUT: ${{ github.workspace }}/i19-semantic-evidence
-      SOURCE_ROOT: ${{ runner.temp }}/anvil-i19-origin-source
+      SOURCE_ROOT: ${{ github.workspace }}/../anvil-i19-origin-source
       ARTIFACT: anvil-i19-phase0-c7e423e24ab94e1156f1245c1a4a06397ef15a70-run1
       SOURCE_RUN_ID: "37704571734"
     steps:
