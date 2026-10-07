@@ -32,9 +32,9 @@ jobs:
     timeout-minutes: 10
     env:
       Q1A_DIR: prototypes/swarm-2026-10-02/q1a-corpus-lock/space-bunny
-      # Keep outputs outside the checkout: the source-cleanliness assertion runs
-      # after mkdir and must not self-contaminate the Git worktree.
-      OUT_DIR: ${{ github.workspace }}/../q1a-xrun-results
+      # The checkout is checked while this output directory is still empty.
+      # Artifact upload needs a path without '..' and fixture files are emitted later.
+      OUT_DIR: ${{ github.workspace }}/q1a-xrun-results
 
       # Publication candidate source identities. Re-bind these if and only if
       # publication changes file bytes. Git clean-filter analysis on the current
