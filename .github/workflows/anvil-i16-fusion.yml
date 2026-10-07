@@ -64,7 +64,10 @@ jobs:
           test "$(git rev-parse "FETCH_HEAD:$TILED_PATH")" = "$TILED_BLOB"
           git show "FETCH_HEAD:$TILED_PATH" > "$RUNNER_TEMP/i15t_source.cpp"
           echo "$TILED_SHA  $RUNNER_TEMP/i15t_source.cpp" | sha256sum -c -
-          test -z "$(git status --porcelain)"
+          # The previous attestation step intentionally created OUT/provenance.txt;
+          # permit generated *untracked* evidence while rejecting source edits.
+          git diff --exit-code --quiet
+          git diff --cached --exit-code --quiet
       - name: Build pinned official Brotli q5 and q11 controls
         shell: bash
         run: |
