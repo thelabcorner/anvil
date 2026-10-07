@@ -1,7 +1,6 @@
 # I14 isolated, manually dispatched, no scheduled jobs or delegates.
 name: ANVIL I14 modular difference discovery
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 permissions:
   contents: read
 jobs:
