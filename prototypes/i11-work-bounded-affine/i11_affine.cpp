@@ -77,23 +77,7 @@ static void emitBlock(Bytes& out,const uint8_t* src,size_t n,Stats& stats) {
   Bytes chosen; chosen.reserve(n+12);
   chosen.push_back(0); putVar(chosen,n); chosen.insert(chosen.end(),src,src+n);
   unsigned mode=0; uint64_t winningExceptions=0;
-  for(unsigned w : {1u,2u,4u,8u}
-// Consume every reconstructed byte in every timed decode. This shared digest
-// prevents the compiler from eliding unused reconstruction, unlike size-only
-// sinks. Timings include equal digest work on all reference decoders.
-static uint64_t observedDigest(const Bytes& bytes) {
-  uint64_t h=0xcbf29ce484222325ULL;
-  size_t i=0;
-  for(;i+8<=bytes.size();i+=8) {
-    h=(h<<9)|(h>>55);
-    h^=readWord(bytes.data()+i,8)*0x9e3779b185ebca87ULL;
-  }
-  for(;i<bytes.size();++i) {
-    h=(h<<9)|(h>>55);
-    h^=uint64_t(bytes[i])*0x9e3779b185ebca87ULL;
-  }
-  return h;
-}) {
+  for(unsigned w : {1u,2u,4u,8u}) {
     if(n%(size_t)w || n<2*w) continue;
     const size_t count=n/w;
     const uint64_t mask=maskFor(w);
@@ -266,6 +250,21 @@ static void selftest() {
   }
   std::cout<<"SELFTEST PASS cases="<<cases.size()<<" affine_bytes="<<wire.size()<<"\n";
 }
+// Consume every reconstructed byte in every timed decode. This shared digest
+// prevents the compiler from eliding unused reconstruction, unlike size-only
+// sinks. Timings include equal digest work on all reference decoders.
+static uint64_t observedDigest(const Bytes& bytes) {
+  uint64_t h=0xcbf29ce484222325ULL;
+  size_t i=0;
+  for(;i+8<=bytes.size();i+=8) {
+    h=(h<<9)|(h>>55);
+    h^=readWord(bytes.data()+i,8)*0x9e3779b185ebca87ULL;
+  }
+  for(;i<bytes.size();++i) {
+    h=(h<<9)|(h>>55);
+    h^=uint64_t(bytes[i])*0x9e3779b185ebca87ULL;
+  }
+  return h;
 template<class F>static double medianMicros(F f,int reps=7) {
   using clock=std::chrono::steady_clock;
   f();std::vector<double> v;v.reserve(reps);
