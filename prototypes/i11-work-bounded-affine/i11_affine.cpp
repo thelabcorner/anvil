@@ -265,6 +265,7 @@ static uint64_t observedDigest(const Bytes& bytes) {
     h^=uint64_t(bytes[i])*0x9e3779b185ebca87ULL;
   }
   return h;
+}
 template<class F>static double medianMicros(F f,int reps=7) {
   using clock=std::chrono::steady_clock;
   f();std::vector<double> v;v.reserve(reps);
