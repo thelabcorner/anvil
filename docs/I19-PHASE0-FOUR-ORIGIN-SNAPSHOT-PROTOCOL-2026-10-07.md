@@ -78,6 +78,28 @@ measurements and cannot advance a Pareto claim.
 
 ## Source documents
 
+## Post-acquisition independent gates
+
+After the Phase-0b evidence passed, independent tool
+`tools/i19_phase0b_evidence_audit.py` was added to assert exact typed SHA
+values, stream sizes and schema flags, and reject unexpected files (especially
+any heldout original payload) in the *semantic* artifact.
+
+`tools/i19_validate_efficacy_admission.py` is a NEW additional fail-closed
+metadata gate. The original validator verifies origin-locked manifest
+structure only. The newer preflight also rejects the known exposed UCI ZIP
+digest as a sealed heldout, expiring Actions storage as a durable source,
+unreviewed rights, missing two validation origins, missing matched codec
+comparators, unfrozen preregistration, or typed/source-byte misrepresentation.
+It NEVER declares efficacy authorized: even a synthetic schema-complete pass
+means `ELIGIBLE_FOR_EXTERNAL_ATTESTATION_ONLY`; actual artifact, custody
+and rights claims require independent verification in a later workflow.
+
+Full result and exact source hashes:
+`docs/I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md`.
+Mathematical continuation (design only):
+`docs/I19-PHASE1-DECODER-CHEAP-RECONSTRUCTION-ORACLE-DRAFT-2026-10-07.md`.
+
 - NOAA: https://www.ncei.noaa.gov/pub/data/ghcn/daily/
 - USGS migration: https://waterdata.usgs.gov/blog/api-waterservices-decom
 - NASA POWER: https://power.larc.nasa.gov/docs/services/api/temporal/daily/

@@ -5408,3 +5408,30 @@ comparison, new decoder, typed conversion, heldout inspection, or promotion
 is authorized by this phase. Errors fail closed, never silently substitute
 a source. Preserve existing results and working trees. Historical
 general-purpose Class-A crossings remain **zero**.
+
+### A25. I19 four-origin Phase-0/0b remote source and semantics closeout — PASS, EFFICACY BLOCKED
+
+**Authoritative closeout:** docs/I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md.
+Acquisition Actions run 37704571734 succeeded at c7e423e with four captured original
+HTTP entity bodies (NOAA 3,839,940 B; USGS 297,561 B; NASA POWER 67,388 B;
+UCI electricity ZIP 20,640,916 B). All original-byte SHA-256 checks passed.
+Artifact 11519365364 expires 2027-01-05.
+
+Semantic Actions run 37704897319 succeeded at c093755, after a
+**pre-execution workflow-context correction** (runner.temp invalid at job env).
+All 24 contract tests passed. Frozen source-body identities were checked before
+extracting four nonheldout typed numerical streams: NOAA TMAX/TMIN each
+20,119 int16 samples (40,238 B each, 393 missing slots each), USGS discharge
+and NASA T2M each 4,018 int32 samples (16,072 B each). Total typed payload
+112,620 B. Standalone independent artifact auditor
+tools/i19_phase0b_evidence_audit.py returned PHASE0B_EVIDENCE_AUDIT_PASS.
+Artifact 11518883939 expires 2027-01-05.
+
+**Explicit scientific limit:** this was raw snapshot/projection preparation
+only; ZERO codec efficacy benchmarks, ZERO new format claims. The typed streams
+cannot reconstruct original DLY/JSON bytes without metadata and full source
+reassembly. Original UCI ZIP was SHA-checked and not parsed in Phase-0b,
+but it exists in a downloadable Actions artifact and is NOT a cryptographically
+sealed or independently blinded heldout. Until fresh sealed source and durable
+archive, rights/attribution, origin-frozen manifest, and matched typed-codec
+preregistration, mark I19 BLOCKED_FOR_EFFICACY. Class-A remains **zero**.
