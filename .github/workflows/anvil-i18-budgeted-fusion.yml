@@ -1,12 +1,11 @@
-# I19 branch-only dispatch bridge.
-# GitHub registers manual workflow IDs from default branch. The existing I18 ID
-# is a *carrier only* on this separate I19 branch. It does not execute I18.
-# Never merge this bridge over the I18 production/research workflow.
-name: ANVIL I19 source-only bridge via registered I18 workflow
+# I19 BRANCH ONLY: registered legacy workflow-dispatch carrier.
+# This file is not I18 research execution. It is NEVER to be merged to main.
+name: ANVIL I19 semantic preparation bridge via I18 registered workflow
 on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
-  phase0:
-    uses: ./.github/workflows/anvil-i19-phase0-origin-acquisition.yml
+  phase0b:
+    uses: ./.github/workflows/anvil-i19-phase0b-semantic.yml

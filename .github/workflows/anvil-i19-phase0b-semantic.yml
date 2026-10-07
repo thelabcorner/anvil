@@ -1,0 +1,81 @@
+name: ANVIL I19 Phase-0b byte-locked numeric semantics
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  semantics-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OUT: ${{ github.workspace }}/i19-semantic-evidence
+      SOURCE_ROOT: ${{ runner.temp }}/anvil-i19-origin-source
+      ARTIFACT: anvil-i19-phase0-c7e423e24ab94e1156f1245c1a4a06397ef15a70-run1
+      SOURCE_RUN_ID: "37704571734"
+    steps:
+      - name: Checkout immutable I19 semantic source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+      - name: Attest source and run synthetic-only contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for f in tools/i19_phase0b_semantic.py tests/test_i19_phase0b_semantic.py \
+                   prototypes/i19-origin-lock/source-lock.json; do
+            test "$(git hash-object "$f")" = "$(git rev-parse "HEAD:$f")"
+            sha256sum "$f"
+          done
+          test -z "$(git status --porcelain)"
+          mkdir -p "$OUT" "$SOURCE_ROOT"
+          python3 -m unittest -v tests/test_i19_phase0b_semantic.py \
+            tests/test_i19_phase0_acquire.py tests/test_i19_manifest.py \
+            2>&1 | tee "$OUT/contracts.txt"
+          {
+            echo "semantic_commit=$GITHUB_SHA"
+            echo "locked_acquisition_run=$SOURCE_RUN_ID"
+            echo "locked_acquisition_commit=c7e423e24ab94e1156f1245c1a4a06397ef15a70"
+            echo "locked_acquisition_artifact=11519365364"
+            echo "phase=semantics-only"
+            echo "efficacy_measured=false"
+            echo "heldout_opaque=true"
+            python3 --version
+          } | tee "$OUT/provenance.txt"
+      - name: Retrieve exactly source-locked original artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+             --name "$ARTIFACT" --dir "$SOURCE_ROOT"
+          test -f "$SOURCE_ROOT/snapshot/acquisition-evidence.json"
+          test -f "$SOURCE_ROOT/snapshot/raw/uci_household_electricity.source"
+      - name: Verify every original-source SHA and decode only non-heldout numerical fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/i19_phase0b_semantic.py \
+            --lock prototypes/i19-origin-lock/source-lock.json \
+            --artifact "$SOURCE_ROOT" \
+            --out "$OUT/results" | tee "$OUT/semantic-result.json"
+          python3 - <<'PY'
+          import json, pathlib, os
+          d = json.loads((pathlib.Path(os.environ["OUT"]) / "results/semantic-report.json").read_text())
+          assert d["status"] == "THREE_ORIGIN_TYPED_SELECTIONS_READY_UNADMITTED"
+          assert len(d["outputs"]) == 5
+          assert sum(x["split"] == "heldout" for x in d["outputs"]) == 1
+          assert not d["codec_efficacy_measured"] and not d["promotion_authorized"]
+          print("I19_PHASE0B_TYPED_SOURCE_PASS HELDOUT_OPAQUE NO_EFFICACY")
+          PY
+      - name: Always save report and nonheldout typed projections only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i19-semantic-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 90

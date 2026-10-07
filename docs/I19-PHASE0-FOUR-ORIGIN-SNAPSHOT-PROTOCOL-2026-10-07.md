@@ -42,6 +42,30 @@ The actual GitHub artifact is NOT immutable beyond retention; retain a durable, 
 
 ## Next admission gates
 
+### Phase-0b: separately source-locked numeric-semantic gate
+
+The successful Phase-0 acquisition is frozen by the hash-only
+prototypes/i19-origin-lock/source-lock.json. The exact run is 37704571734,
+commit c7e423e, artifact 11519365364. The artifact is retained locally
+outside the working tree under ANVIL-I19-EVIDENCE-20261007.
+
+The follow-up tools/i19_phase0b_semantic.py checks all four source hashes
+and exact sizes, then parses only three non-heldout sources. NOAA emits
+independent TMAX/TMIN signed-16 arrays in monthly 31-slot order; USGS emits
+fixed-point daily discharge signed-32 values; NASA emits fixed-point daily
+T2M signed-32 values sorted by date. Decimal conversion is exact and fails
+if precision exceeds scale 1000. The UCI ZIP receives only an identity hash
+check: **no archive listing, extraction, record parse, or numeric examination**.
+The typed stream projections cannot reconstruct the source text/JSON and
+therefore are never valid standalone raw-byte lossless competition evidence.
+
+Workflow .github/workflows/anvil-i19-phase0b-semantic.yml downloads the
+exact previous Actions evidence using read-only Actions permissions. Its
+retained output includes only typed nonheldout projections, status, provenance
+and a semantic report, not the heldout original. The branch-specific legacy
+dispatch bridge temporarily targets this new workflow. Phase-0b has no codec
+measurements and cannot advance a Pareto claim.
+
 - [ ] All four sources acquired and their saved original-byte SHA-256 verified.
 - [ ] Check upstream response semantics, API data/release identity, licensing and attribution; a HTTP 200 body alone is insufficient.
 - [ ] Preserve immutable original snapshots past Actions retention.
