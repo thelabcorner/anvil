@@ -48,3 +48,10 @@ The corrected I17 source references a mechanically derived I16 source mirror wit
 **Entry-renamed I16 mirror:** SHA-256 `28e97f5c407d0d7b9d3aaa7c5ed0d5dab4d1739129019e8fe01cdb0d02aa50a6`, Git blob `2b189985faf82ad94260d507e69c506ef2506f11`.
 
 Preserve the failed initial run separately. Only the re-attested revised source can support subsequent efficacy results.
+
+
+### Git-blob line-ending correction (further premeasurement infrastructure revision)
+
+The [second I17 Actions run 37701536612](https://github.com/thelabcorner/anvil/actions/runs/37701536612) passed the candidate/I16/I14 SHA checks, but the independently required mirror derivation assertion failed before reference compilation. The mirror's original Windows write operation had produced 197 CRLF sequences; frozen I16's Git blob contains zero. This is a platform line-ending discrepancy, not a change to codec logic. The frozen one-token entrypoint substitution is now applied **byte-for-byte to the LF Git blob**, rather than using Windows text-mode writes.
+
+**Latest entry-renamed mirror:** SHA-256 `961f218ca14ff3a4bf8e9160eb61afcca82ab087a4a5d62d3166d21d4a0987a3`, Git blob `bd9fdfdb7154f1f7d44730634aaa3a22c2735d64`. The revised I17 source remains SHA-256 `727469a41c5506d73f85d0fdc1405f067c1206ad5de94063f1a06605b15c9cf6`. Previous run is INVALID-PREMEASUREMENT, and no benchmark was executed.
