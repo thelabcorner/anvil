@@ -1,9 +1,7 @@
 // I18 preregistered budget-gated experimental AVH2 wire.
 // All CPU-intensive compilation, tests and measurements: GitHub Actions only.
 // Source-pinned original AVH1/I17 controls are included without modification.
-#define main i17_unchanged_command_main
-#include "../i17-fast/i17_fast.cpp"
-#undef main
+#include "../i17-fast/i17_fast_entry_renamed.inc"
 
 // The entire exact-byte AVI6 I16 fusion source is isolated from I14/I17
 // global/static identifiers, preserving independent AVI6 encode and decode.
