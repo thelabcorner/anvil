@@ -5384,3 +5384,27 @@ into gitignored `scratch/` as a copy, not as evidence); no push.
 4. **Invalidated premeasurement attempts remain retained:** I16 byte-frame run [37701687296](https://github.com/thelabcorner/anvil/actions/runs/37701687296) selftest `bounded innovation was not selected`; I18 first run [37702906749](https://github.com/thelabcorner/anvil/actions/runs/37702906749) duplicate `main` when freezing nested I17, repaired by source-derived single-entrypoint mirror under exact byte attestation. Neither failed run produced efficacy data.
 
 **Next admissible step:** objectively compare low-work AVI6-only vs AVI4 and conservative probe under preregistered byte-regret ceilings, on real-origin locked independent corpus and modern typed-codec controls; retain passed R2 Gate A, establish independent Gate B, matched RSS, encode/decode timing, binary size and correct wire accounting. The historical zero-general-crossing ruling is **unchanged**.
+
+### A24. I19 Phase-0 four-origin source acquisition — INFRASTRUCTURE ONLY, NO EFFICACY
+
+**Starting point:** published I18 c943ae3, measured frozen I18 7ec50e8.
+Research worktree: research/anvil-i19-origin-lock-20261007. Protocol:
+docs/I19-PHASE0-FOUR-ORIGIN-SNAPSHOT-PROTOCOL-2026-10-07.md.
+Implementation: tools/i19_phase0_acquire.py,
+prototypes/i19-origin-lock/sources.json, and manual-only workflow
+.github/workflows/anvil-i19-phase0-origin-acquisition.yml.
+
+**Experimental question:** Can four non-overlapping publisher/dataset families
+be acquired as exact source-byte snapshots and independently attested without
+contaminating codec selection with the future heldout origin? Proposed roles:
+NOAA/NCEI (discovery), USGS and NASA POWER (two validation origins),
+UCI Household Electricity (heldout). Rights and real-origin statistical
+independence remain subject to review. GitHub artifacts expire and the heldout
+snapshot is not cryptographically sealed.
+
+**Adjudication:** Provenance-only implementation, NOT numerical measurement.
+The candidate manifest is deliberately frozen=false; no I19 compression
+comparison, new decoder, typed conversion, heldout inspection, or promotion
+is authorized by this phase. Errors fail closed, never silently substitute
+a source. Preserve existing results and working trees. Historical
+general-purpose Class-A crossings remain **zero**.

@@ -1,0 +1,87 @@
+name: ANVIL I19 Phase-0 independent origin acquisition
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OUT: ${{ github.workspace }}/i19-origin-snapshots
+    steps:
+      - name: Checkout exactly dispatched source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify immutable source revision and proposal source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for f in \
+            prototypes/i19-origin-lock/sources.json \
+            tools/i19_phase0_acquire.py \
+            tests/test_i19_phase0_acquire.py \
+            tools/i19_validate_corpus_manifest.py; do
+            test "$(git hash-object "$f")" = "$(git rev-parse "HEAD:$f")"
+            sha256sum "$f"
+          done
+          test -z "$(git status --porcelain)"
+          mkdir -p "$OUT"
+          {
+            echo "source_commit=$GITHUB_SHA"
+            echo "workflow_run=$GITHUB_RUN_ID"
+            echo "workflow_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "phase=origin-snapshot-only"
+            echo "heldout_unsealed=true"
+            echo "efficacy_measured=false"
+            python3 --version
+            uname -a
+          } | tee "$OUT/provenance.txt"
+
+      - name: Pure-Python source and leakage contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_i19_phase0_acquire.py tests/test_i19_manifest.py \
+            2>&1 | tee "$OUT/contracts.txt"
+
+      - name: Acquire exactly the four frozen origin candidates (no codec execution)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/i19_phase0_acquire.py \
+            --proposal prototypes/i19-origin-lock/sources.json \
+            --source-revision "$GITHUB_SHA" \
+            --out "$OUT/snapshot" | tee "$OUT/acquisition-result.json"
+
+      - name: Independently check each original snapshot SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$OUT/snapshot"
+          sha256sum -c raw-sha256.txt | tee ../snapshot-check.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          doc = json.loads(Path("candidate-manifest.UNFROZEN.json").read_text())
+          assert doc["frozen"] is False and len(doc["sources"]) == 4
+          assert sum(s["split"] == "validation" for s in doc["sources"]) == 2
+          report = json.loads(Path("acquisition-evidence.json").read_text())
+          assert report["status"] == "RAW_SNAPSHOTS_COMPLETE_NOT_ADMITTED"
+          assert report["heldout_unsealed"] is True
+          assert report["codec_efficacy_measured"] is False
+          print("I19_PHASE0_SNAPSHOT_ATTESTATION_PASS NO_EFFICACY NO_HELDOUT_PROMOTION")
+          PY
+
+      - name: Always retain raw source evidence and failure details
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i19-phase0-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 90
