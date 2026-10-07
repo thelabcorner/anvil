@@ -1,0 +1,114 @@
+name: ANVIL I17 fast-versus-ratio portfolio
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SOURCE: prototypes/i17-fast/i17_fast.cpp
+      SOURCE_SHA: a81d7de528992da94dce305a5099370f1083c7e03d70b8520dbb8a8b8e9138d0
+      SOURCE_BLOB: 4ae591f7a04b3a9836721ceb77fd2057d69ed7fd
+      LEAF: prototypes/i16-envelope/i16_envelope.cpp
+      LEAF_SHA: 0162ccfab90607393698e12d410509e3d09e31cf77336139e42a830a4837a418
+      LEAF_BLOB: 617147803d519e12cf3a6c74878c7125aef6b96c
+      NUMERIC: prototypes/i14-differential/i14_differential.cpp
+      NUMERIC_SHA: f4f75b098feee9753084fa5cc132e31064f107fbd8ffa621f5e415b57d825150
+      NUMERIC_BLOB: 365348ac5b8295f32eed97fb9427bb5516c43b16
+      BROTLI_SHA: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
+      BROTLI_SRC: ${{ github.workspace }}/../i17-brotli-src
+      BROTLI_BUILD: ${{ github.workspace }}/../i17-brotli-build
+      OUT: ${{ github.workspace }}/i17-results
+    steps:
+      - name: Checkout exact dispatched SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Source-attest all three immutable included mechanisms and seven discovery files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for pair in SOURCE LEAF NUMERIC; do
+            case "$pair" in
+              SOURCE) path="$SOURCE"; expected="$SOURCE_BLOB"; hash="$SOURCE_SHA";;
+              LEAF) path="$LEAF"; expected="$LEAF_BLOB"; hash="$LEAF_SHA";;
+              NUMERIC) path="$NUMERIC"; expected="$NUMERIC_BLOB"; hash="$NUMERIC_SHA";;
+            esac
+            test "$(git rev-parse "HEAD:$path")" = "$expected"
+            echo "$hash  $path" | sha256sum -c -
+          done
+          test -z "$(git status --porcelain)"
+          mkdir -p "$OUT"
+          {
+            echo "workflow_commit=$GITHUB_SHA"
+            echo "candidate=$SOURCE_BLOB sha=$SOURCE_SHA"
+            echo "I16_leaf=$LEAF_BLOB sha=$LEAF_SHA"
+            echo "I14_leaf=$NUMERIC_BLOB sha=$NUMERIC_SHA"
+            echo "Brotli_source=$BROTLI_SHA"
+            echo "class=consumed-discovery no-novelty no-frontier"
+            g++ --version | head -n1
+            cmake --version | head -n1
+          } | tee "$OUT/provenance.txt"
+          for f in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            test -f "$f"
+            hash="$(git rev-parse "HEAD:$f")"
+            test "$(git hash-object "$f")" = "$hash"
+            echo "$f blob=$hash sha256=$(sha256sum "$f" | cut -d' ' -f1)" | tee -a "$OUT/provenance.txt"
+          done
+      - name: Build pinned static Brotli source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$BROTLI_SRC"
+          git -C "$BROTLI_SRC" remote add origin https://github.com/google/brotli.git
+          git -C "$BROTLI_SRC" fetch -q --depth 1 origin "$BROTLI_SHA"
+          git -C "$BROTLI_SRC" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$BROTLI_SRC" rev-parse HEAD)" = "$BROTLI_SHA"
+          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -DCMAKE_BUILD_TYPE=Release -DBROTLI_DISABLE_TESTS=ON -DBUILD_SHARED_LIBS=OFF
+          cmake --build "$BROTLI_BUILD" --target brotlienc brotlidec brotlicommon -j 2
+      - name: Compile all candidate modes in single binary on same runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib() { find "$BROTLI_BUILD" -name "lib$1.a" -print -quit; }
+          for n in brotlienc brotlidec brotlicommon; do test -f "$(lib "$n")"; done
+          g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -DI12_WITH_BROTLI \
+            -I "$BROTLI_SRC/c/include" "$SOURCE" -o "$RUNNER_TEMP/i17" \
+            "$(lib brotlienc)" "$(lib brotlidec)" "$(lib brotlicommon)" -pthread
+          sha256sum "$RUNNER_TEMP/i17" | tee "$OUT/binary-hashes.txt"
+          wc -c "$RUNNER_TEMP/i17" | tee "$OUT/binary-sizes.txt"
+      - name: Every source exact roundtrip under both profiles and malformed selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/i17" --selftest | tee "$OUT/selftest.txt"
+          grep -F "SELFTEST PASS" "$OUT/selftest.txt"
+          grep -F "FAST_SELFTEST PASS" "$OUT/selftest.txt"
+          for f in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            for profile in fast full; do
+              "$RUNNER_TEMP/i17" "--encode-$profile" "$f" "$OUT/current.avh1"
+              "$RUNNER_TEMP/i17" --decode "$OUT/current.avh1" "$OUT/recovered.bin"
+              cmp "$f" "$OUT/recovered.bin"
+              echo "ROUNDTRIP_PASS $profile $f" | tee -a "$OUT/roundtrips.txt"
+            done
+          done
+      - name: Paired encode-byte digest full-wire and decision evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/i17" --bench \
+            tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin \
+            tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl \
+            tests/corpus/src.cpp | tee "$OUT/benchmark.tsv"
+          python3 tools/i17_decide.py "$OUT/benchmark.tsv" "$OUT/decision.json"
+      - name: Preserve artifact on failures and successes
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i17-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          if-no-files-found: warn
+          retention-days: 90
