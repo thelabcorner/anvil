@@ -47,3 +47,7 @@ The workflow must output raw bytes and full AVI1 bytes, per-mode counts, excepti
 **R2 wins decode but loses bytes** → compare integrated transform+LZ/ANS to baseline, while charging the entire transform control-plane overhead.  
 **R2 fails on interleaved/misaligned** → use a separate field-framing experiment, not after-the-fact tuning of R2.  
 **R2 no selective adoption** → stop I11 and prioritize fair Q2 geometry, source-independent Gate B corpus validation, and the already proven ratio-focused BWT path.
+
+## Source-placement syntax correction, before R2 execution
+
+The first R2 GitHub run [37696228453](https://github.com/thelabcorner/anvil/actions/runs/37696228453) **failed at C++ compilation**: the new `observedDigest` function was inserted into the range-for header of `emitBlock`, instead of at file scope. No I11-R2 code was executed, no decoder/encoder self-test ran, and no R2 performance metrics were generated. The repair exclusively relocates the exact digest function to file scope before `medianMicros`, restoring the unchanged range-for header. The modal fitting, codec wire format, inputs, Brotli pin, thresholds, and digest algorithm are byte-identical to the R2 intended implementation. Corrected source SHA-256: `c8d9da7e4bc1eb154d5e9ba572052c29fb35898751f24bfb6ae3fb91f92cf1e9`; corrected Git blob `bf2aa9560b01baedd504cbee47e8631b151c367c`. The Actions identity assertion is updated accordingly. The first failed run is never retroactively counted as a completed experiment.
