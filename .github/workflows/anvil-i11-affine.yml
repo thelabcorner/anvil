@@ -17,8 +17,8 @@ jobs:
     timeout-minutes: 70
     env:
       SOURCE: prototypes/i11-work-bounded-affine/i11_affine.cpp
-      SOURCE_BLOB: 69f7ca555b15dc5397411f86b6250b3772a8ce9b
-      SOURCE_SHA256: c530b278c8b007af58a4f6b9cd3c1adbec60e5c11588d8683867ea1ba8b5a285
+      SOURCE_BLOB: 079916dbf799904ceb2a5c44337e64f35fe2bdcc
+      SOURCE_SHA256: e07ab08a1aeab7b6cfd79d1ea00a19af45992bc76d4f700d8799fedfc64e2e71
       OUT_DIR: ${{ github.workspace }}/i11-results
       BROTLI_SHA: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
       BROTLI_SRC: ${{ github.workspace }}/../i11-brotli-src

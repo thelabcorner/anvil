@@ -60,18 +60,65 @@ static uint64_t getWord(const Bytes& in,size_t& p,unsigned w) {
 }
 static bool validWidth(unsigned w) { return w==1||w==2||w==4||w==8; }
 struct Stats { uint64_t raw=0,affine=0,patched=0,exceptions=0; };
+static std::pair<uint64_t,size_t> modal(std::vector<uint64_t>& values) {
+  if(values.empty())bad("modal needs data");
+  std::sort(values.begin(),values.end());
+  uint64_t winner=values[0];
+  size_t winnerCount=0;
+  for(size_t i=0;i<values.size();) {
+    size_t j=i+1;
+    while(j<values.size()&&values[j]==values[i]) ++j;
+    if(j-i>winnerCount) {winnerCount=j-i;winner=values[i];}
+    i=j;
+  }
+  return {winner,winnerCount};
+}
 static void emitBlock(Bytes& out,const uint8_t* src,size_t n,Stats& stats) {
   Bytes chosen; chosen.reserve(n+12);
   chosen.push_back(0); putVar(chosen,n); chosen.insert(chosen.end(),src,src+n);
   unsigned mode=0; uint64_t winningExceptions=0;
-  for(unsigned w : {1u,2u,4u,8u}) {
+  for(unsigned w : {1u,2u,4u,8u}
+// Consume every reconstructed byte in every timed decode. This shared digest
+// prevents the compiler from eliding unused reconstruction, unlike size-only
+// sinks. Timings include equal digest work on all reference decoders.
+static uint64_t observedDigest(const Bytes& bytes) {
+  uint64_t h=0xcbf29ce484222325ULL;
+  size_t i=0;
+  for(;i+8<=bytes.size();i+=8) {
+    h=(h<<9)|(h>>55);
+    h^=readWord(bytes.data()+i,8)*0x9e3779b185ebca87ULL;
+  }
+  for(;i<bytes.size();++i) {
+    h=(h<<9)|(h>>55);
+    h^=uint64_t(bytes[i])*0x9e3779b185ebca87ULL;
+  }
+  return h;
+}) {
     if(n%(size_t)w || n<2*w) continue;
     const size_t count=n/w;
-    const uint64_t mask=maskFor(w),base=readWord(src,w);
-    const uint64_t step=(readWord(src+w,w)-base)&mask;
+    const uint64_t mask=maskFor(w);
+    const size_t ceiling=std::min(count/4,chosen.size()/(w+1));
+    // Robust, bounded encoder-only inference. Sparse outliers can spoil the
+    // first two fields, so select the modal finite difference and modal
+    // intercept across the entire independent 4KiB block.
+    std::vector<uint64_t> differences;
+    differences.reserve(count-1);
+    uint64_t prev=readWord(src,w);
+    for(size_t i=1;i<count;++i) {
+      const uint64_t current=readWord(src+i*w,w);
+      differences.push_back((current-prev)&mask);
+      prev=current;
+    }
+    const auto [step,stepSupport]=modal(differences);
+    if(stepSupport*2<count-1) continue; // max 25% sparse outliers
+    std::vector<uint64_t> intercepts;
+    intercepts.reserve(count);
+    for(size_t i=0;i<count;++i)
+      intercepts.push_back((readWord(src+i*w,w)-uint64_t(i)*step)&mask);
+    const auto [base,baseSupport]=modal(intercepts);
+    if(count-baseSupport>ceiling) continue;
     std::vector<std::pair<uint64_t,uint64_t>> exceptions;
     // Avoid pathological sparse side-stream size and excessive encoder work.
-    const size_t ceiling=std::min(count/4,chosen.size()/(w+1));
     uint64_t expected=base;
     for(size_t i=0;i<count;++i) {
       uint64_t actual=readWord(src+i*w,w);
@@ -209,6 +256,9 @@ static void selftest() {
   Stats st;auto wire=encode(affine,st);
   expect(st.affine>0,"affine detector did not trigger");
   expect(wire.size()<affine.size()/4,"affine size improvement absent");
+  Stats sparseStats;auto sparseWire=encode(sparse,sparseStats);
+  expect(sparseStats.patched>0,"sparse exceptions were not represented");
+  expect(decode(sparseWire)==sparse,"sparse roundtrip failed");
   // Malicious declaration and invalid syntax must reject before allocation.
   for(Bytes badWire: {Bytes{'N','O','P','E'},Bytes{'A','V','I','1',0,0},Bytes{'A','V','I','1',0x80}}) {
     bool rejected=false;try{(void)decode(badWire);}catch(const std::exception&){rejected=true;}
@@ -248,9 +298,9 @@ static Bytes brotliDecode(const Bytes& wire,size_t length) {
 static void bench(const fs::path& f) {
   auto raw=readFile(f);Stats stats;auto wire=encode(raw,stats);
   expect(decode(wire)==raw,"bench roundtrip failed");
-  volatile size_t sink=0;
+  volatile uint64_t sink=0;
   const double enc=medianMicros([&]{Stats st;auto z=encode(raw,st);sink=sink^z.size();},5);
-  const double dec=medianMicros([&]{auto z=decode(wire);sink=sink^z.size();},7);
+  const double dec=medianMicros([&]{auto z=decode(wire);sink=sink^observedDigest(z);},7);
   const double encMBs=raw.empty()?0:double(raw.size())/enc;
   const double decMBs=raw.empty()?0:double(raw.size())/dec;
   std::cout<<f.filename().string()<<'\t'<<raw.size()<<'\t'<<wire.size()<<'\t'
@@ -265,7 +315,7 @@ static void bench(const fs::path& f) {
       const auto z=brotliEncode(raw,quality);sink=sink^z.size();
     },quality==11?3:5);
     const double referenceDec=medianMicros([&] {
-      const auto z=brotliDecode(reference,raw.size());sink=sink^z.size();
+      const auto z=brotliDecode(reference,raw.size());sink=sink^observedDigest(z);
     },7);
     std::cout<<'\t'<<reference.size()
              <<'\t'<<(raw.empty()?0:double(raw.size())/referenceEnc)
