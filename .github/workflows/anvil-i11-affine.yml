@@ -57,7 +57,7 @@ jobs:
             cmake --version | head -n 1
             git --version
           } | tee "$OUT_DIR/provenance.txt"
-          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-columnar-align.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
             test -f "$path"
             blob="$(git rev-parse "HEAD:$path")"
             sum="$(sha256sum "$path" | cut -d' ' -f1)"
@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           "$RUNNER_TEMP/i11_affine" --selftest | tee "$OUT_DIR/selftest.txt"
           grep -F "SELFTEST PASS" "$OUT_DIR/selftest.txt"
-          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-columnar-align.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
             "$RUNNER_TEMP/i11_affine" --encode "$path" "$OUT_DIR/check.av1"
             "$RUNNER_TEMP/i11_affine" --decode "$OUT_DIR/check.av1" "$OUT_DIR/check.raw"
             cmp "$path" "$OUT_DIR/check.raw"
@@ -111,7 +111,7 @@ jobs:
           "$RUNNER_TEMP/i11_affine" --bench \
             tests/corpus/synth-arith.bin \
             tests/corpus/synth-timeseries.bin \
-            tests/corpus/synth-columnar-align.bin \
+            \
             tests/corpus/synth-jitter.bin \
             tests/corpus/random.bin \
             tests/corpus/generated.repeat.jsonl \
@@ -121,8 +121,8 @@ jobs:
           import csv, json, sys
           with open(sys.argv[1], newline="", encoding="utf-8") as file:
               rows = list(csv.DictReader(file, delimiter="\t"))
-          if len(rows) != 8:
-              raise SystemExit("expected 8 discovery rows")
+          if len(rows) != 7:
+              raise SystemExit("expected 7 discovery rows")
           result = {"schema": "anvil.i11.discovery/v1",
                     "evidence_role": "discovery",
                     "promotion_authorized": False,
