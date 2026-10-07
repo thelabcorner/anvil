@@ -1,0 +1,158 @@
+# ANVIL I11: source-identified, manual-only discovery experiment.
+# NOT a production codec, promotion, novelty, or Class-A frontier job.
+name: ANVIL I11 bounded affine reconstruction discovery
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anvil-i11-affine-${{ github.ref_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  affine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      SOURCE: prototypes/i11-work-bounded-affine/i11_affine.cpp
+      SOURCE_BLOB: 69f7ca555b15dc5397411f86b6250b3772a8ce9b
+      SOURCE_SHA256: c530b278c8b007af58a4f6b9cd3c1adbec60e5c11588d8683867ea1ba8b5a285
+      OUT_DIR: ${{ github.workspace }}/i11-results
+      BROTLI_SHA: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
+      BROTLI_SRC: ${{ github.workspace }}/../i11-brotli-src
+      BROTLI_BUILD: ${{ github.workspace }}/../i11-brotli-build
+
+    steps:
+      - name: Checkout exact dispatched Git revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Fail-closed source and input provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "HEAD:$SOURCE")" = "$SOURCE_BLOB"
+          echo "$SOURCE_SHA256  $SOURCE" | sha256sum -c -
+          test -z "$(git status --porcelain)"
+          mkdir -p "$OUT_DIR"
+          {
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "workflow_sha=$GITHUB_SHA"
+            echo "branch=$GITHUB_REF_NAME"
+            echo "source=$SOURCE"
+            echo "source_blob=$SOURCE_BLOB"
+            echo "source_sha256=$SOURCE_SHA256"
+            echo "brotli_source_commit=$BROTLI_SHA"
+            echo "runner=ubuntu-24.04"
+            echo "evidence_role=discovery_only"
+            echo "promotion_authorized=false"
+            echo "frontier_crossing_authorized=false"
+            g++ --version | head -n 1
+            cmake --version | head -n 1
+            git --version
+          } | tee "$OUT_DIR/provenance.txt"
+          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-columnar-align.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            test -f "$path"
+            blob="$(git rev-parse "HEAD:$path")"
+            sum="$(sha256sum "$path" | cut -d' ' -f1)"
+            echo "$path git_blob=$blob sha256=$sum" | tee -a "$OUT_DIR/provenance.txt"
+          done
+
+      - name: Fetch and build the pinned Brotli reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init --quiet "$BROTLI_SRC"
+          git -C "$BROTLI_SRC" remote add origin https://github.com/google/brotli.git
+          git -C "$BROTLI_SRC" fetch --quiet --depth 1 origin "$BROTLI_SHA"
+          git -C "$BROTLI_SRC" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$BROTLI_SRC" rev-parse HEAD)" = "$BROTLI_SHA"
+          cmake -S "$BROTLI_SRC" -B "$BROTLI_BUILD" -DCMAKE_BUILD_TYPE=Release -DBROTLI_DISABLE_TESTS=ON
+          cmake --build "$BROTLI_BUILD" --target brotlienc brotlidec brotlicommon -j 2
+          for lib in brotlienc brotlidec brotlicommon; do
+            find "$BROTLI_BUILD" -name "lib$lib.a" -print -quit | grep -q .
+          done
+          echo "pinned_brotli_commit=$(git -C "$BROTLI_SRC" rev-parse HEAD)" | tee -a "$OUT_DIR/provenance.txt"
+
+      - name: Compile exact I11 pilot against pinned static Brotli
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib() { find "$BROTLI_BUILD" -name "lib$1.a" -print -quit; }
+          g++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -DI11_WITH_BROTLI \
+            -I "$BROTLI_SRC/c/include" "$SOURCE" -o "$RUNNER_TEMP/i11_affine" \
+            "$(lib brotlienc)" "$(lib brotlidec)" "$(lib brotlicommon)" -pthread
+          sha256sum "$RUNNER_TEMP/i11_affine" | tee "$OUT_DIR/binary-sha256.txt"
+          ls -l "$RUNNER_TEMP/i11_affine" | tee "$OUT_DIR/binary-size.txt"
+
+      - name: Roundtrip and malformed-wire self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/i11_affine" --selftest | tee "$OUT_DIR/selftest.txt"
+          grep -F "SELFTEST PASS" "$OUT_DIR/selftest.txt"
+          for path in tests/corpus/synth-arith.bin tests/corpus/synth-timeseries.bin tests/corpus/synth-columnar-align.bin tests/corpus/synth-jitter.bin tests/corpus/random.bin tests/corpus/generated.repeat.jsonl tests/corpus/generated.jsonl tests/corpus/src.cpp; do
+            "$RUNNER_TEMP/i11_affine" --encode "$path" "$OUT_DIR/check.av1"
+            "$RUNNER_TEMP/i11_affine" --decode "$OUT_DIR/check.av1" "$OUT_DIR/check.raw"
+            cmp "$path" "$OUT_DIR/check.raw"
+            echo "ROUNDTRIP_PASS $path" | tee -a "$OUT_DIR/roundtrip.txt"
+          done
+
+      - name: Matched-run synthetic and discovery benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/i11_affine" --bench \
+            tests/corpus/synth-arith.bin \
+            tests/corpus/synth-timeseries.bin \
+            tests/corpus/synth-columnar-align.bin \
+            tests/corpus/synth-jitter.bin \
+            tests/corpus/random.bin \
+            tests/corpus/generated.repeat.jsonl \
+            tests/corpus/generated.jsonl \
+            tests/corpus/src.cpp | tee "$OUT_DIR/benchmark.tsv"
+          python3 - "$OUT_DIR/benchmark.tsv" "$OUT_DIR/diagnostic.json" <<'PY'
+          import csv, json, sys
+          with open(sys.argv[1], newline="", encoding="utf-8") as file:
+              rows = list(csv.DictReader(file, delimiter="\t"))
+          if len(rows) != 8:
+              raise SystemExit("expected 8 discovery rows")
+          result = {"schema": "anvil.i11.discovery/v1",
+                    "evidence_role": "discovery",
+                    "promotion_authorized": False,
+                    "frontier_crossing": False,
+                    "rows": []}
+          for row in rows:
+              n = int(row["input_bytes"])
+              wire = int(row["wire_bytes"])
+              b5 = int(row["brotli_q5_bytes"])
+              b11 = int(row["brotli_q11_bytes"])
+              result["rows"].append({
+                  "file": row["file"], "source_bytes": n, "avi1_wire_bytes": wire,
+                  "brotli_q5_bytes": b5, "brotli_q11_bytes": b11,
+                  "avi1_minus_brotli_q11_bytes": wire-b11,
+                  "affine_blocks": int(row["affine_blocks"]),
+                  "patched_blocks": int(row["patched_blocks"]),
+                  "exceptions": int(row["exceptions"]),
+                  "avi1_decode_MBps": float(row["decode_MBps"]),
+                  "brotli_q11_decode_MBps": float(row["brotli_q11_decode_MBps"])})
+          with open(sys.argv[2], "w", encoding="utf-8") as file:
+              json.dump(result, file, indent=2, sort_keys=True)
+              file.write("\n")
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload evidence regardless of job verdict
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: anvil-i11-affine-${{ github.sha }}-run${{ github.run_attempt }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: warn
+          retention-days: 90
