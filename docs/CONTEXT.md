@@ -1,5 +1,7 @@
 # Project ANVIL — Shared Swarm Context (v1)
 
+> **October 7, 2026 reading guide:** This is an archival context document, **not** current delegation instructions. The active campaign uses **one agent via OXP** and reserves CPU-intensive work for GitHub Actions. For current evidence, see [research synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md), [evidence index](RESEARCH-EVIDENCE-INDEX-2026-10-07.md), and [I19 closeout](I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md). I19 prepared typed input streams but ran **no codec efficacy**; Class-A remains **0 full crossings**. Historical instructions below are provenance, not active priorities.
+
 > **Historical shared context.** This file contains valuable mechanism history but also intentionally preserved stale intermediate priorities. For current decisions, prefer `docs/anvil-i9-findings.md`, `RESEARCH_LEDGER.md` PART XIV, `docs/audit-2026-09-07/06-do-not-reburn.md`, and `docs/FRONTIER-RESET-2026-09-23.md`.
 
 Mission: discover, design, implement, and experimentally validate a genuinely

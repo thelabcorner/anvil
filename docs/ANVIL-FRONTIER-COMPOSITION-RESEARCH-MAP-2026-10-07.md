@@ -1,4 +1,6 @@
 # ANVIL — Frontier Composition Research Map (I12 → I15+)
+
+> **Historical design snapshot; October 7 addendum.** This document was authored while I14 was running. Its prospective I14/I15 branches are *time-of-writing* priorities, not current research authorization. I16–I18 later established synthetic-only discoveries; I19 source preparation succeeded but **no real-data codec benchmark exists**. Read [research synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md), [evidence index](RESEARCH-EVIDENCE-INDEX-2026-10-07.md), and [I19 closeout](I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md). Frozen reports are retained without retrospective threshold edits.
 **2026-10-07.** Engineering decision document; new mechanism implementations must have separate frozen preregistrations and remote CI. No delegates. All CPU-heavy compile, fuzz, benchmarks, corpus processing, and competitive comparisons run in GitHub Actions.
 
 ## Executive distinction: discovery vs class-A frontier

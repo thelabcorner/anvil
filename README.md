@@ -14,6 +14,25 @@ That means ANVIL studies not only entropy coding, but the representation that ex
 
 ANVIL is a research prototype. The bitstream is unstable and the project is not a production replacement for established codecs.
 
+### October 7, 2026 — evidence-graded state
+
+**Research verdict: 0 verified complete general-purpose Pareto crossings.** The frozen Class-A accounting is **435 dominated, 28 degenerate, 5 unresolved front gaps** (468 total). There have been real specialized advances, but none changes that classification. Read the [research synthesis and open questions](docs/ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md) for the experimental reasoning, exact claim limits, reference-class distinctions, limitations, and research agenda. The [research evidence index](docs/RESEARCH-EVIDENCE-INDEX-2026-10-07.md) maps every important claim to its measured CI source and evidentiary scope.
+
+| Lane | Supported finding | Scope / caveat |
+| --- | --- | --- |
+| I9/I10 BWT | Better compressed-byte totals on selected canonical corpora; auxiliary inverse BWT speeds ANVIL decoding | External decode and memory costs prevent complete front crossing |
+| I10 structure | Exact lexical reordering improves a selected receipt dataset under the same Brotli backend | Broad/held-out gates did **not** generalize; G4 and G5B were adverse |
+| I12–I16 numerical | Local modular innovations and tiled/field-local predictors substantially compress certain synthetic numerical fixtures | Known structural families, fixture reuse, strong q5 and typed-codec competition |
+| **I17** work portfolio | Fast selector reduces costly q11 search | Significant byte regret on some nonnumerical inputs |
+| **I18** hybrid | Complete synthetic arithmetic archive **19,445 B** vs I17 fast **33,204 B**; paired decode **381.422 MB/s** vs Brotli q5 **161.660 MB/s** | I18 encode **4.089 MB/s** vs I17 fast **11.473 MB/s**; no independent real validation |
+| **I19 Phase 0/0b** | Four exact original response-body snapshots and **four derived non-held-out typed streams, 112,620 B** verified | **No I19 codec efficacy run; corpus admission blocked, UCI reserve unsealed** |
+
+For I18, [corrected Actions 37703141058](https://github.com/thelabcorner/anvil/actions/runs/37703141058) is the source-attested synthetic discovery run. For I19, [acquisition 37704571734](https://github.com/thelabcorner/anvil/actions/runs/37704571734) and [semantics 37704897319](https://github.com/thelabcorner/anvil/actions/runs/37704897319) verified input identities and projections, **not compression performance**. I19 source artifacts have finite GitHub retention; an exposed UCI ZIP is **not a blinded heldout**; numeric vectors do **not** losslessly reconstruct parent DLY/JSON/ZIP without additional sideband. Workflow success is not scientific frontier certification.
+
+**Next gate:** source-rights and durable-original custody, another independent discovery lineage, genuinely sealed untouched holdout, frozen typed-codec competitors (Sprintz, FastLanes/FOR/PFOR, OpenZL and matched general-purpose codecs), and preregistered decoder-work / encoder-regret testing. All CPU-intensive processing and tests run through **GitHub Actions**; local work is limited to lightweight inspection and edits. Current numerical formats (AVI6, AVH1, AVH2) are **separate research prototypes**, not necessarily implemented by the primary `src/anvil.cpp` CLI. Do not infer a single released interoperable encoder from their presence in experiment folders.
+
+### Historical I9–I10 evidence (retained, not the current frontier summary)
+
 The frozen Iteration-9 checkpoint demonstrated that ANVIL's ratio portfolio can beat the measured Brotli q11 and xz -9e byte totals on the project's canonical Silesia/enwik8 runs, but **it produced zero complete Pareto-front crossings** because the BWT-heavy path remained far too slow to decode.
 
 Iteration 10 has now closed its first adopt-class improvement: auxiliary-index inverse BWT. On three paired same-runner targets it improved whole-codec decode by **1.364× to 2.339×** for a fully charged 2–4 KiB-per-file wire increase. Across canonical Silesia + enwik8, the size-first portfolio pays **22,398 B** (+0.00718% of source) with no routing changes. The legacy smaller representation remains the default for size-first mode; auxiliary BWT is retained as a distinct faster-decode Pareto option.
@@ -24,7 +43,14 @@ A separate Grotli-derived representation lane has now produced ANVIL's first cle
 
 The current Grotli anatomy program has narrowed the mechanism further. G4 found **NO-GO-G4** for cheap planner substitution. G5A then proved ordering/locality itself is materially causal: with the same scalar-chunk multiset, envelope, and Brotli backend, exact-shape column order was **6.1189% smaller than source order**, with **80.19%** of that measured ordering effect attributable to the column increment. G5B tested the coarse cross-shape extension and closed **ORDINAL-ADVERSE**: global same-ordinal blocking was **1.6507% larger** than the exact-shape column floor on D1-D4. The next open anatomy question is therefore semantic/path-aware cross-shape compatibility—not ordinal coarsening. None of G4/G5A/G5B authorizes a production transform or a new generalization claim.
 
-The current research reset and execution program are documented in:
+Research lineage and execution documents (including historical, deliberately frozen hypotheses) are documented in:
+
+- [**Scientific synthesis and open questions — October 7, 2026**](docs/ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md) — current paper-style report, quantitative claim matrix, threats to validity, and proposed experiments
+- [**I17–I18 source-attested adjudication**](docs/I17-I18-SOURCE-ATTESTED-EXPERIMENT-ADJUDICATION-2026-10-07.md) — exact paired evidence and failure history
+- [**I18 corrected quantitative closeout**](docs/I18-BUDGET-GATED-FUSION-RESULTS-2026-10-07.md) — complete-wire seven-file matrix, timing and RSS limitations
+- [**I19 acquisition/typed semantics closeout**](docs/I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md) — original and derived SHA-256 identities, rights and custody gaps
+- [**I19 real-source experimental design**](docs/I19-REAL-NUMERIC-WORK-BUDGET-EXPERIMENT-DESIGN-2026-10-07.md) — unexecuted hypotheses and tentative criteria
+- [**I19 bounded oracle mathematical design**](docs/I19-PHASE1-DECODER-CHEAP-RECONSTRUCTION-ORACLE-DRAFT-2026-10-07.md) — not a frozen preregistration
 
 - [`docs/FRONTIER-RESET-2026-09-23.md`](docs/FRONTIER-RESET-2026-09-23.md) — post-I9 synthesis and mechanism frontier
 - [`docs/FRONTIER-RESEARCH-ADDENDUM-2026-09-23.md`](docs/FRONTIER-RESEARCH-ADDENDUM-2026-09-23.md) — post-I10-1A program-synthesis, information-theory, and CPU-native decode research addendum
@@ -85,7 +111,7 @@ Those byte results coexist with a major decode deficit. See `docs/anvil-i9-findi
 
 The project does **not** describe the above as a general Pareto breakthrough.
 
-## Current research direction
+## Research direction — conceptual foundation
 
 ANVIL is moving away from the question:
 
@@ -110,11 +136,13 @@ The first high-EV I9 carry-forward is now closed:
 
 1. **auxiliary-index inverse BWT — ADOPTED as an explicit faster-decode Pareto option**, while the byte-smaller legacy representation remains the size-first default.
 
-The next isolated engineering experiment is:
+At the time of the earlier I10 research plan, the next isolated engineering experiment was:
 
 2. **native bit-exact DEFLATE reconstruction (P4.1)**, followed by direct roundtrip/fuzz, complete wire/code-size accounting, and same-backend causal measurement.
 
 New mechanism work is expected to begin with **anatomy/oracle probes**, not full codec modes.
+
+The live successor lane is **I19 source-admission and work-constrained numerical reconstruction research**; do not mistake the historical I10 next-step statement for an active experiment authorization. See the current synthesis and I19 design links above.
 
 ## Research discipline
 
@@ -244,6 +272,8 @@ When documents disagree, prefer the most direct frozen artifact:
 3. explicit gate/ruling documents;
 4. `RESEARCH_LEDGER.md`;
 5. old context/brief documents.
+
+The October 2026 I12–I19 lanes are primarily **isolated research worktrees and CI workflows**, not features necessarily present in the main `anvil` executable. Every published number requires a specific commit, complete frame geometry, source identity and Actions evidence. Raw-source compression and derived typed-projection compression are distinct questions. An independently reproducible compressed-byte result can coexist with noisy shared-runner performance estimates; an unmeasured memory/code-size dimension remains **unknown**.
 
 Historical throughput numbers are host- and protocol-specific. Never transplant them to a different compiler/CPU and present them as current performance.
 

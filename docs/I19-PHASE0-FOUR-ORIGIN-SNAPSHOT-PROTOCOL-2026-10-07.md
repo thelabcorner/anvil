@@ -67,10 +67,12 @@ dispatch bridge temporarily targets this new workflow. Phase-0b has no codec
 measurements and cannot advance a Pareto claim.
 
 - [ ] All four sources acquired and their saved original-byte SHA-256 verified.
+- [x] **Phase-0 technical closeout only:** four captured HTTP response entity bodies were SHA-verified in [Actions 37704571734](https://github.com/thelabcorner/anvil/actions/runs/37704571734). This is not source-rights, archival-custody or compression efficacy approval.
 - [ ] Check upstream response semantics, API data/release identity, licensing and attribution; a HTTP 200 body alone is insufficient.
 - [ ] Preserve immutable original snapshots past Actions retention.
 - [ ] Freeze complete origin/dataset/release/source-size/hash/rights manifest with truthful source-versus-typed semantics.
 - [ ] Create independently validated deterministic typed extraction with explicit missingness and record mapping. Typed-only payload compression is NOT byte-exact original CSV/JSON/ZIP compression.
+- [x] **Partial projection closeout:** deterministic NOAA/USGS/NASA typed bytes were rehashed in [Actions 37704897319](https://github.com/thelabcorner/anvil/actions/runs/37704897319). Omitted source fields and exact full-file reconstruction are still not accounted for; the stronger checklist line above remains unchecked.
 - [ ] Provide restricted heldout storage and a one-time preregistered unseal gate.
 - [ ] Freeze decoder-work and encoder-work oracle thresholds and same-runner typed comparator suite before efficacy measurements.
 - [ ] Run paired timed comparisons, RSS and decoder size accounting, fuzz/sanitizers on GitHub Actions only.

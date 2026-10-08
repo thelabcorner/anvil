@@ -1,5 +1,7 @@
 # Project ANVIL — Frontier Research Reset
 
+> **Historical theoretical foundation (September 23):** Current empirical context is in the [October 7 synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md) and [evidence register](RESEARCH-EVIDENCE-INDEX-2026-10-07.md). I16–I18 numerical portfolios established **synthetic discovery tradeoffs only**, and I19 prepared real source/typed projections without compression efficacy. Neither changes the frozen **zero complete general-purpose crossings**. The priorities and hypothetical programs below retain their original historical date.
+
 **Date:** 2026-09-23  
 **Purpose:** Reconstruct the actual post-I9 state, re-ground the project in compression theory and current research, and define the next mechanism-level research program before more codec implementation.
 

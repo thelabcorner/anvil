@@ -1,5 +1,7 @@
 # Project ANVIL — Pareto-Frontier Research Strategy, Mathematical Mechanisms and Experimental Decision Tree
 
+> **Chronology/authority update (2026-10-07):** This is a preserved ideation snapshot. The later source-of-record Q1a-XRUN [37694740386](https://github.com/thelabcorner/anvil/actions/runs/37694740386) established **R2 Gate A PASS**, superseding §A.8's earlier unpublished state; **Gate B remains BLOCKED**. I16–I18 subsequently produced synthetic discovery, and I19 verified real input identities but ran **no codec efficacy**. See [research synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md) and [evidence index](RESEARCH-EVIDENCE-INDEX-2026-10-07.md). The dated assertions below remain part of the historical record, not present experiment authorization.
+
 **Date:** 2026-10-07 (America/Chicago)  
 **Status:** RESEARCH / IDEATION ONLY; not a codec implementation, experiment authorization, revised freeze, novelty claim, or performance result.  
 **Authority:** `docs/swarm-2026-10-02/FROZEN-CLOSEOUT-MATRIX-R2.md` remains binding for execution.  

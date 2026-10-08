@@ -1,5 +1,7 @@
 # ANVIL v0.1 Experimental Format
 
+> **Scope note (2026-10-07):** This document describes the main ANVIL `ANV0` experimental CLI/wire lineage. I17's `AVH1` and I18's `AVH2` numerical portfolio are **separate prototype formats** on research branches, **not additional `ANV0` revisions or guaranteed modes in `src/anvil.cpp`**. For their measured identities and complete-wire comparisons, use [I17–I18 adjudication](docs/I17-I18-SOURCE-ATTESTED-EXPERIMENT-ADJUDICATION-2026-10-07.md), [I18 closeout](docs/I18-BUDGET-GATED-FUSION-RESULTS-2026-10-07.md), and [current synthesis](docs/ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md). No stable cross-prototype decoder compatibility is implied.
+
 This is an unstable research format. It is intentionally versioned to allow the bitstream to change whenever measurements justify it.
 
 ## File header
