@@ -127,6 +127,61 @@ Verdicts are only `WIN`, `NO-GO` or `INCONCLUSIVE`.
 | C5 | Postcoder decode-cost swap | W5 | *in flight* | — | — |
 | C6 | Dense reference-grid control | W6 | **WIN (control)** | enwik8: candidate 23,537,422 B is 1,272,758 B below the dense grid's best byte point (brotli-q11-lw30, 24,810,180 B); no dense reference dominates it on (bytes ∧ decode) or (bytes ∧ peak RSS) | runs `39660612517`, `39669395005`, workflow `.github/workflows/anvil-i20-dense-reference.yml`, job `dense reference (enwik8)`, commit `6065a36…`, artifacts `anvil-i20-dense-reference-enwik8-39660612517` / `...-39669395005` |
 
+### 2.9 Merged-arm arbiter runs (W2's knob + W4's L1/L2/L3), ruled by the frozen arbiter
+
+All rows below are produced by the **frozen** `tools/reference_cost_gate.py` via
+`.github/workflows/anvil-i20-gate-closure.yml` (registered on `main` @ `9ce9ae2`), job
+`gate-closure (silesia)`, corpus silesia, `reps = 9`, candidate SHA
+`ec2238e0c73bff9fe434b30149f72e06af4a5ef7` (the merged arm). The A/A null CI spans 1.0 and clears
+no speed gate in every row, so the timing is valid.
+
+| arm | `--candidate-extra-args` | ANVIL bytes | lead vs `xz` | ANVIL peak RSS | vs `xz` | ANVIL/`xz` decode (CI95) | ANVIL/Brotli decode (CI95) | G2 | G3 | G4 | G5 | ruling |
+|---|---|---:|---:|---:|---:|---|---|---|---|---|---|---|
+| E | `--bwt-subblock 4194304` | 47,941,299 | 514,705 B | 126,808 KiB (123.8 MiB) | 2.2842× | 1.2798 [1.2606, 1.2802] | 4.2816 [4.2603, 4.3873] | PASS | PASS | FAIL | **FAIL** | `FRONT-GAP_COST` |
+| F | `--bwt-subblock 8388608` | 47,365,274 | 1,090,730 B | 127,720 KiB (124.7 MiB) | 2.3049× | 1.2529 [1.2524, 1.2539] | 4.5611 [4.5000, 4.7867] | PASS | PASS | FAIL | **FAIL** | `FRONT-GAP_COST` |
+
+Evidence: run `39674648000` (arm E), artifact `anvil-i20-gate-closure-silesia-39674648000`; run
+`39674653288` (arm F), artifact `anvil-i20-gate-closure-silesia-39674653288`.
+
+### What the merged arm proves, and what it localises
+
+**L1+L2+L3 work, and they work on the BWT path.** Arm F's per-file peak decode RSS table (KiB)
+against W3's cap-only measurement of the *same* 8 MiB cap (run `39663273951`, artifact
+`anvil-i20-subblock-silesia-39663273951`):
+
+| file | W3, 8 MiB cap, no C4 levers | Arm F, 8 MiB cap + L1/L2/L3 | reduction |
+|---|---:|---:|---:|
+| **webster** | 109,440 | **53,156** | **−56,284 KiB (−55 MiB)** |
+| **mozilla** | 125,564 | 127,720 | **0 (and it is the portfolio peak)** |
+
+And the decode also improved: arm F decoded the Silesia portfolio in **3.7229 s** against W3's
+**4.7287 s** at the same 8 MiB cap — i.e. **L1+L2+L3 are worth ≈1.27× on top of the cap's ≈1.14×,
+a ≈1.45× total.** (W4's own paired A/B of the changed binary against the frozen baseline gave a
+decode-time CI-upper of 1.00037 on Silesia and 1.01202 on enwik8, inside the 2 % epsilon.)
+
+**And the G5 blocker is now localised to a single line.** `mozilla` is the portfolio peak and it
+is **Brotli-routed** (13,806,173 B = Brotli's own payload, and the router keeps it there at every
+cap). Its ANVIL decode RSS is 127,720 KiB against Brotli's own 125,264 KiB — so **the 51,220,480-byte
+output of the Brotli backend is still materialised**. The cause is one line in the merged arm:
+
+```
+src/anvil.cpp:4583
+    if(backend==kRatioBackendBrotli) return brotli_lw_decode_exact(p,n,expected);
+```
+
+`ratio_backend_decode` returns the Brotli backend's whole-file vector and never reaches the
+`DecodeSink`; the `stream` flag at line 4605 is honoured only on the BWT branch. **The arithmetic
+says that closing this one gap clears G5:** removing the 50,020 KiB output from `mozilla`'s Brotli
+decode leaves ≈75,244 KiB = 73.5 MiB = **1.35 × `xz -9e` (55,412 KiB) → G5 PASS** and ≈0.60 ×
+Brotli → **G6 PASS**.
+
+**G4 remains the open axis at every cap measured so far.** The 2 MiB cap (byte-feasible, 108,998 B
+of surplus) reached ANVIL/Brotli = 2.2104 [2.1108, 2.3185] without the C4 levers — it needs
+≈10 % more decode speed to clear the 2.0 threshold, and the 1 MiB cap (which reaches 1.5258) is
++217,517 B out of byte budget. **The cap ladder between 1 and 2 MiB is therefore the decisive
+remaining measurement**, because `--bwt-subblock` accepts any byte count and the G2/G4 trade-off
+may have a feasible interior point.
+
 ### 2.8 C4 — decode working-set engineering: WIN (the adoptable lever)
 
 W4 implemented three **decode-only** levers at exactly **zero wire cost** — the encoder, the wire
