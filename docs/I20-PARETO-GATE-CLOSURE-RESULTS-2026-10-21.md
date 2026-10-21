@@ -298,6 +298,89 @@ decide that.
 The gate's three binding Silesia deficits are decode-vs-Brotli (G4), RSS-vs-xz (G5) and
 RSS-vs-Brotli (G6). No single lever clears all three; the programme's working combination is:
 
+---
+
+## 2.6 C3 sub-block-cap sweep (Silesia) — the decisive memory measurement
+
+**Evidence:** run `39656702596` (bytes / routing / per-file RSS), workflow
+`.github/workflows/anvil-i20-subblock-sweep.yml`, job `sweep`, commit
+`ab88e4aa612696e414050bfdd718ba264a382452`, artifact
+`anvil-i20-subblock-silesia-39656702596`, corpus silesia. **MEASURED.**
+
+| Cap | Portfolio bytes | Δ vs 128 MiB control | Δ vs `xz -9e` (48,456,004 B) | **Surplus left vs xz** | BWT routes | Brotli routes | Routing changes vs 128 MiB |
+|---:|---:|---:|---:|---:|---:|---:|---|
+| 1 MiB | 48,673,521 | +2,207,182 | **+217,517** | **−217,517** | 2 | 10 | dickens, nci, osdb, reymont, webster: bwt→brotli |
+| 2 MiB | 48,347,006 | +1,880,667 | −108,998 | +108,998 | 5 | 7 | nci, webster: bwt→brotli |
+| 4 MiB | 47,941,299 | +1,474,960 | −514,705 | +514,705 | 6 | 6 | nci: bwt→brotli |
+| 8 MiB | 47,365,274 | +898,935 | −1,090,730 | **+1,090,730** | 6 | 6 | nci: bwt→brotli |
+| 16 MiB | 46,938,837 | +472,498 | −1,517,167 | +1,517,167 | 7 | 5 | none |
+| 32 MiB | 46,648,642 | +182,303 | −1,807,362 | +1,807,362 | 7 | 5 | none |
+| 64 MiB | 46,466,339 | 0 | −1,989,665 | +1,989,665 | 7 | 5 | none |
+| 128 MiB (control) | 46,466,339 | 0 | −1,989,665 | +1,989,665 | 7 | 5 | none |
+
+**Routing is a first-class measured result, not a hidden detail:** the cap does not only change the
+BWT payload, it changes **which backend the router picks**. `nci` leaves the BWT route already at
+the 4 MiB cap (its split-BWT payload 1,561,771 B exceeds Brotli's 1,497,442 B once split), and
+`webster`/`dickens`/`osdb`/`reymont` follow at 1–2 MiB. At the 1 MiB cap only **2 of 12** files
+remain BWT-routed and the portfolio is **+217,517 B over `xz -9e` → G2 FAIL**.
+
+### The decisive structural fact: the portfolio RSS peak is not on the BWT route
+
+Per-file peak decode RSS (KiB, per-process `/usr/bin/time -f %M`; ᵇ = the router selected the
+Brotli backend for that file at that cap):
+
+| file | input B | `xz -9e` | Brotli q11 | 1 MiB | 2 MiB | 4 MiB | 8 MiB | 16 MiB | 32 MiB | 64 MiB | 128 MiB |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **mozilla** | 51,220,480 | 52,212 | 125,020 | 125,416 ᵇ | 125,572 ᵇ | 125,548 ᵇ | 125,564 ᵇ | 125,600 ᵇ | 125,576 ᵇ | 125,556 ᵇ | 125,560 ᵇ |
+| **webster** | 41,458,703 | 42,608 | 117,800 | 118,228 ᵇ | 118,200 ᵇ | 117,684 | 109,440 | 126,524 | 208,280 | 254,284 | 254,304 |
+| nci | 33,553,445 | 34,984 | 70,540 | 70,832 ᵇ | 70,836 ᵇ | 70,856 ᵇ | 70,880 ᵇ | 120,496 | 202,200 | 202,096 | 202,180 |
+| osdb | 10,085,684 | 12,020 | 26,028 | 26,328 ᵇ | 39,012 | 51,256 | 56,108 | 66,008 | 65,848 | 65,972 | 65,996 |
+| x-ray | 8,474,240 | 10,484 | 24,828 | 31,100 | 37,016 | 49,284 | 57,404 | 57,680 | 57,656 | 57,620 | 57,648 |
+| **portfolio max** | | **52,212** | **125,020** | 125,416 | 125,572 | 125,548 | 125,564 | 126,524 | 208,280 | 254,284 | 254,304 |
+
+> **The portfolio maximum peak decode RSS is set by `mozilla` (51,220,480 B), which the router keeps
+> on the Brotli route at *every* cap** — mozilla's split-BWT payload is always larger than its Brotli
+> payload (17,773,492 B at the 8 MiB cap vs Brotli's 13,806,173 B) and the split payload only grows
+> as the cap shrinks. The portfolio RSS floor is therefore **122.5 MiB = 2.40× the in-job `xz -9e`
+> peak (52,212 KiB = 51.0 MiB)**, and **G5 (≤ 2.0× `xz`) cannot be met at any sub-block cap.**
+
+This is the second structural constraint on the programme (the first being §2.5's "G5 is unreachable
+by any Brotli-backed route"), and together they localise the remaining lever exactly:
+
+- The gate compares the candidate's **max** per-file RSS to `xz`'s **max** per-file RSS.
+- `mozilla` is the max-setting file for `xz` too (52,212 KiB) — and `xz` reaches it because xz's
+  decoder memory is small.
+- ANVIL's `mozilla` decode reaches 125,020–125,600 KiB because **ANVIL's own Brotli backend
+  materialises the whole 51,220,480-byte output** (`BrotliDecoderDecompress` into a full buffer,
+  `src/anvil.cpp:3872` `brotli_lw_decode_exact`).
+- The per-file RSS of the BWT path has **two** terms, not one: a cap-proportional inverse-BWT term
+  (≈ 6 × cap) and a **file-proportional term** (the whole reconstructed output + the compressed
+  input) that no cap can touch.
+
+**So the only remaining lever that can clear G5 is a decoder-side change that removes the
+file-proportional term — i.e. streaming the reconstructed output (C4's L3) — and it must cover the
+Brotli backend path as well as the BWT path.** That is exactly what the merged-arm arbiter runs
+measure. The sub-block cap remains valuable but is no longer sufficient: it is the **decode-speed**
+lever (≈1.13× portfolio speed-up at 8 MiB, for +898,935 B) and it bounds the BWT-routed files'
+working set, but it cannot clear the portfolio memory gate on its own.
+
+### 2.7 C3 reproducibility cross-check against the prior sweep (run `35930672607`)
+
+| Quantity | Prior run `35930672607` | This run | Verdict |
+|---|---:|---:|---|
+| Silesia 8 MiB portfolio bytes | 47,365,274 | **47,365,274** | **EXACT MATCH** |
+| Silesia 16 MiB portfolio bytes | 46,938,837 | **46,938,837** | **EXACT MATCH** |
+| Silesia 32 MiB portfolio bytes | 46,648,642 | **46,648,642** | **EXACT MATCH** |
+| Silesia 64/128 MiB portfolio bytes | 46,466,339 | **46,466,339** | **EXACT MATCH** |
+| Silesia 8 MiB peak decode RSS | 124.4 MiB | 122.6 MiB | −1.4 % (runner RSS granularity) |
+
+The byte side is reproduced exactly at every cap, which validates the corpus lock, the router and
+the byte accounting of this programme's cap sweep against an independent earlier run.
+
+---
+
+## 3. Combined-arm plan (the arm the coordinator will rule)
+
 1. **C2 — auxiliary-index walk budget.** More checkpoints ⇒ shorter LF walks ⇒ faster inverse BWT.
    **§2.3 shows this lever is a mechanism-level NO-GO: the LF-step count is `n/2` for every stride
    `r`, and the measured W = 8192 → 16384 step made the same-job decode ratio worse for +419,744 B.**
