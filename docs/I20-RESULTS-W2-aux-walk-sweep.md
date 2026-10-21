@@ -6,7 +6,7 @@
 **Base commit:** `d05fceb0ce61a853378822f63eb5f2ceeef26557`
 **Programme document:** `docs/I20-PARETO-GATE-CLOSURE-PREREG-2026-10-21.md` (binding)
 **Mechanism class:** `{adopt-class}` / engineering. **No novelty claim.**
-**Verdict:** *(filled in below after measurement)*
+**Verdict:** **`NO-GO`** — see §7.
 
 ---
 
@@ -24,7 +24,7 @@ per BWT-routed file.**
 
 ### 1.2 The mechanism, from source
 
-`src/anvil.cpp`, encoder side (line numbers as of commit `64e3178`):
+`src/anvil.cpp`, encoder side (line numbers as of commit `ef5d44a`):
 
 ```
 4253: static int32_t bwt_aux_rate_for_size(int32_t n, uint32_t walks) {
@@ -130,9 +130,12 @@ generalisation):
 | constants (3913-3923) | `kBwtAuxTargetWalks` retained as the documented frozen default; new `kBwtAuxMaxWalks = 1u<<20` |
 | `bwt_aux_rate_for_size` (4253-4282) | signature gains `uint32_t walks`; the policy is generalised from the hard-coded 1024 to `walks`; a clamp keeps `r <= transformed_size` |
 | call site (4286) | `bwt_aux_rate_for_size(n, opt.bwt_aux_walks)` |
-| CLI (5026-5032) | `--bwt-aux-walks=N` **and** `--bwt-aux-walks N` (separate-argument form) |
-| CLI (5036-5041) | `--bwt-subblock` now also accepts the **separate-argument** form `--bwt-subblock <bytes>` (the `=` form is unchanged) — required so the I20 arbiter's single shlex-quoted `--candidate-extra-args` string can carry a combined arm |
+| CLI (5029-5038) | `--bwt-aux-walks=N` **and** `--bwt-aux-walks N` (separate-argument form) |
+| CLI (5040-5045) | `--bwt-subblock` now also accepts the **separate-argument** form `--bwt-subblock <bytes>` (the `=` form is unchanged) — required so the I20 arbiter's single shlex-quoted `--candidate-extra-args` string can carry a combined arm |
 | `usage()` (4994) | the new flag is listed |
+
+`tests/i20_bwt_aux_walks_cli.py` (new): a corpus-free CLI-contract regression
+test for the knob (see §8.3).
 
 `tools/i20_aux_walk_sweep.py` (new): `prepare` / `rss` / `summarize`.
 `.github/workflows/anvil-i20-aux-walk-sweep.yml` (new): manual-only byte-only

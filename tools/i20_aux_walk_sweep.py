@@ -583,16 +583,18 @@ def prepare(args: argparse.Namespace) -> None:
         for src in files:
             name = src.name
             entry: dict[str, Any] = {"file": name}
-            for label, backend, aux, walks in (
+            for label, backend, aux, aux_walks in (
                 ("brotli", "brotli", "off", None),
                 # The frozen I10-1A binary has no --bwt-aux-walks option; its
                 # hard-coded walk budget IS 1024, which is exactly the control
-                # this comparison must be made against.
+                # this comparison must be made against.  NOTE: the loop
+                # variable must not be named `walks`: it would shadow the
+                # outer walk-budget list.
                 ("bwt_aux_on", "bwt", "on", None),
                 ("bwt_aux_off", "bwt", "off", None),
             ):
                 fp = packed_root / "frozen" / label / f"{name}.anv"
-                encode_anvil(frozen, src, fp, backend=backend, aux=aux, walks=walks)
+                encode_anvil(frozen, src, fp, backend=backend, aux=aux, walks=aux_walks)
                 f_sha = sha256(fp)
                 f_bytes = fp.stat().st_size
                 if label == "brotli":
