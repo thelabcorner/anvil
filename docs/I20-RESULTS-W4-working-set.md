@@ -427,19 +427,19 @@ postcoders, 24 auxiliary-BWT assertions, 9+24 deterministic malformed cases, 4 g
 1. **L3 is worth ~56,000 KiB (55 MiB) on `webster` at the 8 MiB cap** (93,396 → 53,264) and
    ~85,000 KiB at the 4 MiB cap: it removes the file-level accumulator, which at a cap is the
    dominant term. This is the same effect the coordinator measured on the merged arm
-   (`webster` 53,156 KiB, §5.7) — independently reproduced.
+   (`webster` 53,156 KiB, §5.8) — independently reproduced.
 2. **L3 alone leaves `mozilla` untouched** (125,768 KiB vs the baseline's 125,708 KiB) — exactly
    as predicted: at the default cap the file-level accumulator is not resident at the peak, and
    the 50,020 KiB term is Brotli's *own* whole-file output buffer inside the Brotli decode. **That
    is the defect the coordinator found, and the streaming-Brotli decode of §2/L3 (`f9be2fc`) is the
-   fix.** It is measured in §5.8.
+   fix.** It is measured in §5.7.
 
 **Paired decode timing for the L3 arm (Silesia, same job):** candidate/frozen ratio
 **0.84861, CI95 [0.80567, 0.87474]** — the C4 arms are **1.18× FASTER** than the frozen baseline
 (portfolio decode 4.2232 s vs 4.9314 s), with a valid A/A null (0.99960, CI95 [0.98943, 1.02116]).
 The decision rule's 2 % epsilon is satisfied with a wide margin, in the *improving* direction.
 
-### 5.8 The full lever set (L1+L2+L3 + streaming Brotli) — the decisive measurement
+### 5.7 The full lever set (L1+L2+L3 + streaming Brotli) — the decisive measurement
 
 **MEASURED** — run `39678336260` (workflow `.github/workflows/anvil-i20-working-set.yml`, jobs
 `working-set (silesia)`, `working-set (enwik8)` and `fuzz-registry`, commit
@@ -518,7 +518,7 @@ coordinator's cap sweep (run `39663273951`: the 8 MiB cap alone is ≈1.14× fas
 control), the cap-plus-C4 combination is ≈1.30× faster than the frozen baseline on the same
 corpus.
 
-### 5.7 The merged-arm arbiter arms (coordinator's measurement, cited for the programme)
+### 5.8 The merged-arm arbiter arms (coordinator's measurement, cited for the programme)
 
 **MEASURED by the coordinator** on the merged arm `ec2238e0c73bff9fe434b30149f72e06af4a5ef7`
 (workflow `.github/workflows/anvil-i20-gate-closure.yml`, job `gate-closure (silesia)`, corpus
@@ -605,8 +605,8 @@ Against the pre-registered decision rule, verbatim:
 |---|---|---|
 | byte-identical to the frozen candidate on every corpus file | **PASS** — `--bwt-aux=on` Silesia 46,466,339 B and enwik8 23,537,422 B; `--bwt-aux=off` Silesia 46,446,995 B and enwik8 23,534,368 B — all four exactly the frozen totals; 52/52 round-trips byte-exact for both binaries | §3, §7 |
 | passes the repo fuzz/registry path | **PASS** — 1040 round-trip variants, 6240 mutations, 14 block modes, 5 transforms, 20 forced postcoders, 24 auxiliary-BWT assertions, 9+24 deterministic malformed cases, 4 golden vectors, 30/30 `tests/corpus` fixtures | §4.1 |
-| reduces measured peak decode RSS by ≥ 1.0 MiB | **PASS** — Silesia portfolio peak 254,408 → 206,812 KiB (**−46.5 MiB**) at the default cap and 254,408 → **76,348 KiB (−173.9 MiB)** with a 2 MiB cap; enwik8 613,436 → 492,788 KiB (−117.8 MiB) and → 159,880 KiB (−442.9 MiB) with a cap; the heap-peak attribution shows the reduction is *exactly* `n + c` for L1+L2 | §5.1, §5.2, §5.5, §5.6, §5.8 |
-| decode time CI-upper not more than +2 % | **PASS — and in the improving direction**: CI-upper 0.90995 (Silesia) and 0.89059 (enwik8) vs the 1.02 epsilon; the full lever set decodes **1.14× faster** than the frozen baseline on both corpora, with valid A/A nulls in every job | §6, §5.8 |
+| reduces measured peak decode RSS by ≥ 1.0 MiB | **PASS** — Silesia portfolio peak 254,408 → 206,812 KiB (**−46.5 MiB**) at the default cap and 254,408 → **76,348 KiB (−173.9 MiB)** with a 2 MiB cap; enwik8 613,436 → 492,788 KiB (−117.8 MiB) and → 159,880 KiB (−442.9 MiB) with a cap; the heap-peak attribution shows the reduction is *exactly* `n + c` for L1+L2 | §5.1, §5.2, §5.5, §5.6, §5.7 |
+| decode time CI-upper not more than +2 % | **PASS — and in the improving direction**: CI-upper 0.90995 (Silesia) and 0.89059 (enwik8) vs the 1.02 epsilon; the full lever set decodes **1.14× faster** than the frozen baseline on both corpora, with valid A/A nulls in every job | §6, §5.7 |
 | byte cost exactly 0 | **PASS** — the encoder is untouched; the wire bytes are the frozen bytes | §3 |
 | in-place lever (L2) proven byte-exact on real data | **PASS** — `cases=80 failures=0 bytes=326,802,592` (Silesia) and `cases=70 failures=0 bytes=200,049,084` (enwik8), both inverse paths, full size | §4.2 |
 
@@ -622,7 +622,7 @@ the compiler's scheduling.
 3.73× `xz` → G5 FAIL** (the BWT floor: `5n` for `webster`).
 
 **With the C4 levers and a sub-block cap the Silesia portfolio peak falls to 76,348–78,412 KiB =
-1.38–1.42× `xz` → G5 PASS, and 0.61–0.63× the Brotli reference → G6 PASS** (§5.8, measured on
+   1.38–1.42× `xz` → G5 PASS, and 0.61–0.63× the Brotli reference → G6 PASS** (§5.7, measured on
 run `39678336260` with the same `/usr/bin/time -f %M` measurement the arbiter uses). The
 arbiter's own ruling on the merged arm is the confirmation that is still outstanding.
 
@@ -677,7 +677,7 @@ at zero byte cost.
    `brotli_lw_decode_stream`, no `anvil_option_takes_value` and no `I20-W4 lever` marker. They
    therefore measure the cap-only arm, not cap+C4.
 2. **The Silesia G5 gate is now cleared by the levers + a sub-block cap** (portfolio peak
-   76,348–78,412 KiB = 1.38–1.42× `xz`, §5.8) and the remaining binding term is **Brotli's
+   76,348–78,412 KiB = 1.38–1.42× `xz`, §5.7) and the remaining binding term is **Brotli's
    internal history ring buffer** (the portfolio peak is `mozilla` again at every cap). Removing
    that needs a smaller Brotli window — an encoder-policy lever that costs bytes (the
    coordinator's fallback suggestion) and is outside C4's decode-path scope.
