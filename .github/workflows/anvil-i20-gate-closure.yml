@@ -65,10 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        corpus:
-          - silesia
-          - enwik8
-    if: inputs.corpus == 'both' || matrix.corpus == inputs.corpus
+        corpus: ${{ fromJSON(inputs.corpus == 'both' && '["silesia","enwik8"]' || inputs.corpus == 'silesia' && '["silesia"]' || '["enwik8"]') }}
 
     runs-on: ubuntu-24.04
     timeout-minutes: 180
