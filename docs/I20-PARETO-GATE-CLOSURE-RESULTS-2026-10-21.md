@@ -182,6 +182,57 @@ of surplus) reached ANVIL/Brotli = 2.2104 [2.1108, 2.3185] without the C4 levers
 remaining measurement**, because `--bwt-subblock` accepts any byte count and the G2/G4 trade-off
 may have a feasible interior point.
 
+### 2.11 The merged-arm cap ladder (run by the frozen arbiter) — the needle is between 1.5 and 2 MiB
+
+All rows: workflow `.github/workflows/anvil-i20-gate-closure.yml`, job `gate-closure (silesia)`,
+corpus silesia, `reps = 9`, candidate SHA `ec2238e0c73bff9fe434b30149f72e06af4a5ef7` (the merged
+arm = W2's `--bwt-aux-walks` knob + W4's L1/L2/L3). The A/A null CI spans 1.0 and clears no speed
+gate in every row.
+
+| arm | `--candidate-extra-args` | ANVIL bytes | lead vs `xz` | G2 | ANVIL/`xz` decode (CI95) | G3 | ANVIL/Brotli decode (CI95) | G4 | RSS/`xz` | G5 | ruling | run |
+|---|---|---:|---:|---|---|---|---|---|---|---|---|---|
+| I | `--bwt-subblock 1310720` | 48,552,405 | **−96,401** | **FAIL** | 0.5452 [0.5447, 0.5615] | PASS | 2.1100 [2.0424, 2.1780] | **FAIL** | 2.2882× | FAIL | `NO_BINDING_BYTE_WIN` | `39677860385` |
+| J | `--bwt-subblock 1310720 --bwt-aux-walks 256` | 48,512,007 | **−55,997** | **FAIL** | 0.6175 [0.5986, 0.6181] | PASS | **1.2250 [1.1810, 1.2735]** | **PASS** | 2.2822× | FAIL | `NO_BINDING_BYTE_WIN` | `39678373829` |
+| H | `--bwt-subblock 1572864` | 48,505,827 | **−49,823** | **FAIL** | 0.6579 [0.6525, 0.6685] | PASS | **1.3174 [1.2685, 1.3610]** | **PASS** | 2.4120× | FAIL | `NO_BINDING_BYTE_WIN` | `39677855167` |
+| **L** | `--bwt-subblock 1835008` | **48,454,402** | **+1,602** | **PASS** | 0.8585 [0.8336, 0.8662] | PASS | **1.5806 [1.4889, 1.5840]** | **PASS** | 2.3987× | **FAIL** | `FRONT-GAP_COST` | `39678370220` |
+| G | `--bwt-subblock 2097152` | 48,347,006 | +108,998 | PASS | 0.8671 [0.8537, 0.8675] | PASS | 2.4538 [2.4506, 2.5738] | **FAIL** | 2.4075× | FAIL | `FRONT-GAP_COST` | `39677681226` |
+| E | `--bwt-subblock 4194304` | 47,941,299 | +514,705 | PASS | 1.2798 [1.2606, 1.2802] | PASS | 4.2816 [4.2603, 4.3873] | FAIL | 2.2842× | FAIL | `FRONT-GAP_COST` | `39674648000` |
+| F | `--bwt-subblock 8388608` | 47,365,274 | +1,090,730 | PASS | 1.2529 [1.2524, 1.2539] | PASS | 4.5611 [4.5000, 4.7867] | FAIL | 2.3049× | FAIL | `FRONT-GAP_COST` | `39674653288` |
+
+> **The needle.** At the **1.75 MiB cap** the merged arm passes **G2** (1,602 B below `xz -9e`),
+> **G3** and **G4** simultaneously, and the *only* failing gate is **G5** — which is the single
+> `src/anvil.cpp:4583` line (the Brotli backend path not reaching the `DecodeSink`). At 1.5 MiB
+> G2 fails by 49,823 B; at 2 MiB G4 fails by 23 %. **1.75 MiB is the only measured cap in the
+> byte-feasible ∧ G4-passing window, and its byte margin is 1,602 B (0.0033 % of `xz -9e`).**
+> That margin is thin but **deterministic** — compressed-byte counts are exact and reproduce
+> run-for-run (W3's sweep reproduced the prior sweep's byte totals *exactly* at every cap).
+
+> **A measurement-stability caveat that must travel with any G4 claim.** The gate's G4 verdict is
+> the ratio of the candidate's decode time to **Brotli's decode time measured in the same job**, and
+> Brotli's measured decode speed on this runner class varies by up to ~1.7× between runs (0.769 s
+> in run `39677860385`, 1.068 s in `39677681226`, 1.321 s in `39678373829`, 1.571 s in
+> `39677855167`, 0.816 s in `39674653288`, 0.966 s in `39674648000`). The **candidate's own**
+> absolute decode time is far more stable (1.617–1.669 s across the 1.25 MiB arms; 2.070 s at
+> 1.5 MiB and 1.75 MiB; 2.620 s at 2 MiB). Consequently **a G4 verdict must be replicated in a
+> second independent run before it is cited**, and the final arm is dispatched at least twice.
+
+### 2.12 A secondary, useful finding: a *small* walk budget is a byte lever
+
+Compare the two 1.25 MiB arms, which differ only in the walk budget:
+
+| arm | W | ANVIL bytes | lead vs `xz` | candidate decode (s) | ANVIL/Brotli decode (CI95) |
+|---|---:|---:|---:|---:|---|
+| I | 1024 | 48,552,405 | −96,401 | 1.6690 | 2.1100 [2.0424, 2.1780] |
+| J | 256 | 48,512,007 | **−55,997 (+40,404)** | **1.6173** | 1.2250 [1.1810, 1.2735] |
+
+Reducing the walk budget from 1024 to 256 **saved 40,404 bytes** (the per-sub-block index array
+shrinks) **and did not slow the decode** (1.6173 s vs 1.6690 s — 3 % faster, i.e. within the
+run-to-run reference variation). This is the *opposite* of the large-`W` behaviour measured in
+§2.3, and it is consistent with the source argument: the LF-step count is `n/2` for every
+stride, so the walk budget is a **byte knob** whose optimum is at small `W`, and the *decode* is
+insensitive to it. The G4 ratio difference between arms I and J is mostly a **reference-speed**
+difference (Brotli measured 0.769 s vs 1.321 s), not a candidate difference.
+
 ### 2.10 The L3 arm (run `39674862702`) — proof that the C4 levers cannot reach the peak
 
 **Evidence:** run `39674862702`, workflow `.github/workflows/anvil-i20-working-set.yml`, jobs
@@ -226,6 +277,8 @@ between 1 and 2 MiB with the frozen arbiter to find the byte-feasible point.**
 
 ---
 
+
+### 2.8 C4 — decode working-set engineering: WIN (the adoptable lever)
 
 W4 implemented three **decode-only** levers at exactly **zero wire cost** — the encoder, the wire
 format, the mode-17 envelope and the `0xFF` sub-block frame are untouched:
