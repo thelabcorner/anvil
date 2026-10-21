@@ -411,6 +411,18 @@ def stage_time(args: argparse.Namespace) -> dict[str, Any]:
         comparisons.append((f"swap-{key}", "proto_arith", f"proto_{cand}"))
         comparisons.append((f"whole-{key}", "anvil_bwt", f"proto_{cand}"))
 
+    # ---- per-candidate stage profile (the trade-curve throughput column) ---
+    for cand in selection["timed"]:
+        for n in bwt_names:
+            pf = out / "post" / f"{n}.{cand}.post"
+            if not pf.is_file():
+                continue
+            prof_out = profile_dir / f"{n}.{cand}.json"
+            run([
+                str(args.proto), "profile", f"--anvil={packed / f'{n}.anv'}",
+                f"--postfile={pf}", "--reps=3",
+            ], stdout_path=prof_out)
+
     # ---- peak decode RSS of the ANVIL arm and of the prototype arm -------
     # C5 does not change the representation, so the peak-RSS axis is expected to
     # be unchanged; this measurement bounds the postcoder's own RSS share.
@@ -521,11 +533,14 @@ def select_candidates(out: Path, prep: dict[str, Any]) -> dict[str, Any]:
         if not feasible:
             continue
         new_total = canon_total + delta
-        mtok = next(iter(per_file.values()))["mtok_name"]
-        mrun = next(iter(per_file.values()))["mrun_name"]
-        if mtok == "?":
-            cost = SUITE_COST_UNITS.get(mrun, 0.0)
+        row0 = next(iter(per_file.values()))
+        mtok = row0["mtok_name"]
+        mrun = row0["mrun_name"]
+        if cand.startswith("single:"):
+            # one stream: the cost unit is that stream's unit only
+            cost = SUITE_COST_UNITS.get(mtok, 0.0)
         else:
+            # two streams: the cost units add
             cost = SUITE_COST_UNITS.get(mtok, 0.0) + SUITE_COST_UNITS.get(mrun, 0.0)
         j_prior = delta + STREAM_LAMBDA * cost
         ranked.append({
@@ -648,6 +663,47 @@ def stage_estimate(args: argparse.Namespace) -> dict[str, Any]:
                 entry["g3_ci95_scaled"] = [base_lo * scale, base_hi * scale]
                 entry["g3_pass"] = (base_hi * scale) <= 2.0
         per_candidate.append(entry)
+
+    # ---- the trade curve -------------------------------------------------
+    trade_rows: list[dict[str, Any]] = []
+    sweep_path = out / "sweep.jsonl"
+    if sweep_path.is_file():
+        with sweep_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                obj = json.loads(line)
+                if obj.get("field") == "header":
+                    continue
+                prof = out / "profile" / f"{obj['file']}.{obj['candidate']}.json"
+                p = {}
+                if prof.is_file():
+                    try:
+                        p = json.loads(prof.read_text(encoding="utf-8"))
+                    except Exception:
+                        p = {}
+                trade_rows.append({
+                    "corpus": args.corpus,
+                    "file": obj["file"],
+                    "candidate": obj["candidate"],
+                    "mtok": obj.get("mtok"),
+                    "mrun": obj.get("mrun"),
+                    "old_post_body_bytes": obj.get("old_post_body_bytes"),
+                    "new_post_body_bytes": obj.get("new_post_body_bytes"),
+                    "new_file_bytes": obj.get("new_file_bytes"),
+                    "delta_bytes": obj.get("delta_bytes"),
+                    "ok": obj.get("ok"),
+                    "note": obj.get("note", ""),
+                    "entropy_s": p.get("entropy_s"),
+                    "mtf_s": p.get("mtf_s"),
+                    "rle_s": p.get("rle_s"),
+                    "unbwt_s": p.get("unbwt_s"),
+                    "total_s": p.get("total_s"),
+                    "postcoder_share": p.get("postcoder_share"),
+                    "entropy_mb_s": p.get("entropy_mb_s"),
+                })
+        with (out / "trade.csv").open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(trade_rows[0].keys()))
+            w.writeheader()
+            w.writerows(trade_rows)
 
     estimate = {
         "schema": 1,

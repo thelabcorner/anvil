@@ -794,17 +794,20 @@ static void i20_mtf_expand_raw(const std::vector<uint8_t>& tokens, const std::ve
 }
 
 static int i20_cmd_profile(int argc, char** argv) {
-    std::string anv_path;
+    std::string anv_path, postfile;
     int reps = 3;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
         if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(7);
+        else if (a.rfind("--postfile=", 0) == 0) postfile = a.substr(10);
         else if (a.rfind("--reps=", 0) == 0) reps = std::atoi(a.substr(7).c_str());
         else throw std::runtime_error("unknown option: " + a);
     }
     if (anv_path.empty()) throw std::runtime_error("--anvil is required");
     if (reps < 1) reps = 1;
     auto anv = read_file(anv_path);
+    std::vector<uint8_t> cand_body;
+    if (!postfile.empty()) cand_body = read_file(postfile);
 
     double s_parse = 0, s_entropy = 0, s_mtf = 0, s_mtf_norle = 0, s_unbwt = 0, s_total = 0;
     uint64_t ck = 0;
@@ -816,8 +819,13 @@ static int i20_cmd_profile(int argc, char** argv) {
         double a1 = i20_now();
 
         // (1) entropy decode -> MTF token stream
-        auto ts = i20_arith_token_stream(t.arith_body, t.arith_body_len, static_cast<size_t>(t.xlen),
-                                         t.bwt.post == kBwtPostArithO1, t.nbits);
+        I20TokenStream ts;
+        if (postfile.empty()) {
+            ts = i20_arith_token_stream(t.arith_body, t.arith_body_len, static_cast<size_t>(t.xlen),
+                                        t.bwt.post == kBwtPostArithO1, t.nbits);
+        } else {
+            ts = i20_decode_candidate_body(cand_body.data(), cand_body.size());
+        }
         double a2 = i20_now();
 
         // (2) MTF expansion, with and without the zero-run RLE expansion.
@@ -851,17 +859,18 @@ static int i20_cmd_profile(int argc, char** argv) {
     const double p_parse = s_parse / n, p_entropy = s_entropy / n, p_mtf = s_mtf / n,
                  p_mtf_nr = s_mtf_norle / n, p_unbwt = s_unbwt / n, p_total = s_total / n;
     const double p_rle = p_mtf - p_mtf_nr;
-    std::printf("{\"reps\": %d, \"transformed_size\": %llu, "
+    std::printf("{\"reps\": %d, \"mode\": \"%s\", \"transformed_size\": %llu, "
                 "\"parse_s\": %.6f, \"entropy_s\": %.6f, \"mtf_s\": %.6f, \"rle_s\": %.6f, "
                 "\"mtf_norle_s\": %.6f, \"unbwt_s\": %.6f, \"total_s\": %.6f, "
                 "\"entropy_share\": %.6f, \"postcoder_share\": %.6f, \"rle_share\": %.6f, "
-                "\"unbwt_share\": %.6f, \"fnv\": %llu}\n",
-                reps, (unsigned long long)xlen,
+                "\"unbwt_share\": %.6f, \"entropy_mb_s\": %.6f, \"fnv\": %llu}\n",
+                reps, postfile.empty() ? "arith" : "candidate", (unsigned long long)xlen,
                 p_parse, p_entropy, p_mtf, p_rle, p_mtf_nr, p_unbwt, p_total,
                 p_total > 0 ? p_entropy / p_total : 0.0,
                 p_total > 0 ? (p_entropy + p_mtf) / p_total : 0.0,
                 p_total > 0 ? p_rle / p_total : 0.0,
                 p_total > 0 ? p_unbwt / p_total : 0.0,
+                p_entropy > 0 ? (double)xlen / 1e6 / p_entropy : 0.0,
                 (unsigned long long)ck);
     return 0;
 }
