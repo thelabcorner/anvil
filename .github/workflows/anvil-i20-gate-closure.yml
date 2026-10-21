@@ -133,22 +133,19 @@ jobs:
           else
             EXPECTED="${{ inputs.expect_enwik8 }}"
           fi
-          EXTRA=()
-          if [ -n "$CANDIDATE_EXTRA_ARGS" ]; then
-            # shellcheck disable=SC2206
-            EXTRA=($CANDIDATE_EXTRA_ARGS)
-          fi
           ARGS=()
           if [ "$EXPECTED" != "0" ]; then
             ARGS=(--expected-candidate-total "$EXPECTED")
           fi
+          # --candidate-extra-args takes ONE shlex-quoted string, so a value
+          # beginning with '--' is not parsed as an option terminator.
           python3 tooling/tools/reference_cost_gate.py prepare \
             --corpus "${{ matrix.corpus }}" \
             --root "$CORPUS_ROOT" \
             --anvil candidate/build-gate/anvil \
             --brotli candidate/build-gate/brotli_lw \
             --out "$OUT_DIR" \
-            --candidate-extra-args "${EXTRA[@]}" \
+            --candidate-extra-args "$CANDIDATE_EXTRA_ARGS" \
             "${ARGS[@]}"
 
       - name: Paired/interleaved decode timing
