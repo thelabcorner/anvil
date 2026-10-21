@@ -181,6 +181,54 @@ This is not only argued but *measured* — see §4.
 
 ---
 
+## 3.5 A source-level prediction, stated before the measurement
+
+`third_party/libsais/src/libsais.c` determines what the walk budget can and
+cannot change. The auxiliary inverse is driven by `libsais_unbwt_aux` (line
+8040) → `libsais_unbwt_main` (7994) → `libsais_unbwt_core` (7975) →
+`libsais_unbwt_decode_omp` (7943) → `libsais_unbwt_decode` (7882) →
+`libsais_unbwt_decode_8` (7854).
+
+```
+7946:    fast_sint_t blocks      = 1 + (((fast_sint_t)n - 1) / (fast_sint_t)r);
+7947:    fast_uint_t remainder   = (fast_uint_t)n - ((fast_uint_t)r * ((fast_uint_t)blocks - 1));
+...
+7890:        libsais_unbwt_decode_8(U + offset, P, bucket2, fastbits, shift, (fast_uint_t)r, &i0, ..., (fast_uint_t)r >> 1);
+7891:        I += 8; blocks -= 8; offset += 8 * (fast_uint_t)r;
+...
+7856:    uint16_t * RESTRICT U0 = (uint16_t *)(void *)U;
+7857:    uint16_t * RESTRICT U1 = (uint16_t *)(void *)(((uint8_t *)U0) + r);
+...
+7867:    for (i = 0; i != k; ++i)          // k == r >> 1
+7869:        uint16_t c0 = fastbits[p0 >> shift]; ... p0 = P[p0]; U0[i] = libsais_bswap16(c0);
+7870:        uint16_t c1 = ...                                   p1 = P[p1]; U1[i] = ...
+        ... (8 independent LF walks, one per sub-block)
+```
+
+Counting the work:
+
+- one group of 8 sub-blocks performs `r/2` iterations x 8 LF steps = **`4r`
+  LF steps**, and emits `8r` output bytes (2 bytes per step);
+- there are `n/(8r)` groups, so the **total LF-step count is `n/2` for every
+  `r`**, and the total output is `n`.
+
+**The number of dependent random accesses into the `int32` LF array is
+therefore exactly `n/2` regardless of the walk budget.** What `r` changes is
+(a) the number of checkpoints, i.e. the byte cost, and (b) the *decomposition
+granularity* of the same `n/2` steps into 8-way interleaved walks. The 8-way
+memory-level parallelism is already fully exploited at `W = 1024`
+(`r = 8192..65536` on Silesia), so shrinking `r` further shortens each
+individual walk but does **not** shorten the critical path and does **not**
+remove any memory access.
+
+This predicts a fitted LF-walk share `f` close to 0, i.e. a BWT-path speed-up
+close to 1.0x, and therefore a `NO-GO` on the decode gate — the auxiliary index
+would already have captured the entire available win at `W = 1024`. The sweep
+below measures the curve rather than assuming the prediction, and the fitted
+`f` is reported with its interval.
+
+---
+
 ## 8. Evidence index
 
 *(filled in from the Actions runs)*

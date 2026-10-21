@@ -5031,7 +5031,10 @@ int main(int argc,char**argv) {
                 opt.bwt_aux_walks=parse_bwt_aux_walks(argv[++i]);
             }
             else if(a.rfind("--bwt-aux-walks=",0)==0){
-                opt.bwt_aux_walks=parse_bwt_aux_walks(a.substr(15));
+                // "--bwt-aux-walks=" is 16 characters, so the value starts at
+                // index 16 (not 15, which would leave the '=' in the value and
+                // make the '=' spelling unusable).
+                opt.bwt_aux_walks=parse_bwt_aux_walks(a.substr(16));
             }
             else if(a.rfind("--bwt-lzp=",0)==0)opt.bwt_lzp=(a.substr(10)!="off");
             else if(a.rfind("--bwt-subblock=",0)==0){ uint64_t v=std::stoull(a.substr(15)); if(v==0 || v>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("--bwt-subblock must be 1..2GiB"); opt.bwt_subblock=static_cast<uint32_t>(v); }
