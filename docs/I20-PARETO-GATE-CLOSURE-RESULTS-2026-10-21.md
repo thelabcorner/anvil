@@ -125,7 +125,52 @@ Verdicts are only `WIN`, `NO-GO` or `INCONCLUSIVE`.
 | C3 | BWT subblock-cap sweep below 8 MiB | W3 | *in flight* | — | — |
 | C4 | Decode working-set engineering (0-byte RSS) | W4 | *in flight* | — | — |
 | C5 | Postcoder decode-cost swap | W5 | *in flight* | — | — |
-| C6 | Dense reference-grid control | W6 | *in flight* | — | — |
+| C6 | Dense reference-grid control | W6 | **WIN (control)** | enwik8: candidate 23,537,422 B is 1,272,758 B below the dense grid's best byte point (brotli-q11-lw30, 24,810,180 B); no dense reference dominates it on (bytes ∧ decode) or (bytes ∧ peak RSS) | run `39660612517`, job `dense reference (enwik8)`, workflow `.github/workflows/anvil-i20-dense-reference.yml`, artifact `anvil-i20-dense-reference-enwik8-39660612517`; Silesia arm in flight |
+
+### 2.1 C6 — dense reference-grid control (enwik8, MEASURED)
+
+The concern the control addresses: the binding gate compares the candidate against only **two**
+reference points (`xz -9e` and Brotli q11/lw30), and the repo itself labels that grid
+**GRID-THIN**. A candidate that clears the gate against a sparse grid might be a sparse-grid
+artifact. The dense grid measured in the same job (enwik8) is:
+
+| Arm | Kind | Portfolio bytes | Ratio | Decode MB/s (survey) | Peak RSS MiB | Ref front |
+|---|---|---:|---:|---:|---:|---|
+| brotli-q11-lw30-gate | binding | 24,810,180 | 0.248101800 | 280.689 | 251.8 | FRONT |
+| `xz -9e` | binding | 24,831,648 | 0.248316480 | 83.130 | 66.1 | DOMINATED |
+| `xz -9e-pinned` | crosscheck | 24,831,648 | 0.248316480 | 87.087 | 66.1 | DOMINATED |
+| `xz -9` | dense | 24,865,244 | 0.248652440 | 83.083 | 66.1 | DOMINATED |
+| `xz -6` | dense | 26,375,764 | 0.263757640 | 78.854 | 10.1 | DOMINATED |
+| `zstd-19` | dense | 26,944,227 | 0.269442270 | 543.751 | 12.2 | FRONT |
+| `zstd-9` | dense | 31,129,515 | 0.311295150 | 541.462 | 8.2 | DOMINATED |
+| `zstd-3` | dense | 35,445,335 | 0.354453350 | 537.695 | 6.3 | DOMINATED |
+| `zstd-1` | dense | 40,675,947 | 0.406759470 | 609.248 | 4.8 | FRONT |
+| `lz4-9` | dense | 42,276,858 | 0.422768580 | 395.964 | 7.6 | DOMINATED |
+| `lz4-1` | dense | 57,285,984 | 0.572859840 | 419.555 | 9.6 | DOMINATED |
+| **ANVIL ratio (candidate)** | — | **23,537,422** | 0.235374220 | — | 599.1 MiB | — |
+
+Two findings matter for the programme:
+
+1. **The candidate is not a sparse-grid artifact.** The best byte point in the dense grid is
+   `brotli-q11-lw30` at 24,810,180 B and the candidate is 1,272,758 B smaller. No dense reference
+   configuration dominates the candidate on (bytes ∧ decode) or on (bytes ∧ peak RSS). This
+   satisfies the `NQ-6` control requirement.
+2. **The dense grid confirms that the gate's binding reference is the right one — and that the
+   gate's *other* reference is not the only competitor.** `zstd-19` reaches 543.751 MB/s decode at
+   12.2 MiB peak RSS, and `zstd-1` 609.248 MB/s at 4.8 MiB, on enwik8. They are **2,406,805 B
+   larger** than the candidate, so they do not dominate it, but they are the real speed/memory
+   competitors in this corpus — and they are exactly the points the binding gate does not measure.
+   `xz -9e` at 66.1 MiB remains the binding RSS reference, and Brotli q11/lw30 at 280.689 MB/s
+   remains the binding decode reference, so the gate's two reference points are the right ones for
+   the *gate*.
+
+> **Vocabulary discipline (binding on the write-up).** `EXTENDS_FRONT` on a (bytes, X) plane means
+> "the reference set does not cover the rectangle this point occupies" — the same meaning the repo's
+> `docs/gate-ruling-i9-frontier-tokens.md` gives to `FRONT-GAP`. It is **not** a crossing, and the
+> candidate's RSS is 599.1 MiB against Brotli's 251.8 MiB. W6's own control output says
+> "no frontier token issued", and that is the correct reading: C6 is a **WIN as a control
+> measurement** (the candidate's byte advantage survives a dense grid), and it does **not** relax the
+> gate's decode/RSS deficits, which is what C1–C4 exist to attack.
 
 ---
 
