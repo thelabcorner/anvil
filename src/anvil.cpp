@@ -3897,6 +3897,25 @@ static bool probe_incompressible(const std::vector<uint8_t>& d) {
 // Records end at '\n' (included); a final non-newline tail is a record. Column
 // lengths are derivable from record lengths and are therefore not stored.
 
+// I20-W4 lever L3: destination for the reconstructed bytes.
+// The reconstructed bytes of a block are handed over in RECONSTRUCTION order
+// (the order in which they are produced) and the block CRC-32 is folded in over
+// exactly that byte sequence, so the per-block checksum still covers the
+// ORIGINAL block bytes in the original order. When `out` is null the caller
+// keeps the bytes in RAM (the full-buffer path used by verify/round-trip).
+struct DecodeSink {
+    std::ostream* out=nullptr;   // null => full-buffer path
+    uint32_t crc=0;              // running CRC-32 over the current block
+    uint64_t written=0;          // total bytes handed over so far
+    bool streamed=false;         // the current block's bytes went to `out`
+    void begin_block(){ crc=0; streamed=false; }
+    void put(const uint8_t* p,size_t n){ crc=crc32_update(crc,p,n); write_only(p,n); streamed=true; }
+    void write_only(const uint8_t* p,size_t n){
+        if(out) out->write(reinterpret_cast<const char*>(p),static_cast<std::streamsize>(n));
+        written+=n;
+    }
+};
+
 static constexpr uint8_t kRatioBackendBrotli = 1;
 static constexpr uint8_t kRatioBackendBwt    = 2;
 
@@ -3928,6 +3947,41 @@ static std::vector<uint8_t> brotli_lw_decode_exact(const uint8_t* p,size_t n,siz
         throw std::runtime_error("brotli ratio payload decode mismatch");
     out.resize(expected);
     return out;
+}
+
+// I20-W4 lever L3 (Brotli backend): STREAMING decode.
+// brotli_lw_decode_exact() above materialises the WHOLE reconstructed file in
+// one buffer (expected+1 bytes). That buffer is the file-proportional term that
+// floors the peak decode RSS of the Brotli-routed files (Silesia's `mozilla` is
+// 51,220,480 B -> 50,020 KiB), and it is invisible to every BWT-side working-set
+// lever because the file never touches the BWT path.
+// This variant decodes through a small fixed window and hands the bytes to the
+// sink as the decoder produces them, so the whole-file output buffer is never
+// resident. Same decoder, same stream, same byte order, same total: the bytes
+// are identical to brotli_lw_decode_exact()'s.
+static void brotli_lw_decode_stream(const uint8_t* p,size_t n,size_t expected,DecodeSink* sink) {
+    if(expected>(384ull<<20)) throw std::runtime_error("ratio transformed stream too large");
+    BrotliDecoderState* s=BrotliDecoderCreateInstance(nullptr,nullptr,nullptr);
+    if(!s) throw std::runtime_error("brotli decoder allocation failed");
+    struct Guard { BrotliDecoderState* p; ~Guard(){ BrotliDecoderDestroyInstance(p); } } guard{s};
+    if(!BrotliDecoderSetParameter(s,BROTLI_DECODER_PARAM_LARGE_WINDOW,1))
+        throw std::runtime_error("brotli large-window decoder setup failed");
+    std::vector<uint8_t> win(256u<<10);
+    size_t ai=n, ao=win.size(), total_out=0;
+    const uint8_t* ni=p; uint8_t* no=win.data();
+    for(;;) {
+        BrotliDecoderResult r=BrotliDecoderDecompressStream(s,&ai,&ni,&ao,&no,&total_out);
+        const size_t produced=static_cast<size_t>(no-win.data());
+        if(produced) sink->put(win.data(),produced);
+        if(r==BROTLI_DECODER_RESULT_SUCCESS) break;
+        if(r==BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) { no=win.data(); ao=win.size(); continue; }
+        if(r==BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT) {
+            if(ai==0) throw std::runtime_error("brotli ratio payload decode mismatch"); // truncated
+            continue;
+        }
+        throw std::runtime_error("brotli ratio payload decode mismatch");
+    }
+    if(ai!=0 || total_out!=expected) throw std::runtime_error("brotli ratio payload decode mismatch");
 }
 #endif
 
@@ -4559,28 +4613,15 @@ static std::vector<uint8_t> ratio_backend_encode(uint8_t backend,const std::vect
     throw std::runtime_error("unknown ratio backend id");
 }
 
-// I20-W4 lever L3: destination for the reconstructed bytes.
-// The reconstructed bytes of a block are handed over in RECONSTRUCTION order
-// (the order in which they are produced) and the block CRC-32 is folded in over
-// exactly that byte sequence, so the per-block checksum still covers the
-// ORIGINAL block bytes in the original order. When `out` is null the caller
-// keeps the bytes in RAM (the full-buffer path used by verify/round-trip).
-struct DecodeSink {
-    std::ostream* out=nullptr;   // null => full-buffer path
-    uint32_t crc=0;              // running CRC-32 over the current block
-    uint64_t written=0;          // total bytes handed over so far
-    bool streamed=false;         // the current block's bytes went to `out`
-    void begin_block(){ crc=0; streamed=false; }
-    void put(const uint8_t* p,size_t n){ crc=crc32_update(crc,p,n); write_only(p,n); streamed=true; }
-    void write_only(const uint8_t* p,size_t n){
-        if(out) out->write(reinterpret_cast<const char*>(p),static_cast<std::streamsize>(n));
-        written+=n;
-    }
-};
-
 static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* p,size_t n,size_t expected,const Options& opt,std::vector<uint8_t>* in_owner,DecodeSink* sink) {
 #ifdef ANVIL_HAVE_BROTLI
-    if(backend==kRatioBackendBrotli) return brotli_lw_decode_exact(p,n,expected);
+    if(backend==kRatioBackendBrotli) {
+        // I20-W4 lever L3: with a sink the Brotli decode is streamed, so the
+        // whole-file output buffer is never resident (this is the term that
+        // floors the peak decode RSS of the Brotli-routed files).
+        if(sink&&sink->out) { brotli_lw_decode_stream(p,n,expected,sink); return std::vector<uint8_t>(); }
+        return brotli_lw_decode_exact(p,n,expected);
+    }
 #endif
 #ifdef ANVIL_HAVE_LIBSAIS
     if(backend==kRatioBackendBwt) {
