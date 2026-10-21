@@ -70,17 +70,46 @@ G4 decode ≤2× Brotli **FAIL** (CI-upper 5.6033), G5 RSS ≤2× xz **FAIL** (4
 ### 1.2 Run B — coordinator arbiter path (the tool that will judge the final arm)
 
 - **run_url:** `https://github.com/thelabcorner/anvil/actions/runs/39655813000`
-- **job:** `gate-closure (enwik8)` (and `gate-closure (silesia)`)
+- **job:** `gate-closure (silesia)` and `gate-closure (enwik8)`
 - **workflow:** `.github/workflows/anvil-i20-gate-closure.yml`
 - **commit_sha:** `cc37e24af95c8e3450f45e0db650715ae17f670c` (`src/anvil.cpp` sha256 `770ea0f5f2ff32f84a775c8c1548dcf52b55f9d2a7c7a3bfd0ebaad4c59f5d90`)
-- **artifact:** `anvil-i20-gate-closure-enwik8-39655813000`
-- **corpus:** enwik8 (silesia job in flight at time of writing)
+- **artifact:** `anvil-i20-gate-closure-silesia-39655813000`, `anvil-i20-gate-closure-enwik8-39655813000`
+- **corpus:** silesia, enwik8
 
-enwik8 ruling from the coordinator arbiter path: **`FRONT-GAP_COST`**, with
-ANVIL 23,537,422 B / xz 24,831,648 B / Brotli 24,810,180 B, decode ratio vs xz 3.9552
-[3.9010, 3.9585] and vs Brotli 5.8291 [5.4383, 5.9040], A/A null [0.9879, 1.0119] PASS, RSS ratios
-9.038× xz / 2.387× Brotli. The `--expected-candidate-total 23537422` assertion **passed**, i.e. the
-coordinator's candidate arm reproduced the frozen enwik8 total byte-for-byte.
+| Quantity | Silesia | enwik8 |
+|---|---:|---:|
+| ANVIL aux / `xz -9e` / Brotli bytes | 46,466,339 / 48,456,004 / 49,383,136 | 23,537,422 / 24,831,648 / 24,810,180 |
+| byte lead vs `xz -9e` | 1,989,665 B | 1,294,226 B |
+| ANVIL decode | 42.602 MB/s (4.977 s) | 23.689 MB/s (4.221 s) |
+| `xz -9e` decode | 70.141 MB/s | 93.750 MB/s |
+| Brotli decode | 198.619 MB/s | 139.739 MB/s |
+| ANVIL/`xz` decode ratio (CI95) | 1.6311 [1.6202, 1.6465] | 3.9552 [3.9010, 3.9585] |
+| ANVIL/Brotli decode ratio (CI95) | 4.6650 [4.6155, 4.8839] | 5.8291 [5.4383, 5.9040] |
+| A/A null (CI95) | 0.9897 [0.9895, 1.0004] — **PASS** | 1.0002 [0.9879, 1.0119] — **PASS** |
+| ANVIL peak decode RSS | 248.2 MiB | 599.1 MiB |
+| `xz -9e` / Brotli peak decode RSS | 51.0 / 122.2 MiB | 66.3 / 251.0 MiB |
+| ANVIL RSS ratio vs xz / Brotli | 4.869× / 2.031× | 9.038× / 2.387× |
+| **Ruling** | **`FRONT-GAP_COST`** | **`FRONT-GAP_COST`** |
+
+The `--expected-candidate-total` assertions (`46466339` / `23537422`) **passed** on both corpora: the
+coordinator's candidate arm reproduced the frozen totals byte-for-byte through the new arbiter path.
+
+> **Reference-arm variation between the two baseline runs (a methodological finding, recorded
+> because it changes how the final arm must be judged).** The candidate bytes are identical
+> (46,466,339 B / 23,537,422 B) but the *reference* decode speeds moved by up to ~23 % between runs
+> on the same repository and the same nominal runner class: Silesia Brotli 244.517 → 198.619 MB/s,
+> `xz -9e` 71.344 → 70.141 MB/s, `xz -9e` peak RSS 54.1 → 51.0 MiB. The **paired same-job ratio** is
+> therefore the only stable quantity, and the required portfolio speed-up depends on the run:
+>
+> | baseline run | ANVIL portfolio decode | G4 bound (2 × Brotli) | required portfolio speed-up | required BWT-path speed-up |
+> |---|---:|---:|---:|---:|
+> | `39654699366` (frozen gate path) | 4.374 s | ≤1.731 s | 2.53× | 2.94× (≤1.358 s for 120,362,284 B) |
+> | `39655813000` (coordinator arbiter) | 4.977 s | ≤2.134 s | 2.33× | 2.70× (≤1.673 s) |
+>
+> **The programme's design target is the harder case, 2.94× on the BWT path.** Because the gate
+> outcome for a fixed candidate is reference-dependent at the ~20 % level, **the final arm must be
+> ruled in a run that measures its own references (never spliced), and the ruling should be
+> reproduced in a second independent run before it is cited.**
 
 ---
 
