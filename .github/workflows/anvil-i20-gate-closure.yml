@@ -39,6 +39,15 @@ on:
         description: 'Expected enwik8 candidate total bytes (0 = do not assert)'
         required: true
         default: '23537422'
+      corpus:
+        description: 'Which corpus job(s) to run'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - 'silesia'
+          - 'enwik8'
+          - 'both'
 
 concurrency:
   group: anvil-i20-gate-closure
@@ -49,6 +58,7 @@ permissions:
 
 jobs:
   gate-closure:
+    if: inputs.corpus == 'both' || matrix.corpus == inputs.corpus
     strategy:
       fail-fast: false
       matrix:
