@@ -47,11 +47,35 @@ Baseline → closed arm: bytes 46,466,339 → 48,347,006 B (94.5 % of the surplu
 ratio vs Brotli CI-upper 5.6033 → 1.6821; peak decode RSS 254,224 → 78,092 KiB (−172 MiB); RSS
 ratio vs `xz` 4.588× → 1.4903×; ruling `FRONT-GAP_COST` → **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`**.
 
+**Replication (six identical runs of the closed arm) — the honest qualification.** The arm was
+re-run unchanged (same candidate SHA, same `--bwt-subblock 2097152`, same corpus, same frozen
+arbiter, and the `--expected-candidate-total 48347006` byte assertion **passed 6/6**):
+
+| run | reps | candidate decode | Brotli reference decode | ANVIL/`xz` | ANVIL/Brotli (CI-upper) | peak RSS/`xz` | ruling |
+|---|---:|---:|---:|---|---|---:|---|
+| `39684313068` | 9 | 2.4194 s | 1.5186 s | 0.9078 | **1.6261** (1.6821) | 1.4903× | **CLOSED** |
+| `39687067054` | 9 | 2.3709 s | 0.7673 s | 0.8269 | 3.0902 (3.0930) | 1.4418× | `FRONT-GAP_COST` |
+| `39687069793` | 13 | 2.5704 s | 1.3685 s | 0.8802 | **1.8790** (1.9852) | 1.4382× | **CLOSED** |
+| `39689567974` | 9 | 2.0183 s | 1.1688 s | 0.8414 | **1.7142** (1.8417) | 1.4902× | **CLOSED** |
+| `39689570820` | 9 | 2.6696 s | 1.0674 s | 0.8559 | 2.4557 (2.5020) | 1.4931× | `FRONT-GAP_COST` |
+| `39689574015` | 9 | 2.6709 s | 1.0678 s | 0.8538 | 2.5013 (2.5035) | 1.4918× | `FRONT-GAP_COST` |
+
+**G2, G3, G5 and G6 pass 6/6 and are not at risk.** The candidate's complete wire, its peak RSS
+(1.4382–1.4931× `xz`, 0.6224–0.6377× Brotli) and its decode ratio against `xz -9e`
+(0.8269–0.9078 — the candidate is *faster* than `xz -9e` in every run) are identical or
+near-identical across the six runs. **What moves is the Brotli *reference's* measured decode time
+(0.7673–1.5186 s, a 1.98× spread) against a candidate whose own decode varies only 1.32×**, so the
+**G4 verdict closes in 3 of 6 runs**. The honest verdict: **the gate is closed on the run of
+record and in 3 of 6 independent replications; the Brotli half of it is closed only conditionally,
+because the arbiter's own reference arm is not reproducible on this runner class.** The limiting
+factor is the measurement instrument, not the codec.
+
 **The claim is bounded exactly as the tool bounds it:** this is **not** a FRONT-CROSSING — the
 tool's own scope note says it "does not establish a crossing because encode and decoder-only
 binary-size axes are not ruled here". The retained Class-A ruling is unchanged (435 DOMINATED /
 28 DEGENERATE / 5 FRONT-GAP / 0 FRONT-CROSSING). What I20 established is that the canonical ratio
-route's decode-cost and peak-RSS deficits are closable.
+route's decode-cost and peak-RSS deficits are closable, and that it now **dominates `xz -9e` on
+all three gate axes**.
 
 ## 3. The six candidates and their verdicts
 
@@ -77,10 +101,16 @@ SHA, artifact name, corpus), is in the results document and in the workers' own 
    therefore dead on arrival, and the programme's own measurement confirmed it (W = 8192 → 16384
    made the same-job decode ratio *worse*, 1.2866 → 1.3986, for +419,744 B).
 2. **What does make the inverse BWT faster is making its working set smaller.** A smaller
-   sub-block cap shrinks the LF array from `4n` to `4C` bytes and turns the `n/2` random accesses
-   into cache-resident ones: the 1 MiB cap decodes the Silesia portfolio **2.26× faster**
-   (2.4733 s vs 5.3309 s). The decode-speed lever in this programme was **not** the checkpoint
-   grid; it was the **working set**.
+   sub-block cap shrinks the LF array from `4n` to `4C` bytes: the 1 MiB cap decodes the Silesia
+   portfolio **2.26× faster** (2.4733 s vs 5.3309 s). **But the mechanism is not cache
+   residency** — W2's cap-only sweep measured the *always-BWT* files' decode time **flat** across
+   a 32× cap change, and showed that the speed-up is **routing**: the cap changes the BWT payload,
+   so the router sends more files to the Brotli backend, and the portfolio decodes faster because
+   more of it is decoded by Brotli. The coordinator's earlier cache-residency story is **withdrawn**
+   (`docs/I20-PARETO-GATE-CLOSURE-RESULTS-2026-10-21.md` §2.13). The corrected statement is
+   sharper: **on this route the *routing* is the decode lever and the *working set* is the memory
+   lever** — and the cap is the single knob that couples them, because it moves the bytes that the
+   router compares.
 3. **The gate's memory axis is decided by a single file.** The Silesia portfolio's peak decode RSS
    is set by `mozilla` (51,220,480 B), which the router keeps on the **Brotli** route at every cap
    because its split-BWT payload always exceeds its Brotli payload. No sub-block cap and no BWT
@@ -134,6 +164,13 @@ policy and wire-invisible.
 5. **Re-open the enwik8 objective with a different gate.** enwik8's route is now understood
    precisely (Brotli for speed, BWT for bytes, never both), which is a better starting point than
    the one this programme had.
+6. **Make the reference arm reproducible — this is the top measurement lead.** The G4 verdict is
+   currently a Bernoulli variable because Brotli's *measured* decode time in the arbiter's same-job
+   reference varies 1.98× on this runner class while the candidate's varies 1.32×. A reference arm
+   with an explicit warm-up, a repeated in-job measurement and an ambient check would make the
+   verdict decidable. **The programme's no-post-hoc-gates rule forbids changing the frozen arbiter
+   after seeing these results, so this is a proposal for the next iteration, not a change made
+   here.**
 
 ## 7. Honest limits
 

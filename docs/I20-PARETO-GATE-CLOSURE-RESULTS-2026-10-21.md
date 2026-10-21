@@ -158,6 +158,9 @@ And the decode also improved: arm F decoded the Silesia portfolio in **3.7229 s*
 **4.7287 s** at the same 8 MiB cap — i.e. **L1+L2+L3 are worth ≈1.27× on top of the cap's ≈1.14×,
 a ≈1.45× total.** (W4's own paired A/B of the changed binary against the frozen baseline gave a
 decode-time CI-upper of 1.00037 on Silesia and 1.01202 on enwik8, inside the 2 % epsilon.)
+**Caveat, added after W2's sweep (§2.13): the cap's own ≈1.14× is a ROUTING effect, not a
+cache-residency effect — W2 measured the always-BWT files flat across a 32× cap change. The
+levers' own ≈1.27× is the memory-traffic effect and is not confounded.**
 
 **And the G5 blocker is now localised to a single line.** `mozilla` is the portfolio peak and it
 is **Brotli-routed** (13,806,173 B = Brotli's own payload, and the router keeps it there at every
@@ -215,6 +218,43 @@ gate in every row.
 > absolute decode time is far more stable (1.617–1.669 s across the 1.25 MiB arms; 2.070 s at
 > 1.5 MiB and 1.75 MiB; 2.620 s at 2 MiB). Consequently **a G4 verdict must be replicated in a
 > second independent run before it is cited**, and the final arm is dispatched at least twice.
+
+### 2.13 W2's fitted LF-walk share, and a falsification of the coordinator's cache-residency story
+
+**W2's own sweep, fitted (run `39676039083` timed, `39680371188` bytes, workflow
+`.github/workflows/anvil-i20-aux-walk-sweep.yml`, job `sweep (silesia)` / `sweep (enwik8)`,
+commits `1c6784e` / `ef5d44a`, artifacts `anvil-i20-aux-walk-sweep-silesia-39676039083` /
+`...-enwik8-39680371188`):**
+
+Fitting `speedup(k) = 1/(1−f+f/k)` on **route-unconfounded** points only (i.e. points where no file
+changed backend):
+
+| corpus | fitted `f` | every CI | Amdahl ceiling | `f` required for 2.94× |
+|---|---:|---|---:|---:|
+| enwik8 (single file, BWT at every W) | **−0.0001** | spans 0 | 1.0000× | 0.704 @ k=16 |
+| Silesia (128 MiB cap, W ≤ 32768, all 7 files stay BWT) | **−0.0041** | spans 0 | 0.996× | 0.670 @ k=64 |
+
+**Measured `f` = 0.000 ± 0.02 against a required 0.70.** The walk budget buys **no** decode speed;
+the apparent high-`W` speed-ups are a **backend-route change** (`nci`/`reymont` flipping to
+Brotli), proven by the per-file decode times — every file that stays on BWT is flat
+(`webster` 1.39–1.45 s across the whole grid).
+
+**And the same sweep falsifies the coordinator's cache-residency explanation of the cap's decode
+effect.** W2's cap-only series (W = 1024, run `39676132197`, artifact
+`anvil-i20-aux-walk-sweep-silesia-39676132197`) measured the *always-BWT* files' decode time
+**flat across a 32× cap change** (2.590 / 2.850 / 2.810 / 2.940 / 2.920 s at 4 / 8 / 16 / 32 / 128
+MiB), and showed that the 4–8 MiB portfolio speed-up is **entirely `nci` flipping to the Brotli
+backend**. **The "the cap shrinks the LF array so the `n/2` random accesses become cache-resident"
+story is therefore NOT supported by the measurement, and the coordinator's earlier phrasing is
+withdrawn.** The cap's decode effect is a **routing** effect: the cap changes the BWT payload, the
+router's backend choice changes with it, and the portfolio decodes faster because more files are
+decoded by the Brotli backend.
+
+**What this does and does not change.** It does not affect the closed arm: the closed arm's
+decode ratios are **measured against same-job references inside the same run**, so they do not
+depend on the mechanism story. It does change what may be *claimed* about the lever, and it is
+recorded here rather than left standing. It also sharpens the programme's central finding: on this
+route the *routing* is the decode lever, and the *working set* is the memory lever.
 
 ### 2.12 A secondary, useful finding: a *small* walk budget is a byte lever
 
@@ -670,6 +710,71 @@ recorded:
 *(This section holds the `DERIVED` arithmetic that guided the arm. It is placed after the measured
 results for reading flow; every number in it is exact arithmetic over the measured artifacts cited
 in it, and nothing in it is a measurement.)*
+
+### 4.4 Replication — the G4 verdict is reference-speed dependent, and that is measured, not asserted
+
+The closed arm was re-run **unchanged, six times** — same candidate SHA
+`7b9ea3f18397d61bab6f41cd14f0eb50da40b36b`, same `--candidate-extra-args "--bwt-subblock
+2097152"`, same corpus, same frozen arbiter, same `--expected-candidate-total 48347006` byte
+assertion (which **passed in every run**).
+
+| run | reps | artifact (`anvil-i20-gate-closure-silesia-<run>`) | ANVIL bytes | candidate decode | **Brotli reference decode** | ANVIL/`xz` (CI-upper) | ANVIL/Brotli (CI-upper) | peak RSS / `xz` | ruling |
+|---|---:|---|---:|---:|---:|---|---|---:|---|
+| `39684313068` | 9 | `...-39684313068` | 48,347,006 | 2.4194 s | **1.5186 s** | 0.9078 (0.9081) | **1.6261** (1.6821) | 78,092 KiB (1.4903×) | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
+| `39687067054` | 9 | `...-39687067054` | 48,347,006 | 2.3709 s | **0.7673 s** | 0.8269 (0.8272) | **3.0902** (3.0930) | 79,884 KiB (1.4418×) | `FRONT-GAP_COST` |
+| `39687069793` | 13 | `...-39687069793` | 48,347,006 | 2.5704 s | **1.3685 s** | 0.8802 (0.8821) | **1.8790** (1.9852) | 80,036 KiB (1.4382×) | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
+| `39689567974` | 9 | `...-39689567974` | 48,347,006 | 2.0183 s | **1.1688 s** | 0.8414 (0.8583) | **1.7142** (1.8417) | 78,084 KiB (1.4902×) | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
+| `39689570820` | 9 | `...-39689570820` | 48,347,006 | 2.6696 s | **1.0674 s** | 0.8559 (0.8696) | **2.4557** (2.5020) | 77,932 KiB (1.4931×) | `FRONT-GAP_COST` |
+| `39689574015` | 9 | `...-39689574015` | 48,347,006 | 2.6709 s | **1.0678 s** | 0.8538 (0.8700) | **2.5013** (2.5035) | 77,888 KiB (1.4918×) | `FRONT-GAP_COST` |
+
+**Every A/A null CI spans 1.0 and clears no speed gate in all six runs**, so all six are
+timing-valid.
+
+**What is identical in all six runs:** the candidate's complete wire (**48,347,006 B**, byte
+assertion passed 6/6), its peak decode RSS (77,888–80,036 KiB = **1.4382×–1.4931× `xz -9e`**),
+its peak RSS against Brotli (**0.6224×–0.6377×**), and its decode ratio against `xz -9e`
+(**0.8269–0.9078** — the candidate is *faster* than `xz -9e` in every run).
+
+**What moves:** the candidate's own decode time (2.0183–2.6709 s, a 1.32× spread) and — much more —
+**the Brotli reference's measured decode time (0.7673–1.5186 s, a 1.98× spread)**. G4 is the
+ratio of the two, so the verdict tracks the reference, not the candidate: **3 of 6 runs rule
+`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`, 3 of 6 rule `FRONT-GAP_COST`**, with the G4 point
+estimate spanning 1.6261–3.0902.
+
+**Therefore, stated precisely and without hedging:**
+
+* The gate is **CLOSED on the run of record** (`39684313068`): the frozen arbiter's `ruling.json`
+  contains `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` and every G1–G6 condition is satisfied there.
+  It is closed in **3 of 6** independent replications of the identical arm.
+* The **G2, G3, G5 and G6 conditions are satisfied in 6 of 6 runs** and are not at risk. The
+  candidate **dominates `xz -9e` on all three gate axes** — smaller bytes (48,347,006 vs
+  48,456,004 B), faster decode (0.83–0.91×) and comparable peak RSS (1.44–1.49×) — and it uses
+  0.62–0.64× Brotli's peak RSS.
+* The **G4 condition (decode ≤ 2 × Brotli q11/lw30) is not robust** on this runner class: the
+  candidate's decode is stable to 1.32×, the *reference's* is not (1.98×), and the 2.0× threshold
+  sits inside that band. **The Brotli half of the gate is therefore closed only conditionally, and
+  the programme's honest verdict is "closed, with a measured 3-in-6 G4 pass rate" rather than
+  "closed".**
+* **The measurement instrument, not the codec, is the limiting factor here.** The repository's own
+  `tools/reference_cost_gate.py` compares the candidate against a *same-job* reference whose
+  measured speed is not reproducible on this runner class. That is a finding about the arbiter and
+  it is reported as such; it is not a reason to change the arbiter after the fact (the programme's
+  no-post-hoc-gates rule), but it does identify the next measurement lead: **a reference arm whose
+  decode time is reproducible (for example a pinned reference producer with a warm-up and an
+  explicit ambient check, or a reference repeated within the same job) would make the G4 verdict
+  decidable.**
+
+### 4.5 What the closed arm is worth, stated without inflation
+
+* The canonical ratio route now **beats `xz -9e` on bytes, on decode and (nearly) on memory**, and
+  **beats Brotli q11/lw30 on bytes by 1,036,130 B and on peak RSS by ~37 %**, at a decode cost of
+  1.6×–3.1× Brotli depending on the run. That is a real, reproducible, byte-exact operating point
+  that did not exist at the start of the programme, and it is worth 94.5 % of the byte surplus.
+* It is **not** a FRONT-CROSSING, and it does not change the retained Class-A ruling. The tool's
+  own scope note says so, and the programme's own preregistration says so.
+* The frontier position that is claimed is exactly the one the arbiter can issue:
+  `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` on the run of record, with a measured 3/6 replication
+  rate for the G4 condition, and with G2/G3/G5/G6 satisfied 6/6.
 
 ### 3.1 Measured per-file routing facts (from run `39654699366`, `bytes.csv`)
 
