@@ -1,0 +1,364 @@
+name: ANVIL I20 C2 aux walk-budget sweep
+
+# Remote-only measurement of the I20 C2 candidate: the auxiliary-index
+# inverse-BWT walk budget (--bwt-aux-walks=N) crossed with the BWT sub-block
+# cap (--bwt-subblock=<bytes>).
+#
+# The knob is an ENCODER POLICY: it selects the auxiliary sampling rate r that
+# the rev-2 mode-17 wire already transmits (0xFE tag, sampling_rate_r,
+# auxiliary_count, u32le index array).  The decoder is untouched and the
+# default (1024 walks, 128 MiB cap) reproduces the frozen I10-1A bytes exactly.
+#
+# The auxiliary index is charged PER SUB-BLOCK (each sub-block derives its own
+# sampling rate from its own length), so the cap and the walk budget interact
+# and the sweep is a (cap x budget) grid.
+#
+# mode=bytes : byte-only sweep over every arm, per-file round-trip
+#              verification, per-file byte identity against the frozen
+#              I10-1A binary, and the explicit per-sub-block index-byte
+#              attribution.
+# mode=timed : the same preparation restricted to the byte-feasible arms,
+#              plus the same-job paired decode timing against the binding
+#              references (xz -9e and Brotli q11/lgwin30), the mandatory A/A
+#              null, the BWT-path-only subset pair (which yields the Amdahl
+#              LF-walk share), and per-process peak decode RSS.
+#
+# Nothing here is a novelty claim: C2 is {adopt-class} engineering.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'bytes = byte-only sweep; timed = paired decode/RSS sweep'
+        required: true
+        default: 'bytes'
+        type: choice
+        options:
+          - 'bytes'
+          - 'timed'
+      walks:
+        description: 'Comma-separated auxiliary walk budgets W to sweep'
+        required: true
+        default: '1024,4096,8192,16384,32768,65536'
+      caps:
+        description: 'Comma-separated BWT sub-block caps in MiB to sweep'
+        required: true
+        default: '128,16'
+      reps:
+        description: Paired decode repetitions
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  # One group per configuration so that a byte-only sweep, a timed sweep and
+  # a cap-only sweep can run in parallel on separate runner VMs, while two
+  # runs of the SAME configuration are still serialized.
+  group: anvil-i20-aux-walk-sweep-${{ inputs.mode }}-${{ inputs.caps }}-${{ inputs.walks }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus:
+          - silesia
+          - enwik8
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/aux-walk-${{ matrix.corpus }}
+      WALKS: ${{ inputs.walks }}
+      CAPS: ${{ inputs.caps }}
+      REPS: ${{ inputs.reps }}
+      MODE: ${{ inputs.mode }}
+      FROZEN_TAG: i10-aux-unbwt-final-v1
+
+    steps:
+      - name: Checkout candidate source and tooling
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Checkout frozen I10-1A candidate
+        if: inputs.mode == 'bytes'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FROZEN_TAG }}
+          path: frozen
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils time python3
+
+      - name: Fingerprint runner, source and corpus
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "workflow_name=${GITHUB_WORKFLOW}"
+            echo "mode=$MODE"
+            echo "walks=$WALKS"
+            echo "caps=$CAPS"
+            echo "reps=$REPS"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "candidate_src_anvil_cpp_sha256=$(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)"
+            echo "candidate_src_anvil_cpp_gitblob=$(git -C candidate rev-parse HEAD:src/anvil.cpp)"
+            echo "sweep_tool_sha256=$(sha256sum candidate/tools/i20_aux_walk_sweep.py | cut -d' ' -f1)"
+            echo "paired_bench_sha256=$(sha256sum candidate/tools/paired_bench.py | cut -d' ' -f1)"
+            if [ -d frozen ]; then
+              echo "frozen_tag=$FROZEN_TAG"
+              echo "frozen_sha=$(git -C frozen rev-parse HEAD)"
+              echo "frozen_src_anvil_cpp_sha256=$(sha256sum frozen/src/anvil.cpp | cut -d' ' -f1)"
+              echo "frozen_src_anvil_cpp_gitblob=$(git -C frozen rev-parse HEAD:src/anvil.cpp)"
+            fi
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build candidate and Brotli reference helper
+        run: |
+          cmake -S candidate -B candidate/build-sweep -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-sweep --parallel 4 --target anvil brotli_lw
+          sha256sum candidate/build-sweep/anvil candidate/build-sweep/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+          if [ -d frozen ]; then
+            cmake -S frozen -B frozen/build-frozen -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER=clang-18 \
+              -DCMAKE_CXX_COMPILER=clang++-18 \
+              -DANVIL_BUILD_NATIVE_BENCH=OFF
+            cmake --build frozen/build-frozen --parallel 4 --target anvil
+            sha256sum frozen/build-frozen/anvil | tee "$OUT_DIR/frozen-binary-sha256.txt"
+          fi
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 candidate/tools/gha_fetch_corpus.py \
+            "${{ matrix.corpus }}" \
+            --out "$CORPUS_ROOT"
+
+      - name: Record per-file corpus SHA-256
+        run: |
+          {
+            echo "corpus=${{ matrix.corpus }}"
+            if [ "${{ matrix.corpus }}" = "silesia" ]; then
+              find "$CORPUS_ROOT/silesia" -maxdepth 1 -type f -print0 \
+                | sort -z | xargs -0 sha256sum
+            else
+              sha256sum "$CORPUS_ROOT/enwik8/enwik8"
+            fi
+          } | tee "$OUT_DIR/corpus-sha256.txt"
+
+      - name: Prepare exact payloads, verify round-trips, attribute charged bytes
+        run: |
+          set -euo pipefail
+          FROZEN_ARG=()
+          if [ "$MODE" = "bytes" ]; then
+            FROZEN_ARG=(--frozen-anvil "${{ github.workspace }}/frozen/build-frozen/anvil")
+          fi
+          python3 candidate/tools/i20_aux_walk_sweep.py prepare \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --anvil "${{ github.workspace }}/candidate/build-sweep/anvil" \
+            --brotli "${{ github.workspace }}/candidate/build-sweep/brotli_lw" \
+            --walks "$WALKS" \
+            --caps-mib "$CAPS" \
+            --out "$OUT_DIR" \
+            "${FROZEN_ARG[@]}"
+
+      - name: Assert the Adopt-Gate byte identity on the collected data
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+          p = pathlib.Path(os.environ["OUT_DIR"]) / "prepare.json"
+          d = json.loads(p.read_text(encoding="utf-8"))
+          checks = d.get("checks", {})
+          for k, v in sorted(checks.items()):
+              print(f"{'OK  ' if v['ok'] else 'FAIL'} {k}: {v['detail']}")
+          bad = sorted(k for k, v in checks.items() if not v["ok"])
+          if bad:
+              print("FAILED CHECKS: " + ", ".join(bad))
+              sys.exit(1)
+          print("all byte-identity checks OK")
+          PY
+
+      - name: Validate the --bwt-aux-walks and --bwt-subblock knob contracts
+        run: |
+          set -euo pipefail
+          python3 candidate/tests/i20_bwt_aux_walks_cli.py \
+            --exe "${{ github.workspace }}/candidate/build-sweep/anvil" \
+            | tee "$OUT_DIR/knob-contract.txt"
+
+      - name: Repo fuzz / registry path on the changed binary
+        run: |
+          taskset -c 0 python3 candidate/tests/fuzz.py \
+            --exe "${{ github.workspace }}/candidate/build-sweep/anvil" \
+            --cases 120 \
+            | tee "$OUT_DIR/fuzz.txt"
+
+      - name: Paired/interleaved decode timing against the binding references
+        if: inputs.mode == 'timed'
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("candidate/tools/paired_bench.py")
+          caps = [int(x) for x in os.environ["CAPS"].split(",") if x.strip()]
+          walks = [int(x) for x in os.environ["WALKS"].split(",") if x.strip()]
+          reps = os.environ["REPS"]
+
+          def run_pair(out_name, control, candidate, summary):
+              cmd = [
+                  sys.executable, str(driver),
+                  "--control-json", json.dumps(control),
+                  "--candidate-json", json.dumps(candidate),
+                  "--reps", reps,
+                  "--warmups", "2",
+                  "--seed", "41246",
+                  "--bootstrap", "20000",
+                  "--epsilon", "0.02",
+                  "--max-cv", "0.15",
+                  "--cpu", "0",
+                  "--ambient-reps", "5",
+                  "--ambient-iterations", "250000",
+                  "--ambient-max-cv", "0.10",
+                  "--out", str(out / f"{out_name}.csv"),
+                  "--summary", str(out / f"{summary}.json"),
+                  "--stdout-dir", str(out / f"stdout-{out_name}"),
+              ]
+              print("RUN", out_name, flush=True)
+              subprocess.run(cmd, check=True)
+
+          for cap in caps:
+              for w in walks:
+                  key = f"c{cap}-w{w}"
+                  cand = ["bash", str(out / f"decode-{key}.sh")]
+                  run_pair(
+                      f"paired-{key}-vs-xz",
+                      ["bash", str(out / "decode-xz.sh")],
+                      cand,
+                      f"paired-{key}-vs-xz",
+                  )
+                  run_pair(
+                      f"paired-{key}-vs-brotli",
+                      ["bash", str(out / "decode-brotli.sh")],
+                      cand,
+                      f"paired-{key}-vs-brotli",
+                  )
+                  # BWT-path only: the BWT-routed files timed against the SAME
+                  # subset at the same cap with the W=1024 control.  This is
+                  # the arm that isolates the auxiliary-index lever and yields
+                  # the Amdahl LF-walk share f.
+                  run_pair(
+                      f"paired-{key}-bwtpath",
+                      ["bash", str(out / f"decode-c{cap}-w1024-bwt.sh")],
+                      ["bash", str(out / f"decode-{key}-bwt.sh")],
+                      f"paired-{key}-bwtpath",
+                  )
+                  # Mandatory A/A null pair for this arm, same job, same protocol.
+                  run_pair(
+                      f"paired-null-{key}",
+                      cand,
+                      cand,
+                      f"paired-null-{key}",
+                  )
+          PY
+
+      - name: Measure per-process decode peak RSS
+        if: inputs.mode == 'timed'
+        run: |
+          python3 candidate/tools/i20_aux_walk_sweep.py rss \
+            --prepare "$OUT_DIR/prepare.json" \
+            --out "$OUT_DIR"
+
+      - name: Summarize the byte/speed trade curve and gate table
+        if: inputs.mode == 'timed'
+        run: |
+          python3 candidate/tools/i20_aux_walk_sweep.py summarize \
+            --prepare "$OUT_DIR/prepare.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --timing-dir "$OUT_DIR" \
+            --out "$OUT_DIR"
+          cat "$OUT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the byte-only summary
+        if: inputs.mode == 'bytes'
+        run: |
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["OUT_DIR"]) / "prepare.json"
+          d = json.loads(p.read_text(encoding="utf-8"))
+          ctrl = d["control_arm"]
+          print(f"# I20 C2 aux walk-budget sweep (bytes) — {d['corpus']}\n")
+          print(f"- frozen control identity ({ctrl}): {d['control_identity']} "
+                f"({d['expected_control_bytes']:,} B)")
+          print(f"- frozen legacy (aux off) identity: {d['legacy_identity']} "
+                f"({d['expected_legacy_bytes']:,} B)")
+          if d.get("identity", {}).get("all_identical") is not None:
+              print(f"- per-file byte identity vs frozen I10-1A binary: "
+                    f"{'OK' if d['identity']['all_identical'] else 'MISMATCH'}")
+          print(f"- xz -9e total: {d['xz_total']:,} B   "
+                f"Brotli q11/lw30 total: {d['brotli_total']:,} B")
+          print(f"- xz surplus over the frozen control: {d['xz_surplus']:,} B")
+          print(f"- BWT-routed subset: {d['subsets']['bwt_bytes']:,} B "
+                f"({len(d['subsets']['bwt_files'])} files)\n")
+          print("| arm | cap MiB | W | portfolio bytes | delta vs control | "
+                "delta vs xz | surplus left | index bytes | BWT sub-blocks | "
+                "BWT routes | aux r (min..max) |")
+          print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+          for k in sorted(d["by_arm"], key=lambda s: (int(s.split("-")[0][1:]), int(s.split("-")[1][1:]))):
+              v = d["by_arm"][k]
+              rates = [r["aux_rate_min"] for r in v["per_file"] if r["route"] == "bwt"]
+              print(f"| {k} | {v['cap_mib']} | {v['walks']} | "
+                    f"{v['portfolio_bytes']:,} | "
+                    f"{v['portfolio_bytes'] - d['expected_control_bytes']:+,} | "
+                    f"{v['portfolio_bytes'] - d['xz_total']:+,} | "
+                    f"{d['xz_surplus'] - (v['portfolio_bytes'] - d['expected_control_bytes']):+,} | "
+                    f"{v['index_bytes_total']:,} | {v['bwt_subblocks_total']} | "
+                    f"{v['bwt_routes']} | "
+                    f"{min(rates) if rates else '-'}..{max(rates) if rates else '-'} |")
+          PY
+
+      - name: Upload raw sweep evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-aux-walk-sweep-${{ matrix.corpus }}-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/*.json
+            ${{ env.OUT_DIR }}/*.csv
+            ${{ env.OUT_DIR }}/*.md
+            ${{ env.OUT_DIR }}/*.txt
+            ${{ env.OUT_DIR }}/decode-*.sh
+          if-no-files-found: error
+          retention-days: 30
