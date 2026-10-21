@@ -121,11 +121,35 @@ Verdicts are only `WIN`, `NO-GO` or `INCONCLUSIVE`.
 | ID | Candidate | Worker | Verdict | Key numbers | Evidence |
 |---|---|---|---|---|---|
 | C1 | BWT decode stage decomposition | W1 | *in flight* | — | — |
-| C2 | Auxiliary-index walk-budget sweep | W2 | *in flight* | — | — |
-| C3 | BWT subblock-cap sweep below 8 MiB | W3 | *in flight* | — | — |
-| C4 | Decode working-set engineering (0-byte RSS) | W4 | *in flight* | — | — |
+| C2 | Auxiliary-index walk-budget sweep | W2 | **NO-GO** | mechanism: total LF steps = `n/2` for every checkpoint stride `r`; measured W = 8192 → 16384 made the same-job decode ratio **worse** (1.2866 → 1.3986) for **+419,744 B** | runs `39670431362`, `39670483057`, workflow `.github/workflows/anvil-i20-gate-closure.yml`, job `gate-closure (silesia)`, candidate SHA `40a82e5f79a890ca666daa7b0e38e1e26e9c347d`, artifacts `anvil-i20-gate-closure-silesia-39670431362` / `...-39670483057`; source `third_party/libsais/src/libsais.c:7854-7892` |
+| C3 | BWT subblock-cap sweep below 8 MiB | W3 | **NO-GO on the gate's memory axis; a measured, adoptable decode-speed trade** | the cap is worth **2.26×** portfolio decode at 1 MiB (2.4733 s vs 5.3309 s); bytes 1 MiB → 48,673,521 B (**+217,517 B over `xz` → G2 FAIL**), 2 MiB → 48,347,006 B, 8 MiB → 47,365,274 B, 16 MiB → 46,938,837 B; **G5 unreachable at every cap** because the portfolio RSS peak is `mozilla` (Brotli-routed at every cap) = 122.5 MiB = 2.40× `xz` | runs `39656702596` (bytes/RSS), `39663273951` (Silesia timing), `39656707628` + `39663277790` (enwik8), workflow `.github/workflows/anvil-i20-subblock-sweep.yml`, job `sweep`, commits `ab88e4aa…` / `2662c04…`, artifacts `anvil-i20-subblock-silesia-39656702596` / `...-39663273951` / `anvil-i20-subblock-enwik8-39656707628` / `...-39663277790`; PR #17 |
+| C4 | Decode working-set engineering (0-byte RSS) | W4 | **WIN** | all six clauses of the pre-registered rule PASS: byte-identical (46,466,339 / 23,537,422 / 46,446,995 / 23,534,368 B, 52/52 round-trips), fuzz/registry **PASS** (1040 round-trip variants, 6240 mutations, 14 block modes, 5 transforms, 20 forced postcoders, 24 aux assertions, 30/30 corpus fixtures), Silesia peak RSS **254,168 → 206,612 KiB (−46.4 MiB)**, enwik8 **613,324 → 492,688 KiB (−117.8 MiB)**, decode-time CI-upper **1.00037** (Silesia) / **1.01202** (enwik8) vs the 1.02 epsilon, **byte cost exactly 0**; in-place inverse BWT proven byte-exact on **526.9 MB** of real corpus data (0 failures, both inverse paths) | run `39666730135`, job `working-set (silesia)`, workflow `.github/workflows/anvil-i20-working-set.yml`, commit `0a18a50…`, artifacts `anvil-i20-working-set-silesia-39666730135` (+ the L3 arm `39674862702`); PR #16 |
 | C5 | Postcoder decode-cost swap | W5 | *in flight* | — | — |
-| C6 | Dense reference-grid control | W6 | **WIN (control)** | enwik8: candidate 23,537,422 B is 1,272,758 B below the dense grid's best byte point (brotli-q11-lw30, 24,810,180 B); no dense reference dominates it on (bytes ∧ decode) or (bytes ∧ peak RSS) | run `39660612517`, job `dense reference (enwik8)`, workflow `.github/workflows/anvil-i20-dense-reference.yml`, artifact `anvil-i20-dense-reference-enwik8-39660612517`; Silesia arm in flight |
+| C6 | Dense reference-grid control | W6 | **WIN (control)** | enwik8: candidate 23,537,422 B is 1,272,758 B below the dense grid's best byte point (brotli-q11-lw30, 24,810,180 B); no dense reference dominates it on (bytes ∧ decode) or (bytes ∧ peak RSS) | runs `39660612517`, `39669395005`, workflow `.github/workflows/anvil-i20-dense-reference.yml`, job `dense reference (enwik8)`, commit `6065a36…`, artifacts `anvil-i20-dense-reference-enwik8-39660612517` / `...-39669395005` |
+
+### 2.8 C4 — decode working-set engineering: WIN (the adoptable lever)
+
+W4 implemented three **decode-only** levers at exactly **zero wire cost** — the encoder, the wire
+format, the mode-17 envelope and the `0xFF` sub-block frame are untouched:
+
+| lever | removes | measured effect |
+|---|---|---|
+| **L1** | the compressed input buffer `c` | released once the final block's payload is consumed, before the `4n` libsais array is allocated (serial path only; the parallel path passes `nullptr`) |
+| **L2** | the duplicate output buffer `n` | the reconstructed string is written **over** the BWT string `T`; libsais' LF walk reads only its PSI array and bucket tables, never `T`, and the `U[n-1] = T[0]` termination is neutralised by capturing `bwt[0]` before the call and re-applying it after |
+| **L3** | the file-level output accumulator `n` | the reconstructed bytes are streamed to the output file with an incremental block CRC-32; **this covers the Brotli backend path as well as the BWT path** |
+
+**The heap attribution is exact, not approximate** (valgrind massif, run `39666730135`, decoding
+`dickens`): the four dominant live-set terms are individually identified by allocation site, and
+the measured heap-peak reduction equals **`n + c` to the byte** (−12,766,813 B).
+
+**C4 clears the pre-registered rule on all six clauses (WIN).** It does **not** by itself clear the
+programme's G5 gate: after L1+L2 the Silesia portfolio peak is 206,612 / 55,408 = **3.729× `xz`**
+(FAIL), and the binding term is ANVIL's own Brotli decode of `mozilla` (≈125.6 MiB, of which
+≈50 MiB is the whole-file output buffer) — **which L3 removes**. That is why the coordinator's
+decisive arms are the **merged arm** (W2's knob + W4's L1/L2/L3) crossed with C3's sub-block cap:
+the cap supplies the decode speed (2.26× at 1 MiB) and the cap + L3 supply the memory gate.
+
+---
 
 ### 2.1 C6 — dense reference-grid control (enwik8, MEASURED)
 
