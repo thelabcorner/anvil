@@ -722,10 +722,11 @@ static int i20_cmd_sweep(int argc, char** argv) {
             note = std::string("error: ") + ex.what();
         }
         if (!outdir.empty() && ok) {
-            std::string p = outdir + "/" + stem + "." + c.name + ".post";
-            std::ofstream pf(p, std::ios::binary);
-            if (pf) pf.write(reinterpret_cast<const char*>(body.data()),
-                             static_cast<std::streamsize>(body.size()));
+            // NOTE: the sweep deliberately does NOT write the candidate bodies
+            // to disk: the full grid is 57 candidates over every BWT-routed
+            // file, which would be several GB.  `proto build` materialises the
+            // bodies of the SELECTED candidates only.
+            (void)outdir;
         }
         std::ostringstream o;
         o << "{\"file\": \"" << i20_json_escape(stem) << "\", \"candidate\": \""
@@ -781,6 +782,67 @@ static int i20_cmd_decode(int argc, char** argv) {
     // harness can confirm the two arms produced identical content.
     std::printf("{\"post\": \"%s\", \"out_bytes\": %zu, \"fnv\": %llu, \"decode_s\": %.6f}\n",
                 i20_json_escape(post).c_str(), out.size(), (unsigned long long)ck, t1 - t0);
+    return 0;
+}
+
+// Parse a candidate name back into an I20Candidate ("single:<M>" / "split:<M>+<M>").
+static bool i20_parse_candidate(const std::string& name, I20Candidate& c) {
+    c = I20Candidate();
+    c.name = name;
+    if (name == "arith") { c.kind = 0; return true; }
+    if (name.rfind("single:", 0) == 0) {
+        std::string m = name.substr(7);
+        for (int i = 0; i < kI20SuiteModes; ++i)
+            if (m == i20_mode_name(i)) { c.kind = 1; c.mtok = i; c.mrun = i; return true; }
+        return false;
+    }
+    if (name.rfind("split:", 0) == 0) {
+        std::string rest = name.substr(6);
+        size_t plus = rest.find('+');
+        if (plus == std::string::npos) return false;
+        std::string a = rest.substr(0, plus), b = rest.substr(plus + 1);
+        for (int i = 0; i < kI20SuiteModes; ++i) {
+            if (a != i20_mode_name(i)) continue;
+            for (int j = 0; j < kI20SuiteModes; ++j) {
+                if (b != i20_mode_name(j)) continue;
+                c.kind = 2; c.mtok = i; c.mrun = j; return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// command: build  (materialise ONE candidate's post body for the timed arms)
+// ---------------------------------------------------------------------------
+static int i20_cmd_build(int argc, char** argv) {
+    std::string anv_path, cand_name, out_path;
+    for (int i = 2; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(8);
+        else if (a.rfind("--candidate=", 0) == 0) cand_name = a.substr(12);
+        else if (a.rfind("--out=", 0) == 0) out_path = a.substr(6);
+        else throw std::runtime_error("unknown option: " + a);
+    }
+    if (anv_path.empty() || cand_name.empty() || out_path.empty())
+        throw std::runtime_error("--anvil, --candidate and --out are required");
+    I20Candidate c;
+    if (!i20_parse_candidate(cand_name, c)) throw std::runtime_error("unknown candidate: " + cand_name);
+    if (c.kind == 0) throw std::runtime_error("the baseline candidate has no body to build");
+    auto anv = read_file(anv_path);
+    I20Target t = i20_open_target(anv);
+    auto ts = i20_arith_token_stream(t.arith_body, t.arith_body_len, static_cast<size_t>(t.xlen),
+                                     t.bwt.post == kBwtPostArithO1, t.nbits);
+    auto body = i20_build_candidate_body(c, ts);
+    std::ofstream pf(out_path, std::ios::binary);
+    if (!pf) throw std::runtime_error("cannot open output: " + out_path);
+    pf.write(reinterpret_cast<const char*>(body.data()), static_cast<std::streamsize>(body.size()));
+    pf.close();
+    std::printf("{\"candidate\": \"%s\", \"body_bytes\": %zu, \"old_post_body_bytes\": %zu, "
+                "\"new_file_bytes\": %zu}\n",
+                i20_json_escape(cand_name).c_str(), body.size(), t.old_post_body_len,
+                i20_new_file_bytes(t, body.size()));
     return 0;
 }
 
@@ -903,8 +965,9 @@ static void i20_usage() {
         "proto (I20 C5 postcoder swap prototype)\n"
         "  proto info    --anvil F.anv\n"
         "  proto sweep   --anvil F.anv --out out.jsonl [--outdir DIR] [--full-grid]\n"
+        "  proto build   --anvil F.anv --candidate NAME --out F.post\n"
         "  proto decode  --anvil F.anv --out FILE (--post shipped|arith|candidate --postfile FILE)\n"
-        "  proto profile --anvil F.anv [--reps N]\n";
+        "  proto profile --anvil F.anv [--postfile F.post] [--reps N]\n";
 }
 
 int main(int argc, char** argv) {
@@ -913,6 +976,7 @@ int main(int argc, char** argv) {
         std::string cmd = argv[1];
         if (cmd == "info") return i20_cmd_info(argc, argv);
         if (cmd == "sweep") return i20_cmd_sweep(argc, argv);
+        if (cmd == "build") return i20_cmd_build(argc, argv);
         if (cmd == "decode") return i20_cmd_decode(argc, argv);
         if (cmd == "profile") return i20_cmd_profile(argc, argv);
         i20_usage();

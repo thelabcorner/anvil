@@ -442,6 +442,21 @@ def stage_time(args: argparse.Namespace) -> dict[str, Any]:
         comparisons.append((f"swap-arith-{key}", "proto_arith", f"proto_{cand}"))
         comparisons.append((f"whole-{key}", "anvil_bwt", f"proto_{cand}"))
 
+    # ---- materialise the SELECTED candidates' post bodies -----------------
+    # The full grid is 57 candidates over every BWT-routed file; writing them
+    # all would be several GB.  Only the candidates that survive the byte
+    # feasibility filter are materialised, so the timed arms read a real
+    # re-coded payload and the artifact stays small.
+    for cand in selection["timed"]:
+        for n in bwt_names:
+            pf = out / "post" / f"{n}.{cand}.post"
+            if pf.is_file():
+                continue
+            run([
+                str(args.proto), "build", f"--anvil={packed / f'{n}.anv'}",
+                f"--candidate={cand}", f"--out={pf}",
+            ])
+
     # ---- per-candidate stage profile (the trade-curve throughput column) ---
     for cand in selection["timed"]:
         for n in bwt_names:
