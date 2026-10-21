@@ -158,6 +158,9 @@ And the decode also improved: arm F decoded the Silesia portfolio in **3.7229 s*
 **4.7287 s** at the same 8 MiB cap — i.e. **L1+L2+L3 are worth ≈1.27× on top of the cap's ≈1.14×,
 a ≈1.45× total.** (W4's own paired A/B of the changed binary against the frozen baseline gave a
 decode-time CI-upper of 1.00037 on Silesia and 1.01202 on enwik8, inside the 2 % epsilon.)
+**Caveat, added after W2's sweep (§2.13): the cap's own ≈1.14× is a ROUTING effect, not a
+cache-residency effect — W2 measured the always-BWT files flat across a 32× cap change. The
+levers' own ≈1.27× is the memory-traffic effect and is not confounded.**
 
 **And the G5 blocker is now localised to a single line.** `mozilla` is the portfolio peak and it
 is **Brotli-routed** (13,806,173 B = Brotli's own payload, and the router keeps it there at every
@@ -215,6 +218,43 @@ gate in every row.
 > absolute decode time is far more stable (1.617–1.669 s across the 1.25 MiB arms; 2.070 s at
 > 1.5 MiB and 1.75 MiB; 2.620 s at 2 MiB). Consequently **a G4 verdict must be replicated in a
 > second independent run before it is cited**, and the final arm is dispatched at least twice.
+
+### 2.13 W2's fitted LF-walk share, and a falsification of the coordinator's cache-residency story
+
+**W2's own sweep, fitted (run `39676039083` timed, `39680371188` bytes, workflow
+`.github/workflows/anvil-i20-aux-walk-sweep.yml`, job `sweep (silesia)` / `sweep (enwik8)`,
+commits `1c6784e` / `ef5d44a`, artifacts `anvil-i20-aux-walk-sweep-silesia-39676039083` /
+`...-enwik8-39680371188`):**
+
+Fitting `speedup(k) = 1/(1−f+f/k)` on **route-unconfounded** points only (i.e. points where no file
+changed backend):
+
+| corpus | fitted `f` | every CI | Amdahl ceiling | `f` required for 2.94× |
+|---|---:|---|---:|---:|
+| enwik8 (single file, BWT at every W) | **−0.0001** | spans 0 | 1.0000× | 0.704 @ k=16 |
+| Silesia (128 MiB cap, W ≤ 32768, all 7 files stay BWT) | **−0.0041** | spans 0 | 0.996× | 0.670 @ k=64 |
+
+**Measured `f` = 0.000 ± 0.02 against a required 0.70.** The walk budget buys **no** decode speed;
+the apparent high-`W` speed-ups are a **backend-route change** (`nci`/`reymont` flipping to
+Brotli), proven by the per-file decode times — every file that stays on BWT is flat
+(`webster` 1.39–1.45 s across the whole grid).
+
+**And the same sweep falsifies the coordinator's cache-residency explanation of the cap's decode
+effect.** W2's cap-only series (W = 1024, run `39676132197`, artifact
+`anvil-i20-aux-walk-sweep-silesia-39676132197`) measured the *always-BWT* files' decode time
+**flat across a 32× cap change** (2.590 / 2.850 / 2.810 / 2.940 / 2.920 s at 4 / 8 / 16 / 32 / 128
+MiB), and showed that the 4–8 MiB portfolio speed-up is **entirely `nci` flipping to the Brotli
+backend**. **The "the cap shrinks the LF array so the `n/2` random accesses become cache-resident"
+story is therefore NOT supported by the measurement, and the coordinator's earlier phrasing is
+withdrawn.** The cap's decode effect is a **routing** effect: the cap changes the BWT payload, the
+router's backend choice changes with it, and the portfolio decodes faster because more files are
+decoded by the Brotli backend.
+
+**What this does and does not change.** It does not affect the closed arm: the closed arm's
+decode ratios are **measured against same-job references inside the same run**, so they do not
+depend on the mechanism story. It does change what may be *claimed* about the lever, and it is
+recorded here rather than left standing. It also sharpens the programme's central finding: on this
+route the *routing* is the decode lever, and the *working set* is the memory lever.
 
 ### 2.12 A secondary, useful finding: a *small* walk budget is a byte lever
 
