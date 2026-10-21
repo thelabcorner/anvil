@@ -54,7 +54,10 @@ on:
           - '13'
 
 concurrency:
-  group: anvil-i20-aux-walk-sweep
+  # One group per configuration so that a byte-only sweep, a timed sweep and
+  # a cap-only sweep can run in parallel on separate runner VMs, while two
+  # runs of the SAME configuration are still serialized.
+  group: anvil-i20-aux-walk-sweep-${{ inputs.mode }}-${{ inputs.caps }}-${{ inputs.walks }}
   cancel-in-progress: false
 
 permissions:
@@ -188,53 +191,28 @@ jobs:
             --out "$OUT_DIR" \
             "${FROZEN_ARG[@]}"
 
+      - name: Assert the Adopt-Gate byte identity on the collected data
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+          p = pathlib.Path(os.environ["OUT_DIR"]) / "prepare.json"
+          d = json.loads(p.read_text(encoding="utf-8"))
+          checks = d.get("checks", {})
+          for k, v in sorted(checks.items()):
+              print(f"{'OK  ' if v['ok'] else 'FAIL'} {k}: {v['detail']}")
+          bad = sorted(k for k, v in checks.items() if not v["ok"])
+          if bad:
+              print("FAILED CHECKS: " + ", ".join(bad))
+              sys.exit(1)
+          print("all byte-identity checks OK")
+          PY
+
       - name: Validate the --bwt-aux-walks and --bwt-subblock knob contracts
         run: |
           set -euo pipefail
-          ANVIL="${{ github.workspace }}/candidate/build-sweep/anvil"
-          TD="$(mktemp -d)"
-          printf 'ANVIL I20 C2 walk budget knob validation payload. ' > "$TD/src.txt"
-          head -c 3000000 /dev/zero >> "$TD/src.txt"
-          SRC="$TD/src.txt"
-          COMMON=(--parse=ratio --ratio-context=off --ratio-lines=off --ratio-backend=bwt --bwt-aux=on --quiet)
-          "$ANVIL" c "$SRC" "$TD/a.anv" "${COMMON[@]}" --bwt-aux-walks 4096
-          "$ANVIL" c "$SRC" "$TD/b.anv" "${COMMON[@]}" --bwt-aux-walks=4096
-          "$ANVIL" c "$SRC" "$TD/c.anv" "${COMMON[@]}"
-          sha256sum "$TD/a.anv" "$TD/b.anv" "$TD/c.anv" | tee "$OUT_DIR/knob-sha256.txt"
-          test "$(sha256sum "$TD/a.anv" | cut -d' ' -f1)" = "$(sha256sum "$TD/b.anv" | cut -d' ' -f1)" \
-            || { echo 'space and equals spellings of --bwt-aux-walks disagree'; exit 1; }
-          test "$(sha256sum "$TD/a.anv" | cut -d' ' -f1)" != "$(sha256sum "$TD/c.anv" | cut -d' ' -f1)" \
-            || { echo 'W=4096 did not change the payload versus the default'; exit 1; }
-          for bad in 0 1048577 4294967296 abc -1; do
-            set +e; "$ANVIL" c "$SRC" "$TD/bad.anv" "${COMMON[@]}" --bwt-aux-walks "$bad" 2>"$TD/err.txt"; rc=$?; set -e
-            if [ "$rc" -eq 0 ]; then
-              echo "invalid --bwt-aux-walks value was accepted: [$bad]"; exit 1
-            fi
-            grep -q -- "--bwt-aux-walks must be an integer in 1..1048576" "$TD/err.txt" \
-              || { echo "unexpected error for invalid --bwt-aux-walks [$bad]:"; cat "$TD/err.txt"; exit 1; }
-            echo "rejected invalid --bwt-aux-walks value [$bad] rc=$rc"
-          done
-          set +e; "$ANVIL" c "$SRC" "$TD/bad.anv" "${COMMON[@]}" --bwt-aux-walks 2>"$TD/err.txt"; rc=$?; set -e
-          if [ "$rc" -eq 0 ]; then
-            echo "missing --bwt-aux-walks value was accepted"; exit 1
-          fi
-          grep -q -- "--bwt-aux-walks requires a value" "$TD/err.txt" \
-            || { echo "unexpected error for a missing --bwt-aux-walks value:"; cat "$TD/err.txt"; exit 1; }
-          echo "rejected a missing --bwt-aux-walks value rc=$rc"
-          # --bwt-subblock must accept both the spaced and the equals spelling
-          # (the I20 arbiter's combined-arm command uses the spaced form).
-          "$ANVIL" c "$SRC" "$TD/s1.anv" "${COMMON[@]}" --bwt-subblock 8388608
-          "$ANVIL" c "$SRC" "$TD/s2.anv" "${COMMON[@]}" --bwt-subblock=8388608
-          test "$(sha256sum "$TD/s1.anv" | cut -d' ' -f1)" = "$(sha256sum "$TD/s2.anv" | cut -d' ' -f1)" \
-            || { echo 'space and equals spellings of --bwt-subblock disagree'; exit 1; }
-          echo "bwt_subblock_space_equals_identical=OK"
-          {
-            echo "knob_space_equals_identical=OK"
-            echo "knob_default_differs_from_4096=OK"
-            echo "knob_invalid_values_rejected=OK"
-            echo "bwt_subblock_space_equals_identical=OK"
-          } | tee "$OUT_DIR/knob-contract.txt"
-          rm -rf "$TD"
+          python3 candidate/tests/i20_bwt_aux_walks_cli.py \
+            --exe "${{ github.workspace }}/candidate/build-sweep/anvil" \
+            | tee "$OUT_DIR/knob-contract.txt"
 
       - name: Repo fuzz / registry path on the changed binary
         run: |
