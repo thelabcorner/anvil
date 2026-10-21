@@ -242,8 +242,58 @@ arbiter caught it — a concrete instance of the protocol working as intended.**
 
 ---
 
+## 2.5 C3 sub-block-cap sweep (enwik8) and a structural fact about the gate
 
-## 3. Combined-arm plan (the arm the coordinator will rule)
+**Evidence:** run `39663277790`, workflow `.github/workflows/anvil-i20-subblock-sweep.yml`, job
+`sweep (enwik8)`, artifact `anvil-i20-subblock-enwik8-39663277790`, corpus enwik8. The control cap
+is 128 MiB and its byte identity is asserted OK (23,537,422 B); the `xz -9e` and Brotli q11/lw30
+reference bytes both match the frozen baseline; the A/A null CI is [0.9999, 1.0000].
+
+| Cap | Portfolio bytes | Δ vs 128 MiB | Surplus left vs `xz` | Route | BWT sub-blocks | Peak RSS MiB | RSS/`xz` | decode CI-upper vs `xz` | vs Brotli | G2 | G3 | G4 | G5 | G6 | ruling |
+|---:|---:|---:|---:|---|---:|---:|---:|---|---|---|---|---|---|---|---|
+| 1 MiB | 24,810,212 | +1,272,790 | 21,436 | brotli | 96 | 251.4 | 3.803 | [0.3327, 0.3581] | [1.0141, 1.0156] | PASS | PASS | PASS | **FAIL** | PASS | `FRONT-GAP_COST` |
+| 2 MiB | 24,810,212 | +1,272,790 | 21,436 | brotli | 48 | 251.5 | 3.804 | not measured | not measured | PASS | n/m | n/m | **FAIL** | PASS | not available |
+| 4 MiB | 24,810,212 | +1,272,790 | 21,436 | brotli | 24 | 251.4 | 3.803 | not measured | not measured | PASS | n/m | n/m | **FAIL** | PASS | not available |
+| 8 MiB | 24,810,212 | +1,272,790 | 21,436 | brotli | 12 | 251.5 | 3.804 | [0.3325, 0.3331] | [1.0133, 1.1362] | PASS | PASS | PASS | **FAIL** | PASS | `FRONT-GAP_COST` |
+| 16 MiB | 24,810,212 | +1,272,790 | 21,436 | brotli | 6 | 251.5 | 3.804 | not measured | not measured | PASS | n/m | n/m | **FAIL** | PASS | not available |
+| 32 MiB | 24,810,212 | +1,272,790 | 21,436 | brotli | 3 | 251.5 | 3.805 | not measured | not measured | PASS | n/m | n/m | **FAIL** | PASS | not available |
+| 64 MiB | 24,296,722 | +759,300 | 534,926 | bwt | 2 | 411.4 | 6.223 | [3.3252, 3.4555] | [10.4196, 10.5420] | PASS | FAIL | FAIL | **FAIL** | PASS | `FRONT-GAP_COST` |
+| 128 MiB | 23,537,422 | 0 | 1,294,226 | bwt | 1 | 598.9 | 9.059 | [3.2466, 3.3772] | [10.2656, 10.3087] | PASS | FAIL | FAIL | **FAIL** | **FAIL** | `FRONT-GAP_COST` |
+| `xz -9e` | 24,831,648 | — | — | xz | 0 | 66.1 | 1.000 | — | — | — | — | — | — | — | — |
+| Brotli q11/lw30 | 24,810,180 | — | — | brotli | 0 | 251.8 | 3.808 | — | — | — | — | — | — | — | — |
+
+### The structural fact this exposes (about the gate, not only about the codec)
+
+> **Gate G5 (peak decode RSS ≤ 2.0 × `xz -9e`) is unreachable by any Brotli-backed route.**
+> Brotli q11/lw30's own peak decode RSS is **3.808 × `xz -9e` on enwik8** (251.8 vs 66.1 MiB)
+> and **2.26 × on Silesia** (122.3 vs 54.1 MiB). A candidate that routes its files to the
+> Brotli backend therefore *cannot* clear G5 no matter how fast it is — which is exactly what the
+> 1/2/4/8/16/32 MiB rows show: G3 and G4 **PASS** (decode ratios 0.33 vs `xz` and 1.01 vs
+> Brotli) while G5 **FAILS** at 3.803×.
+
+This has two consequences that shape the rest of the programme:
+
+1. **The decode gates and the memory gate are reachable by disjoint routes.** The Brotli route buys
+   the decode gates (G3/G4) by giving up the BWT byte advantage; the BWT route keeps the byte
+   advantage and needs a bounded working set to satisfy G5. **The only route that can satisfy all
+   of G2–G6 simultaneously is the BWT route with a bounded inverse-BWT working set** — which is
+   precisely the C3 + C4 combination, and it is why those two candidates are load-bearing and C2
+   is not.
+2. **enwik8 is structurally out of reach for this gate** and is recorded as such. On enwik8 the
+   router only keeps the BWT backend at caps ≥ 64 MiB (where the BWT bytes still beat Brotli's),
+   and at 64 MiB the peak RSS is 411.4 MiB = 6.223 × `xz -9e`. The caps that would bound the
+   working set (≤ 32 MiB) flip the router to Brotli, which then fails G5 at 3.803 ×. **No cap
+   closes enwik8's gate.** The enwik8 objective is therefore best-effort and is expected to close
+   `NO-GO` with this arithmetic as its evidence.
+
+**Silesia is different in the decisive way:** its BWT-routed files (webster, nci, x-ray, dickens,
+osdb, mr, reymont = 120,362,284 B) have a *large* byte advantage over Brotli (2,916,797 B
+total), so the router keeps the BWT backend at much smaller caps, and the working set can be
+bounded while the byte advantage is retained. The Silesia sweep and the combined-arm arbiter runs
+decide that.
+
+---
+
 
 The gate's three binding Silesia deficits are decode-vs-Brotli (G4), RSS-vs-xz (G5) and
 RSS-vs-Brotli (G6). No single lever clears all three; the programme's working combination is:
