@@ -5606,17 +5606,35 @@ corpus fixtures; the in-place inverse BWT byte-exact on 526.9 MB of real corpus 
 failures across both inverse paths; decode-time CI-upper 1.00037 (Silesia) / 1.01202 (enwik8)
 against the 2 % epsilon).
 
-**Measurement-stability caveat, recorded because it is part of the result.** The sibling arm at the
-1.75 MiB cap (run `39684310219`, artifact `anvil-i20-gate-closure-silesia-39684310219`) ruled
-`FRONT-GAP_COST` **with an identical candidate decode time** (2.4208 s vs the closed arm's
-2.4194 s) because Brotli's *reference* decode measured 0.7683 s in that job against 1.5186 s in the
-closed arm's job — a 1.98× reference-speed difference on the same runner class. **A G4 verdict is
-therefore reference-speed dependent and must be replicated.** The 2 MiB arm is the robust choice
-(G4 CI-upper 1.6821 vs the 2.0 threshold, a 19 % margin, and a 108,998 B byte margin rather than
-the 1.75 MiB arm's 1,602 B). Two independent replication runs were dispatched
-(`39687067054` at reps 9, `39687069793` at reps 13) and are reported in
-`docs/I20-PARETO-GATE-CLOSURE-RESULTS-2026-10-21.md` §4.4 with their absolute candidate and
-reference times.
+**Measurement-stability caveat, recorded because it is part of the result.** The closed arm was
+re-run **six times unchanged** (same candidate SHA, same arm, same corpus, same frozen arbiter, and
+the `--expected-candidate-total 48347006` byte assertion **passed 6/6**):
+
+| run | reps | candidate decode | Brotli reference decode | ANVIL/`xz` | ANVIL/Brotli | peak RSS/`xz` | ruling |
+|---|---:|---:|---:|---|---|---:|---|
+| `39684313068` | 9 | 2.4194 s | 1.5186 s | 0.9078 | **1.6261** [1.4929, 1.6821] | 1.4903× | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
+| `39687067054` | 9 | 2.3709 s | 0.7673 s | 0.8269 | 3.0902 [3.0885, 3.0930] | 1.4418× | `FRONT-GAP_COST` |
+| `39687069793` | 13 | 2.5704 s | 1.3685 s | 0.8802 | **1.8790** [1.8753, 1.9852] | 1.4382× | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
+| `39689567974` | 9 | 2.0183 s | 1.1688 s | 0.8414 | **1.7142** [1.5896, 1.8417] | 1.4902× | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
+| `39689570820` | 9 | 2.6696 s | 1.0674 s | 0.8559 | 2.4557 [2.3882, 2.5020] | 1.4931× | `FRONT-GAP_COST` |
+| `39689574015` | 9 | 2.6709 s | 1.0678 s | 0.8538 | 2.5013 [2.3877, 2.5035] | 1.4918× | `FRONT-GAP_COST` |
+
+(artifacts `anvil-i20-gate-closure-silesia-<run>`; workflow
+`.github/workflows/anvil-i20-gate-closure.yml`; job `gate-closure (silesia)`; commit
+`7b9ea3f18397d61bab6f41cd14f0eb50da40b36b`; corpus silesia; every A/A null CI spans 1.0 and
+clears no speed gate.)
+
+**Identical in all six runs:** the candidate's complete wire (48,347,006 B, byte assertion passed
+6/6), its peak decode RSS (77,888–80,036 KiB = **1.4382×–1.4931× `xz -9e`**), its peak RSS
+against Brotli (**0.6224×–0.6377×**), and its decode ratio against `xz -9e`
+(**0.8269–0.9078** — the candidate is *faster* than `xz -9e` in every run). **What moves is the
+Brotli reference's measured decode time (0.7673–1.5186 s, a 1.98× spread) against a candidate
+whose own decode varies only 1.32×.** G4 tracks the reference, so the gate closes in **3 of 6**
+runs. **G2, G3, G5 and G6 pass 6 of 6.** The honest verdict: the gate is **closed on the run of
+record** (and in 3 of 6 independent replications), the candidate **dominates `xz -9e` on all three
+gate axes 6/6**, and the **Brotli half of the gate (G4) is closed only conditionally** because the
+arbiter's own reference arm is not reproducible on this runner class. The limiting factor is the
+measurement instrument, not the codec — and the next measurement lead follows from that.
 
 **What the programme learned, and what it did not.** (i) The inverse BWT performs `n/2` dependent
 random accesses for **every** checkpoint stride, so the auxiliary walk budget is a **byte knob
@@ -5630,7 +5648,11 @@ backend's output can, and that is exactly what closed G5. (iv) G5 is unreachable
 Brotli-backed route (Brotli q11/lw30's own peak RSS is 2.26× `xz` on Silesia and 3.81× on enwik8),
 so the decode gates and the memory gate are reachable only by *disjoint* routes — which is why the
 closed arm is a BWT-routed, memory-bounded, byte-charged point rather than a Brotli-routed fast
-one. (v) **enwik8 remains structurally out of reach for this gate**, with the arithmetic recorded:
+one. (v) **The cap's decode effect is a ROUTING effect, not a cache-residency effect** — W2's
+cap-only sweep measured the always-BWT files' decode time *flat* across a 32× cap change
+(2.590 / 2.850 / 2.810 / 2.940 / 2.920 s at 4 / 8 / 16 / 32 / 128 MiB), and the coordinator's
+earlier "cache residency" explanation is **withdrawn** in the I20 results document (§2.13).
+(vi) **enwik8 remains structurally out of reach for this gate**, with the arithmetic recorded:
 the caps that bound the working set flip the file to Brotli (G3/G4 pass, G5 fails at 3.803×) and
 the caps that keep the BWT route leave the peak at 6.223–9.059×.
 
