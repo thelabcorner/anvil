@@ -174,15 +174,91 @@ Two findings matter for the programme:
 
 ---
 
+## 2.2 Coordinator arbiter arms — the combination measured by the frozen tool
+
+The coordinator ruled candidate combinations with the **frozen** `tools/reference_cost_gate.py`
+(via `.github/workflows/anvil-i20-gate-closure.yml`, Silesia only, `reps = 9`) so that every number
+below is produced by the same arbiter that judges the final arm. The candidate is W2's branch
+(`research/anvil-i20-w2-aux-walk-sweep`, commit `40a82e5f79a890ca666daa7b0e38e1e26e9c347d`), i.e. the
+auxiliary walk-budget knob without any decode-side change — the *safe* arm.
+
+| arm | `--candidate-extra-args` | ANVIL total bytes | lead vs `xz -9e` | ANVIL peak decode RSS | vs `xz` (≤2.0) | vs Brotli (≤2.0) | ANVIL/`xz` decode (CI95) | ANVIL/Brotli decode (CI95) | ruling |
+|---|---|---:|---:|---:|---|---|---|---|---|
+| baseline | *(none)* | 46,466,339 | 1,989,665 B | 254,224 KiB (248.3 MiB) | **4.588× FAIL** | 2.030× FAIL | 1.4726 [1.4717, 1.4897] PASS | 5.4547 [5.1604, 5.6033] FAIL | `FRONT-GAP_COST` |
+| **A** | `--bwt-subblock 8388608 --bwt-aux-walks 8192` | 47,732,549 | 723,455 B | 127,380 KiB (124.4 MiB) | **2.299× FAIL** | 1.017× PASS | 1.2866 [1.2658, 1.3035] PASS | 4.7415 [4.6219, 4.9225] FAIL | `FRONT-GAP_COST` |
+| **B** | `--bwt-subblock 8388608 --bwt-aux-walks 16384` | 48,152,293 | 303,711 B | 125,360 KiB (122.4 MiB) | **2.401× FAIL** | 1.002× PASS | 1.3986 [1.3827, 1.4327] PASS | 3.9973 [3.9546, 4.0934] FAIL | `FRONT-GAP_COST` |
+
+Evidence: run `39670431362` (arm A) and run `39670483057` (arm B); workflow
+`.github/workflows/anvil-i20-gate-closure.yml`; job `gate-closure (silesia)`; candidate SHA
+`40a82e5f79a890ca666daa7b0e38e1e26e9c347d`; artifacts
+`anvil-i20-gate-closure-silesia-39670431362` and `anvil-i20-gate-closure-silesia-39670483057`;
+corpus silesia. Baseline row: run `39654699366`, job `reference-cost (silesia)`, artifact
+`anvil-i10-aux-reference-cost-silesia-39654699366`, commit
+`d05fceb0ce61a853378822f63eb5f2ceeef26557`. Both arms' A/A null CIs span 1.0 and clear no speed
+gate, so their timing is valid.
+
+### 2.3 What the arms already settle
+
+**The 8 MiB sub-block cap is a double win on the measured baseline arm:** it moved the portfolio
+decode from 4.374 s to 3.873 s (**≈1.13× faster**) while cutting the peak decode RSS from
+254,224 KiB to 127,380 KiB, and it charged 1,266,210 B of the 1,989,665 B surplus. The decode
+speed-up is the *cache-residency* effect: the inverse BWT performs `n/2` dependent random accesses
+into the LF array, and a smaller cap makes that array `4C` bytes instead of `4n` bytes.
+
+**The auxiliary walk budget does not help, and at large W it actively hurts.** Going from
+W = 8192 to W = 16384 made the *same-job* decode ratio **worse** (1.2866 → 1.3986) while charging
+another **419,744 B**. The mechanism is established from the vendored source, independently
+verified by the coordinator: `libsais_unbwt_decode_8` (`third_party/libsais/src/libsais.c`, lines
+7854–7880) runs **8 interleaved LF walks** of `r/2` steps each, and the driver advances
+`offset += 8r` per group, so
+
+> **total LF steps = (n / 8r) × 8 × (r/2) = n/2, for every checkpoint stride `r`.**
+
+Each step is `p = P[p]` — a *dependent* random access into the `4n`-byte LF array. The walk budget
+changes the number of checkpoints (bytes) and the decomposition granularity of a **fixed** number of
+dependent accesses; it cannot shorten the critical path, and the 8-way interleave already supplies
+the memory-level parallelism at W = 1024. **C2 is therefore a mechanism-level NO-GO**, with the
+source argument and the two measured arms as the falsifying evidence.
+
+**G5 is the gate that survives every combination so far.** The 8 MiB cap alone reaches 2.299× `xz`
+— a FAIL against the 2.0× limit. The remaining requirement is a **peak decode RSS ≤ 110,816 KiB**
+(2.0 × the measured `xz -9e` 55,408 KiB), i.e. at least ~16,564 KiB below what the safe 8 MiB arm
+achieves, and proportionally more at larger caps. The live-set model is
+`accumulated output (≈39.5 MiB for webster, plus a vector-growth reallocation transiently)
++ sub-block BWT string (C) + libsais int32 array (4C) + compressed input (7.3 MiB)`, so the terms
+that can still be removed are the accumulated output (the L3 streaming lever) and the compressed
+input (the L1 lever) — both at **exactly zero byte cost**.
+
+### 2.4 A defect found by the arbiter (recorded because it is a real bug)
+
+The first merged-arm arm (run `39670486612`) **failed in the encode step** with
+`anvil: --bwt-aux-walks must be an integer in 1..1048576`. Root cause: W2's `=`-form parser used
+`a.substr(15)` where the value starts at index **16** (`"--bwt-aux-walks="` is 16 characters). The
+bug was latent on W2's own branch (its spaced form took a different branch) and became fatal in the
+merge, because W4's generic spaced-form normaliser rewrites the spaced form into the `=` form
+before the parser chain runs. Fixed in the merged arm as commit `ec2238e`; W2 was instructed to fix
+it on its own branch with a self-test. **The `=`-form flag was therefore genuinely broken and the
+arbiter caught it — a concrete instance of the protocol working as intended.**
+
+---
+
+
 ## 3. Combined-arm plan (the arm the coordinator will rule)
 
 The gate's three binding Silesia deficits are decode-vs-Brotli (G4), RSS-vs-xz (G5) and
 RSS-vs-Brotli (G6). No single lever clears all three; the programme's working combination is:
 
 1. **C2 — auxiliary-index walk budget.** More checkpoints ⇒ shorter LF walks ⇒ faster inverse BWT.
-2. **C3 — BWT subblock cap.** Bounds the per-piece inverse-BWT working set.
-3. **C4 — decode working-set reduction.** Zero byte cost; removes the materialised output and the
-   retained compressed input from the decode peak.
+   **§2.3 shows this lever is a mechanism-level NO-GO: the LF-step count is `n/2` for every stride
+   `r`, and the measured W = 8192 → 16384 step made the same-job decode ratio worse for +419,744 B.**
+   It is retained in the arm only as the *cheapest* way to buy a little decode time if the
+   measurement says otherwise; it is not load-bearing.
+2. **C3 — BWT subblock cap.** Bounds the per-piece inverse-BWT working set **and** improves the
+   cache residency of the `n/2` dependent random accesses. **This is now the primary lever:**
+   measured ≈1.13× decode speed-up and a 123 MiB RSS reduction at the 8 MiB cap.
+3. **C4 — decode working-set reduction.** Zero byte cost; removes the accumulated output (L3) and
+   the retained compressed input (L1) from the decode peak. **This is the lever that must clear
+   G5**, because the 8 MiB cap alone is still 2.299× `xz`.
 
 ### 3.1 Measured per-file routing facts (from run `39654699366`, `bytes.csv`)
 
