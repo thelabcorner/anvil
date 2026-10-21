@@ -344,10 +344,10 @@ static std::vector<uint8_t> i20_suite_decode(const uint8_t*& p, const uint8_t* e
     for (int i = 0; i < 256; ++i) len[i] = *p++;
     uint64_t kraft = 0;
     for (int i = 0; i < 256; ++i) if (len[i]) {
-        if (len[i] > 24) throw std::runtime_error("bad huffman length (>24)");
-        kraft += 1ull << (24 - len[i]);
+        if (len[i] > 32) throw std::runtime_error("bad huffman length (>32)");
+        kraft += 1ull << (32 - len[i]);
     }
-    if (kraft > (1ull << 24)) throw std::runtime_error("huffman overfull");
+    if (kraft > (1ull << 32)) throw std::runtime_error("huffman overfull");
     i20::HuffModelFixed h = i20::build_huff_model_fixed(len);
     uint64_t dn = get_uvar(p, e);
     if (dn > static_cast<uint64_t>(e - p)) throw std::runtime_error("truncated huffman stream");
@@ -597,6 +597,16 @@ static void i20_candidate_list(std::vector<I20Candidate>& out, bool full) {
     }
 }
 
+// The maximum canonical Huffman code length over a stream.  The repository's
+// shipped decoder rejects lengths > 24, so this is the integration constraint
+// for any Huffman-coded candidate.
+static uint8_t i20_huff_max_len(const std::vector<uint8_t>& src) {
+    auto len = huffman_lengths(src);
+    uint8_t m = 0;
+    for (int i = 0; i < 256; ++i) if (len[i] > m) m = len[i];
+    return m;
+}
+
 static int i20_cmd_sweep(int argc, char** argv) {
     std::string anv_path, out_path, outdir;
     bool full = false;
@@ -651,6 +661,8 @@ static int i20_cmd_sweep(int argc, char** argv) {
           << ", \"arith_bytes\": " << t.arith_body_len
           << ", \"tokens\": " << ts.tokens.size()
           << ", \"runs\": " << ts.runs.size()
+          << ", \"huff_max_len_tokens\": " << (unsigned)i20_huff_max_len(ts.tokens)
+          << ", \"huff_max_len_runs\": " << (unsigned)i20_huff_max_len(ts.runs)
           << ", \"reference_decode_s\": " << std::fixed << std::setprecision(6) << (d1 - d0)
           << ", \"reference_fnv\": " << (unsigned long long)fnv1a(reference) << "}";
         emit(o.str());
