@@ -45,7 +45,7 @@ on:
           - '13'
 
 concurrency:
-  group: anvil-i20-subblock-sweep
+  group: anvil-i20-subblock-sweep-${{ inputs.corpus }}
   cancel-in-progress: false
 
 permissions:
