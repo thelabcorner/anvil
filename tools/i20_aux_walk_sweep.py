@@ -15,14 +15,19 @@ No decoder rule ties the checkpoint count to 1024, so this sweep changes no
 wire semantics: it only selects which permitted `r` the encoder emits.  The
 default walk budget (1024) reproduces the frozen I10-1A bytes exactly.
 
+The sweep is a (sub-block cap x walk budget) grid because the two interact:
+the auxiliary index is charged PER SUB-BLOCK, and each sub-block derives its
+own sampling rate from its own length, so the charged index bytes are
+4 * sum_over_subblocks(auxiliary_count) and NOT 4 * W * file_count.
+
 Subcommands
   prepare    encode every arm, verify byte-exact round-trips, attribute the
-             charged index bytes explicitly, prove byte identity against the
-             frozen I10-1A binary per file, and emit the decode command sets
-             for the candidate and both binding references.
+             charged index bytes explicitly per file and per sub-block, prove
+             byte identity against the frozen I10-1A binary, and emit the
+             decode command sets (full portfolio plus fixed route subsets).
   rss        measure per-process decode peak RSS for every arm.
   summarize  combine bytes + RSS + paired timing into the byte/speed trade
-             curve and the G2/G4/G5/G6 gate table.
+             curve, the gate table, and the Amdahl LF-walk-share fit.
 
 This tool never runs a local codec measurement; it is CI-only by contract.
 """
@@ -48,8 +53,8 @@ SILESIA = (
     "reymont", "samba", "sao", "webster", "x-ray", "xml",
 )
 
-# Frozen I10-1A portfolio totals (docs/I10-AUX-UNBWT-RESULTS.md, run 35927623136
-# for the auxiliary v2 arm and the frozen I9 bytes for the legacy arm).
+# Frozen I10-1A portfolio totals (docs/I10-AUX-UNBWT-RESULTS.md; run
+# 35927623136 for the auxiliary v2 arm, the frozen I9 bytes for the legacy arm).
 FROZEN_AUX_ON_TOTAL = {"silesia": 46_466_339, "enwik8": 23_537_422}
 FROZEN_AUX_OFF_TOTAL = {"silesia": 46_446_995, "enwik8": 23_534_368}
 
@@ -58,6 +63,7 @@ FROZEN_XZ_TOTAL = {"silesia": 48_456_004, "enwik8": 24_831_648}
 FROZEN_BROTLI_TOTAL = {"silesia": 49_383_136, "enwik8": 24_810_180}
 
 CONTROL_WALKS = 1024
+CONTROL_CAP_MIB = 128
 
 CANONICAL_FLAGS = ["--parse=ratio", "--ratio-context=off", "--ratio-lines=off"]
 
@@ -142,6 +148,19 @@ def parse_walks(text: str) -> list[int]:
     return values
 
 
+def parse_caps(text: str) -> list[int]:
+    values = sorted({int(x.strip()) for x in text.split(",") if x.strip()})
+    if not values or any(v < 1 or v > 2048 for v in values):
+        raise argparse.ArgumentTypeError("caps must be MiB integers in 1..2048")
+    if CONTROL_CAP_MIB not in values:
+        raise argparse.ArgumentTypeError(f"caps must include the {CONTROL_CAP_MIB} MiB control")
+    return values
+
+
+def arm_key(cap_mib: int, walks: int) -> str:
+    return f"c{cap_mib}-w{walks}"
+
+
 # ---------------------------------------------------------------------------
 # mode-17 payload inspection
 # ---------------------------------------------------------------------------
@@ -162,7 +181,6 @@ def parse_container(blob: bytes) -> dict[str, Any]:
     plen, p = read_uvar(blob, p)
     if p + 4 > len(blob):
         raise ValueError("truncated block crc")
-    crc = int.from_bytes(blob[p:p + 4], "little")
     p += 4
     if mode != 17:
         raise ValueError(f"expected one whole-file mode-17 block, got mode {mode}")
@@ -181,7 +199,6 @@ def parse_container(blob: bytes) -> dict[str, Any]:
         "total": total,
         "block_len": blen,
         "payload_len": plen,
-        "crc32": crc,
         "transform": transform,
         "backend": backend,
         "transformed_len": xlen,
@@ -190,10 +207,7 @@ def parse_container(blob: bytes) -> dict[str, Any]:
 
 
 def parse_aux_v2(backend_payload: bytes) -> dict[str, Any] | None:
-    """Parse the additive v2 auxiliary framing (0xFE tag) of a BWT payload.
-
-    Returns None for a legacy v1 BWT payload (no auxiliary framing).
-    """
+    """Parse the additive v2 auxiliary framing (0xFE tag) of a BWT payload."""
     if not backend_payload or backend_payload[0] != 0xFE:
         return None
     p = 1
@@ -218,7 +232,7 @@ def parse_aux_v2(backend_payload: bytes) -> dict[str, Any] | None:
 
 
 def parse_bwt_backend(backend_payload: bytes) -> dict[str, Any]:
-    """Describe a BWT backend payload (bare or 0xFF subblock framed)."""
+    """Describe a BWT backend payload (bare or 0xFF sub-block framed)."""
     if not backend_payload:
         raise ValueError("empty BWT backend payload")
     if backend_payload[0] == 0xFF:
@@ -251,19 +265,28 @@ def inspect_payload(path: Path) -> dict[str, Any]:
     }
     if info["backend"] == 2:
         bwt = parse_bwt_backend(info["backend_payload"])
-        aux_counts = [s["aux"] for s in bwt["subblocks"] if s["aux"]]
-        if aux_counts:
-            out["aux_rate"] = aux_counts[0]["aux_rate"]
-            out["aux_count"] = sum(a["aux_count"] for a in aux_counts)
-            out["index_bytes"] = sum(a["index_bytes"] for a in aux_counts)
-            out["postcoder"] = aux_counts[0]["postcoder"]
-            out["aux_subblocks"] = len(aux_counts)
+        auxes = [s["aux"] for s in bwt["subblocks"] if s["aux"]]
+        out["bwt_subblocks"] = len(bwt["subblocks"])
+        out["bwt_subblock_lens"] = [s["decoded_len"] for s in bwt["subblocks"]]
+        if auxes:
+            out["aux_count"] = sum(a["aux_count"] for a in auxes)
+            out["index_bytes"] = sum(a["index_bytes"] for a in auxes)
+            out["aux_rate_min"] = min(a["aux_rate"] for a in auxes)
+            out["aux_rate_max"] = max(a["aux_rate"] for a in auxes)
+            out["postcoder"] = auxes[0]["postcoder"]
+            out["aux_subblocks"] = len(auxes)
+            out["aux_per_subblock"] = [
+                {"decoded_len": s["decoded_len"], "aux_rate": s["aux"]["aux_rate"],
+                 "aux_count": s["aux"]["aux_count"], "index_bytes": s["aux"]["index_bytes"]}
+                for s in bwt["subblocks"] if s["aux"]
+            ]
         else:
-            out["aux_rate"] = None
             out["aux_count"] = 0
             out["index_bytes"] = 0
+            out["aux_rate_min"] = None
+            out["aux_rate_max"] = None
             out["aux_subblocks"] = 0
-        out["bwt_subblocks"] = len(bwt["subblocks"])
+            out["aux_per_subblock"] = []
     return out
 
 
@@ -280,6 +303,7 @@ def encode_anvil(
     backend: str,
     aux: str,
     walks: int | None = None,
+    cap_bytes: int | None = None,
 ) -> None:
     packed.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -290,6 +314,8 @@ def encode_anvil(
     ]
     if walks is not None:
         cmd += ["--bwt-aux-walks", str(walks)]
+    if cap_bytes is not None:
+        cmd += ["--bwt-subblock", str(cap_bytes)]
     cmd.append("--quiet")
     run(cmd)
 
@@ -317,6 +343,7 @@ def prepare(args: argparse.Namespace) -> None:
     brotli = args.brotli.resolve()
     frozen = args.frozen_anvil.resolve() if args.frozen_anvil else None
     walks = parse_walks(args.walks)
+    caps = parse_caps(args.caps_mib)
     files = canonical_files(args.corpus, root)
     xz_bin = shutil.which("xz")
     if not anvil.is_file() or not brotli.is_file() or not xz_bin:
@@ -328,21 +355,22 @@ def prepare(args: argparse.Namespace) -> None:
     decoded_root.mkdir(parents=True, exist_ok=True)
 
     source_rows: list[dict[str, Any]] = []
+    source_bytes_by_file: dict[str, int] = {}
     brotli_meta: dict[str, dict[str, Any]] = {}
-    bwt_meta: dict[tuple[str, int], dict[str, Any]] = {}
+    bwt_meta: dict[tuple[int, int, str], dict[str, Any]] = {}
     bwt_off_meta: dict[str, dict[str, Any]] = {}
 
     for src in files:
         name = src.name
         n = src.stat().st_size
-        digest = sha256(src)
+        source_bytes_by_file[name] = n
         source_rows.append({
             "file": name,
             "input_bytes": n,
-            "source_sha256": digest,
+            "source_sha256": sha256(src),
         })
 
-        # Brotli direct payload: independent of the walk budget.
+        # Brotli direct payload: independent of both the cap and the budget.
         bp = packed_root / "brotli" / f"{name}.anv"
         encode_anvil(anvil, src, bp, backend="brotli", aux="off")
         info = inspect_payload(bp)
@@ -354,33 +382,46 @@ def prepare(args: argparse.Namespace) -> None:
             "sha256": sha256(bp),
         }
 
-        # BWT direct payload with auxiliary indexes, once per walk budget.
-        for w in walks:
-            wp = packed_root / "bwt" / f"walks-{w}" / f"{name}.anv"
-            encode_anvil(anvil, src, wp, backend="bwt", aux="on", walks=w)
-            winfo = inspect_payload(wp)
-            if winfo["backend"] != 2:
-                raise RuntimeError(f"{name}/W={w}: direct BWT emitted backend {winfo['backend']}")
-            if winfo.get("aux_rate") is None:
-                raise RuntimeError(f"{name}/W={w}: no auxiliary v2 framing found")
-            bwt_meta[(name, w)] = {
-                "path": str(wp),
-                "bytes": wp.stat().st_size,
-                "sha256": sha256(wp),
-                "aux_rate": winfo["aux_rate"],
-                "aux_count": winfo["aux_count"],
-                "index_bytes": winfo["index_bytes"],
-                "postcoder": winfo.get("postcoder"),
-                "bwt_subblocks": winfo.get("bwt_subblocks"),
-            }
+        # BWT direct payload with auxiliary indexes, for every (cap, budget).
+        for cap in caps:
+            cap_bytes = cap * 1024 * 1024
+            for w in walks:
+                wp = packed_root / "bwt" / arm_key(cap, w) / f"{name}.anv"
+                encode_anvil(anvil, src, wp, backend="bwt", aux="on",
+                             walks=w, cap_bytes=cap_bytes)
+                winfo = inspect_payload(wp)
+                if winfo["backend"] != 2:
+                    raise RuntimeError(
+                        f"{name}/{arm_key(cap, w)}: direct BWT emitted backend {winfo['backend']}")
+                if not winfo.get("aux_per_subblock"):
+                    raise RuntimeError(f"{name}/{arm_key(cap, w)}: no auxiliary v2 framing found")
+                expected_sub = 1 + (n - 1) // cap_bytes if n > cap_bytes else 1
+                if winfo["bwt_subblocks"] != expected_sub:
+                    raise RuntimeError(
+                        f"{name}/{arm_key(cap, w)}: subblocks={winfo['bwt_subblocks']} "
+                        f"expected={expected_sub}")
+                bwt_meta[(cap, w, name)] = {
+                    "path": str(wp),
+                    "bytes": wp.stat().st_size,
+                    "sha256": sha256(wp),
+                    "aux_rate_min": winfo["aux_rate_min"],
+                    "aux_rate_max": winfo["aux_rate_max"],
+                    "aux_count": winfo["aux_count"],
+                    "index_bytes": winfo["index_bytes"],
+                    "postcoder": winfo["postcoder"],
+                    "bwt_subblocks": winfo["bwt_subblocks"],
+                    "bwt_subblock_lens": winfo["bwt_subblock_lens"],
+                    "aux_per_subblock": winfo["aux_per_subblock"],
+                }
 
-        # Legacy (auxiliary-off) BWT payload: must stay byte-identical.
+        # Legacy (auxiliary-off) BWT payload at the control cap: must stay
+        # byte-identical to the frozen I9 bytes.
         op = packed_root / "bwt-off" / f"{name}.anv"
         encode_anvil(anvil, src, op, backend="bwt", aux="off")
         oinfo = inspect_payload(op)
         if oinfo["backend"] != 2:
             raise RuntimeError(f"{name}: direct BWT (aux off) emitted backend {oinfo['backend']}")
-        if oinfo.get("aux_rate") is not None:
+        if oinfo.get("aux_per_subblock"):
             raise RuntimeError(f"{name}: auxiliary framing present with --bwt-aux=off")
         bwt_off_meta[name] = {
             "path": str(op),
@@ -398,82 +439,109 @@ def prepare(args: argparse.Namespace) -> None:
     # winning backend (same transform/backend/xlen/payload framing).
     # ------------------------------------------------------------------
     rows: list[dict[str, Any]] = []
-    decode_commands: dict[int, list[list[str]]] = {w: [] for w in walks}
-    decode_files: dict[int, list[str]] = {w: [] for w in walks}
-    selected_path: dict[tuple[int, str], str] = {}
+    selected_path: dict[tuple[int, int, str], str] = {}
+    manifests: dict[str, str] = {}
+    arm_files: dict[str, list[str]] = {}
 
-    for w in walks:
-        (out / "timed" / f"walks-{w}").mkdir(parents=True, exist_ok=True)
-        for src in files:
-            name = src.name
-            bm = brotli_meta[name]
-            wm = bwt_meta[(name, w)]
-            route = "bwt" if int(wm["bytes"]) < int(bm["bytes"]) else "brotli"
-            selected = wm if route == "bwt" else bm
-            dec = decoded_root / f"walks-{w}" / name
-            cmd = [str(anvil), "d", str(selected["path"]), str(dec), "--quiet"]
-            verify_roundtrip(cmd, dec, src)
-            dec.unlink()
-            timed_dec = out / "timed" / f"walks-{w}" / name
-            decode_commands[w].append(
-                [str(anvil), "d", str(selected["path"]), str(timed_dec), "--quiet"]
-            )
-            decode_files[w].append(name)
-            selected_path[(w, name)] = str(selected["path"])
-            rows.append({
+    for cap in caps:
+        for w in walks:
+            key = arm_key(cap, w)
+            (out / "timed" / key).mkdir(parents=True, exist_ok=True)
+            cmds: list[list[str]] = []
+            names: list[str] = []
+            for src in files:
+                name = src.name
+                bm = brotli_meta[name]
+                wm = bwt_meta[(cap, w, name)]
+                route = "bwt" if int(wm["bytes"]) < int(bm["bytes"]) else "brotli"
+                selected = wm if route == "bwt" else bm
+                dec = decoded_root / key / name
+                cmd = [str(anvil), "d", str(selected["path"]), str(dec), "--quiet"]
+                verify_roundtrip(cmd, dec, src)
+                dec.unlink()
+                timed_dec = out / "timed" / key / name
+                cmds.append(
+                    [str(anvil), "d", str(selected["path"]), str(timed_dec), "--quiet"]
+                )
+                names.append(name)
+                selected_path[(cap, w, name)] = str(selected["path"])
+                rows.append({
+                    "corpus": args.corpus,
+                    "arm": key,
+                    "cap_mib": cap,
+                    "walks": w,
+                    "file": name,
+                    "route": route,
+                    "selected_bytes": selected["bytes"],
+                    "selected_sha256": selected["sha256"],
+                    "brotli_bytes": bm["bytes"],
+                    "bwt_bytes": wm["bytes"],
+                    "bwt_sha256": wm["sha256"],
+                    "aux_rate_min": wm["aux_rate_min"],
+                    "aux_rate_max": wm["aux_rate_max"],
+                    "aux_count": wm["aux_count"],
+                    "index_bytes": wm["index_bytes"],
+                    "bwt_subblocks": wm["bwt_subblocks"],
+                    "bwt_postcoder": wm["postcoder"],
+                })
+            arm_files[key] = names
+            sp = out / f"decode-{key}.sh"
+            write_script(sp, cmds)
+            mp = out / f"decode-{key}.json"
+            mp.write_text(json.dumps({
+                "schema": 1,
                 "corpus": args.corpus,
-                "file": name,
+                "arm": key,
+                "cap_mib": cap,
                 "walks": w,
-                "route": route,
-                "selected_bytes": selected["bytes"],
-                "selected_sha256": selected["sha256"],
-                "brotli_bytes": bm["bytes"],
-                "bwt_bytes": wm["bytes"],
-                "bwt_sha256": wm["sha256"],
-                "aux_rate": wm["aux_rate"],
-                "aux_count": wm["aux_count"],
-                "index_bytes": wm["index_bytes"],
-                "bwt_postcoder": wm["postcoder"],
-            })
+                "files": names,
+                "commands": cmds,
+            }, indent=2) + "\n", encoding="utf-8")
+            manifests[key] = str(mp)
 
     # ------------------------------------------------------------------
-    # Route subsets (fixed by the CONTROL routing so every walk budget is
+    # Route subsets (fixed by the CONTROL arm's routing so every arm is
     # compared on exactly the same file set).  The BWT subset is the path the
     # auxiliary-index lever can move; the Brotli subset is the control.
     # ------------------------------------------------------------------
-    control_rows = {r["file"]: r for r in rows if r["walks"] == CONTROL_WALKS}
-    source_bytes_by_file = {r["file"]: int(r["input_bytes"]) for r in source_rows}
+    control_key = arm_key(CONTROL_CAP_MIB, CONTROL_WALKS)
+    control_rows = {r["file"]: r for r in rows if r["arm"] == control_key}
     bwt_subset = [r["file"] for r in control_rows.values() if r["route"] == "bwt"]
     brotli_subset = [r["file"] for r in control_rows.values() if r["route"] != "bwt"]
     subset_bytes = {
         "bwt": sum(source_bytes_by_file[f] for f in bwt_subset),
         "brotli": sum(source_bytes_by_file[f] for f in brotli_subset),
     }
-    subset_manifests: dict[str, str] = {}
-    for w in walks:
-        for label, members in (("bwt", bwt_subset), ("brotli", brotli_subset)):
-            d = out / "timed" / f"walks-{w}-{label}"
-            d.mkdir(parents=True, exist_ok=True)
-            cmds = []
-            for name in members:
-                cmds.append([
-                    str(anvil), "d", selected_path[(w, name)],
-                    str(d / name), "--quiet",
-                ])
-            sp = out / f"decode-walks-{w}-{label}.sh"
-            write_script(sp, cmds)
-            mp = out / f"decode-walks-{w}-{label}.json"
-            mp.write_text(json.dumps({
-                "schema": 1,
-                "corpus": args.corpus,
-                "walks": w,
-                "subset": label,
-                "files": members,
-                "commands": cmds,
-            }, indent=2) + "\n", encoding="utf-8")
-            subset_manifests[f"walks-{w}-{label}"] = str(mp)
+    for cap in caps:
+        for w in walks:
+            key = arm_key(cap, w)
+            for label, members in (("bwt", bwt_subset), ("brotli", brotli_subset)):
+                d = out / "timed" / f"{key}-{label}"
+                d.mkdir(parents=True, exist_ok=True)
+                cmds = []
+                for name in members:
+                    cmds.append([
+                        str(anvil), "d", selected_path[(cap, w, name)],
+                        str(d / name), "--quiet",
+                    ])
+                sp = out / f"decode-{key}-{label}.sh"
+                write_script(sp, cmds)
+                mp = out / f"decode-{key}-{label}.json"
+                mp.write_text(json.dumps({
+                    "schema": 1,
+                    "corpus": args.corpus,
+                    "arm": key,
+                    "cap_mib": cap,
+                    "walks": w,
+                    "subset": label,
+                    "files": members,
+                    "commands": cmds,
+                }, indent=2) + "\n", encoding="utf-8")
+                manifests[f"{key}-{label}"] = str(mp)
 
+    # ------------------------------------------------------------------
     # Legacy (auxiliary-off) portfolio: byte identity against the frozen I9 bytes.
+    # ------------------------------------------------------------------
     legacy_rows: list[dict[str, Any]] = []
     legacy_total = 0
     for src in files:
@@ -516,11 +584,10 @@ def prepare(args: argparse.Namespace) -> None:
                 if label == "brotli":
                     new_sha, new_bytes = brotli_meta[name]["sha256"], brotli_meta[name]["bytes"]
                 elif label == "bwt_aux_on":
-                    new_sha = bwt_meta[(name, CONTROL_WALKS)]["sha256"]
-                    new_bytes = bwt_meta[(name, CONTROL_WALKS)]["bytes"]
+                    ctrl = bwt_meta[(CONTROL_CAP_MIB, CONTROL_WALKS, name)]
+                    new_sha, new_bytes = ctrl["sha256"], ctrl["bytes"]
                 else:
-                    new_sha = bwt_off_meta[name]["sha256"]
-                    new_bytes = bwt_off_meta[name]["bytes"]
+                    new_sha, new_bytes = bwt_off_meta[name]["sha256"], bwt_off_meta[name]["bytes"]
                 entry[label] = {
                     "frozen_bytes": f_bytes,
                     "frozen_sha256": f_sha,
@@ -531,14 +598,12 @@ def prepare(args: argparse.Namespace) -> None:
                 if not entry[label]["identical"]:
                     raise RuntimeError(
                         f"byte identity failed for {name}/{label}: "
-                        f"frozen {f_sha} != new {new_sha}"
-                    )
+                        f"frozen {f_sha} != new {new_sha}")
             ident_rows.append(entry)
         identity["rows"] = ident_rows
         identity["all_identical"] = all(
             r[k]["identical"] for r in ident_rows
-            for k in ("brotli", "bwt_aux_on", "bwt_aux_off")
-        )
+            for k in ("brotli", "bwt_aux_on", "bwt_aux_off"))
 
     # ------------------------------------------------------------------
     # Binding reference arms (measured in the same job as the candidate).
@@ -580,103 +645,92 @@ def prepare(args: argparse.Namespace) -> None:
     # ------------------------------------------------------------------
     # Totals, control identity, and the explicit index-byte attribution.
     # ------------------------------------------------------------------
-    by_walks: dict[str, Any] = {}
-    for w in walks:
-        wr = [r for r in rows if r["walks"] == w]
-        total = sum(int(r["selected_bytes"]) for r in wr)
-        index_total = sum(int(r["index_bytes"]) for r in wr)
-        bwt_routes = [r["file"] for r in wr if r["route"] == "bwt"]
-        by_walks[str(w)] = {
-            "walks": w,
-            "portfolio_bytes": total,
-            "bwt_routes": len(bwt_routes),
-            "bwt_routed_files": bwt_routes,
-            "index_bytes_total": index_total,
-            "per_file": wr,
-        }
+    by_arm: dict[str, Any] = {}
+    for cap in caps:
+        for w in walks:
+            key = arm_key(cap, w)
+            ar = [r for r in rows if r["arm"] == key]
+            total = sum(int(r["selected_bytes"]) for r in ar)
+            index_total = sum(int(r["index_bytes"]) for r in ar)
+            subblocks = sum(int(r["bwt_subblocks"]) for r in ar)
+            bwt_routes = [r["file"] for r in ar if r["route"] == "bwt"]
+            by_arm[key] = {
+                "arm": key,
+                "cap_mib": cap,
+                "walks": w,
+                "portfolio_bytes": total,
+                "bwt_routes": len(bwt_routes),
+                "bwt_routed_files": bwt_routes,
+                "index_bytes_total": index_total,
+                "bwt_subblocks_total": subblocks,
+                "per_file": ar,
+            }
 
-    control_total = by_walks[str(CONTROL_WALKS)]["portfolio_bytes"]
+    control_total = by_arm[control_key]["portfolio_bytes"]
     expected_total = FROZEN_AUX_ON_TOTAL[args.corpus]
     if control_total != expected_total:
         raise RuntimeError(
-            f"control portfolio identity failed: {control_total} != {expected_total}"
-        )
+            f"control portfolio identity failed: {control_total} != {expected_total}")
     expected_legacy = FROZEN_AUX_OFF_TOTAL[args.corpus]
     if legacy_total != expected_legacy:
         raise RuntimeError(
             f"legacy (aux-off) portfolio identity failed: "
-            f"{legacy_total} != {expected_legacy}"
-        )
+            f"{legacy_total} != {expected_legacy}")
 
     xz_total = sum(int(r["xz_bytes"]) for r in ref_rows)
     brotli_total = sum(int(r["brotli_bytes"]) for r in ref_rows)
     if xz_total != FROZEN_XZ_TOTAL[args.corpus]:
         raise RuntimeError(
             f"xz reference total differs from the frozen baseline: "
-            f"{xz_total} != {FROZEN_XZ_TOTAL[args.corpus]}"
-        )
+            f"{xz_total} != {FROZEN_XZ_TOTAL[args.corpus]}")
     if brotli_total != FROZEN_BROTLI_TOTAL[args.corpus]:
         raise RuntimeError(
             f"brotli reference total differs from the frozen baseline: "
-            f"{brotli_total} != {FROZEN_BROTLI_TOTAL[args.corpus]}"
-        )
+            f"{brotli_total} != {FROZEN_BROTLI_TOTAL[args.corpus]}")
 
-    # The charged index cost must be exactly attributable: the BWT payload
-    # delta between two walk budgets is the index-array delta plus at most a
-    # few framing bytes (the uvar-encoded rate/count fields).
+    # Charged-byte attribution.  For every arm we report the FULL charged
+    # delta against the control arm (cap cost + index cost) and the
+    # index-only delta against the same cap at the control walk budget.
     attribution: list[dict[str, Any]] = []
-    for w in walks:
-        if w == CONTROL_WALKS:
-            continue
-        for src in files:
-            name = src.name
-            a = bwt_meta[(name, CONTROL_WALKS)]
-            b = bwt_meta[(name, w)]
-            if a["bwt_subblocks"] != b["bwt_subblocks"]:
-                raise RuntimeError(f"{name}: subblock count changed between walk budgets")
-            payload_delta = int(b["bytes"]) - int(a["bytes"])
-            index_delta = int(b["index_bytes"]) - int(a["index_bytes"])
-            framing_delta = payload_delta - index_delta
-            if abs(framing_delta) > 8:
-                raise RuntimeError(
-                    f"{name}/W={w}: charged bytes do not reconcile with the index "
-                    f"array (payload delta {payload_delta}, index delta {index_delta}, "
-                    f"framing delta {framing_delta}); the postcoder selection must "
-                    f"have changed"
-                )
-            attribution.append({
-                "file": name,
-                "walks": w,
-                "aux_rate_before": a["aux_rate"],
-                "aux_rate_after": b["aux_rate"],
-                "rate_reduced": b["aux_rate"] < a["aux_rate"],
-                "aux_count_before": a["aux_count"],
-                "aux_count_after": b["aux_count"],
-                "index_bytes_before": a["index_bytes"],
-                "index_bytes_after": b["index_bytes"],
-                "index_bytes_delta": index_delta,
-                "bwt_payload_delta": payload_delta,
-                "framing_bytes_delta": framing_delta,
-                "postcoder_before": a["postcoder"],
-                "postcoder_after": b["postcoder"],
-                "postcoder_unchanged": a["postcoder"] == b["postcoder"],
-            })
+    for cap in caps:
+        for w in walks:
+            key = arm_key(cap, w)
+            same_cap_key = arm_key(cap, CONTROL_WALKS)
+            for src in files:
+                name = src.name
+                a = bwt_meta[(cap, CONTROL_WALKS, name)]
+                b = bwt_meta[(cap, w, name)]
+                ctrl = bwt_meta[(CONTROL_CAP_MIB, CONTROL_WALKS, name)]
+                payload_delta = int(b["bytes"]) - int(a["bytes"])
+                index_delta = int(b["index_bytes"]) - int(a["index_bytes"])
+                framing_delta = payload_delta - index_delta
+                if abs(framing_delta) > 8:
+                    raise RuntimeError(
+                        f"{name}/{key}: charged bytes do not reconcile with the "
+                        f"index array (payload delta {payload_delta}, index delta "
+                        f"{index_delta}, framing delta {framing_delta})")
+                attribution.append({
+                    "file": name,
+                    "arm": key,
+                    "cap_mib": cap,
+                    "walks": w,
+                    "aux_rate_before_same_cap": a["aux_rate_min"],
+                    "aux_rate_after": b["aux_rate_min"],
+                    "rate_reduced": b["aux_rate_min"] < a["aux_rate_min"],
+                    "aux_count_before_same_cap": a["aux_count"],
+                    "aux_count_after": b["aux_count"],
+                    "index_bytes_before_same_cap": a["index_bytes"],
+                    "index_bytes_after": b["index_bytes"],
+                    "index_bytes_delta_same_cap": index_delta,
+                    "bwt_payload_delta_same_cap": payload_delta,
+                    "framing_bytes_delta_same_cap": framing_delta,
+                    "bwt_bytes_vs_control_cap": int(b["bytes"]) - int(ctrl["bytes"]),
+                    "index_bytes_vs_control_cap": int(b["index_bytes"]) - int(ctrl["index_bytes"]),
+                    "subblocks": b["bwt_subblocks"],
+                    "postcoder_unchanged": a["postcoder"] == b["postcoder"],
+                })
 
     # Emit decode command sets.
-    manifests: dict[str, str] = {}
-    for w in walks:
-        sp = out / f"decode-walks-{w}.sh"
-        write_script(sp, decode_commands[w])
-        mp = out / f"decode-walks-{w}.json"
-        mp.write_text(json.dumps({
-            "schema": 1,
-            "corpus": args.corpus,
-            "walks": w,
-            "files": decode_files[w],
-            "commands": decode_commands[w],
-        }, indent=2) + "\n", encoding="utf-8")
-        manifests[f"walks-{w}"] = str(mp)
-
     write_script(out / "decode-brotli.sh", brotli_commands)
     (out / "brotli-commands.json").write_text(json.dumps({
         "schema": 1, "arm": "brotli", "commands": brotli_commands, "outputs": brotli_outputs,
@@ -687,13 +741,12 @@ def prepare(args: argparse.Namespace) -> None:
     }, indent=2) + "\n", encoding="utf-8")
     manifests["brotli"] = str(out / "brotli-commands.json")
     manifests["xz"] = str(out / "xz-commands.json")
-    for k, v in subset_manifests.items():
-        manifests[k] = v
 
     fields = [
-        "corpus", "file", "walks", "route", "selected_bytes", "selected_sha256",
-        "brotli_bytes", "bwt_bytes", "bwt_sha256", "aux_rate", "aux_count",
-        "index_bytes", "bwt_postcoder",
+        "corpus", "arm", "cap_mib", "walks", "file", "route", "selected_bytes",
+        "selected_sha256", "brotli_bytes", "bwt_bytes", "bwt_sha256",
+        "aux_rate_min", "aux_rate_max", "aux_count", "index_bytes",
+        "bwt_subblocks", "bwt_postcoder",
     ]
     with (out / "prepare.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -701,18 +754,47 @@ def prepare(args: argparse.Namespace) -> None:
         w.writerows(rows)
 
     with (out / "attribution.csv").open("w", newline="", encoding="utf-8") as f:
-        afields = list(attribution[0].keys()) if attribution else []
+        afields = list(attribution[0].keys())
         w = csv.DictWriter(f, fieldnames=afields)
         w.writeheader()
         w.writerows(attribution)
 
+    # Per-sub-block detail of the charged index bytes.
+    subblock_rows: list[dict[str, Any]] = []
+    for cap in caps:
+        for w in walks:
+            for src in files:
+                name = src.name
+                m = bwt_meta[(cap, w, name)]
+                for i, sb in enumerate(m["aux_per_subblock"]):
+                    subblock_rows.append({
+                        "arm": arm_key(cap, w),
+                        "cap_mib": cap,
+                        "walks": w,
+                        "file": name,
+                        "subblock": i,
+                        "decoded_len": sb["decoded_len"],
+                        "aux_rate": sb["aux_rate"],
+                        "aux_count": sb["aux_count"],
+                        "index_bytes": sb["index_bytes"],
+                    })
+    with (out / "subblocks.csv").open("w", newline="", encoding="utf-8") as f:
+        sf = ["arm", "cap_mib", "walks", "file", "subblock", "decoded_len",
+              "aux_rate", "aux_count", "index_bytes"]
+        w = csv.DictWriter(f, fieldnames=sf)
+        w.writeheader()
+        w.writerows(subblock_rows)
+
     summary = {
-        "schema": 1,
+        "schema": 2,
         "corpus": args.corpus,
         "source_bytes": sum(p.stat().st_size for p in files),
         "file_count": len(files),
         "walks": walks,
+        "caps_mib": caps,
         "control_walks": CONTROL_WALKS,
+        "control_cap_mib": CONTROL_CAP_MIB,
+        "control_arm": control_key,
         "expected_control_bytes": expected_total,
         "control_identity": "OK",
         "expected_legacy_bytes": expected_legacy,
@@ -722,17 +804,17 @@ def prepare(args: argparse.Namespace) -> None:
         "xz_total": xz_total,
         "brotli_total": brotli_total,
         "xz_surplus": FROZEN_XZ_TOTAL[args.corpus] - expected_total,
-        "by_walks": by_walks,
+        "by_arm": by_arm,
         "attribution": attribution,
         "identity": identity,
         "reference_rows": ref_rows,
+        "decode_manifests": manifests,
         "subsets": {
             "bwt_files": bwt_subset,
             "brotli_files": brotli_subset,
             "bwt_bytes": subset_bytes["bwt"],
             "brotli_bytes": subset_bytes["brotli"],
         },
-        "decode_manifests": manifests,
         "source": source_rows,
     }
     (out / "prepare.json").write_text(
@@ -744,13 +826,14 @@ def prepare(args: argparse.Namespace) -> None:
         "legacy_identity": "OK",
         "xz_total": xz_total,
         "brotli_total": brotli_total,
-        "by_walks": {
+        "by_arm": {
             k: {
                 "portfolio_bytes": v["portfolio_bytes"],
                 "delta_vs_control": v["portfolio_bytes"] - control_total,
                 "index_bytes_total": v["index_bytes_total"],
+                "bwt_subblocks_total": v["bwt_subblocks_total"],
                 "bwt_routes": v["bwt_routes"],
-            } for k, v in by_walks.items()
+            } for k, v in by_arm.items()
         },
     }, indent=2, sort_keys=True))
 
@@ -776,8 +859,7 @@ def measure_one_rss(cmd: list[str], tmp: Path) -> tuple[float, int]:
     if p.returncode:
         raise RuntimeError(
             f"RSS command failed rc={p.returncode}: {cmd!r}\n"
-            + p.stderr.decode(errors="replace")[-4000:]
-        )
+            + p.stderr.decode(errors="replace")[-4000:])
     parts = stamp.read_text(encoding="utf-8").strip().split()
     if len(parts) != 2:
         raise RuntimeError(f"bad GNU time output: {parts!r}")
@@ -791,8 +873,8 @@ def rss(args: argparse.Namespace) -> None:
     by_arm: dict[str, Any] = {}
 
     arms: list[tuple[str, str]] = []
-    for w in prep["walks"]:
-        arms.append((f"walks-{w}", prep["decode_manifests"][f"walks-{w}"]))
+    for key in prep["by_arm"]:
+        arms.append((key, prep["decode_manifests"][key]))
     arms.append(("brotli", prep["decode_manifests"]["brotli"]))
     arms.append(("xz", prep["decode_manifests"]["xz"]))
 
@@ -803,23 +885,24 @@ def rss(args: argparse.Namespace) -> None:
             commands = manifest["commands"]
             names = manifest.get("files") or [f"index-{i}" for i in range(len(commands))]
             samples = []
+            arm_rows = []
             for i, cmd in enumerate(commands):
                 elapsed, peak = measure_one_rss([str(x) for x in cmd], tmp)
                 samples.append(peak)
-                rows.append({
+                row = {
                     "corpus": prep["corpus"],
                     "arm": arm,
                     "file_index": i,
                     "file": names[i],
                     "seconds": elapsed,
                     "peak_rss_kib": peak,
-                })
+                }
+                rows.append(row)
+                arm_rows.append(row)
             by_arm[arm] = {
                 "max_peak_rss_kib": max(samples),
-                "sum_seconds": sum(
-                    float(r["seconds"]) for r in rows if r["arm"] == arm
-                ),
-                "per_file": [r for r in rows if r["arm"] == arm],
+                "sum_seconds": sum(float(r["seconds"]) for r in arm_rows),
+                "per_file": arm_rows,
             }
 
     with (out / "rss.csv").open("w", newline="", encoding="utf-8") as f:
@@ -828,14 +911,9 @@ def rss(args: argparse.Namespace) -> None:
         w.writeheader()
         w.writerows(rows)
 
-    result = {
-        "schema": 1,
-        "corpus": prep["corpus"],
-        "by_arm": by_arm,
-    }
+    result = {"schema": 1, "corpus": prep["corpus"], "by_arm": by_arm}
     (out / "rss.json").write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({k: v["max_peak_rss_kib"] for k, v in by_arm.items()}, indent=2))
 
 
@@ -865,35 +943,46 @@ def summarize(args: argparse.Namespace) -> None:
     rss_path = Path(args.rss) if args.rss else None
     rss_data = json.loads(rss_path.read_text(encoding="utf-8")) if rss_path else None
 
-    control = int(prep["by_walks"][str(CONTROL_WALKS)]["portfolio_bytes"])
+    control_key = prep["control_arm"]
+    control = int(prep["by_arm"][control_key]["portfolio_bytes"])
     xz_total = int(prep["xz_total"])
     brotli_total = int(prep["brotli_total"])
     source_bytes = int(prep["source_bytes"])
+    bwt_bytes = int(prep["subsets"]["bwt_bytes"])
+    surplus = xz_total - control
 
     rows: list[dict[str, Any]] = []
-    for w in prep["walks"]:
-        bw = prep["by_walks"][str(w)]
-        total = int(bw["portfolio_bytes"])
+    for key, arm in prep["by_arm"].items():
+        cap = int(arm["cap_mib"])
+        w = int(arm["walks"])
+        total = int(arm["portfolio_bytes"])
+        same_cap = prep["by_arm"][arm_key(cap, CONTROL_WALKS)]
         entry: dict[str, Any] = {
+            "arm": key,
+            "cap_mib": cap,
             "walks": w,
+            "k": w / CONTROL_WALKS,
             "portfolio_bytes": total,
             "delta_vs_control": total - control,
             "delta_vs_xz": total - xz_total,
-            "index_bytes_total": int(bw["index_bytes_total"]),
-            "bwt_routes": int(bw["bwt_routes"]),
+            "surplus_left": surplus - (total - control),
+            "index_bytes_total": int(arm["index_bytes_total"]),
+            "index_bytes_delta_same_cap": (
+                int(arm["index_bytes_total"]) - int(same_cap["index_bytes_total"])),
+            "cap_cost_bytes": int(same_cap["portfolio_bytes"]) - control,
+            "bwt_routes": int(arm["bwt_routes"]),
+            "bwt_subblocks_total": int(arm["bwt_subblocks_total"]),
             "aux_rate_min": min(
-                (int(r["aux_rate"]) for r in bw["per_file"] if r["route"] == "bwt"),
-                default=None,
-            ),
+                (int(r["aux_rate_min"]) for r in arm["per_file"] if r["route"] == "bwt"),
+                default=None),
             "aux_rate_max": max(
-                (int(r["aux_rate"]) for r in bw["per_file"] if r["route"] == "bwt"),
-                default=None,
-            ),
+                (int(r["aux_rate_max"]) for r in arm["per_file"] if r["route"] == "bwt"),
+                default=None),
         }
-        vs_xz = timing_dir / f"paired-walks-{w}-vs-xz.json"
-        vs_br = timing_dir / f"paired-walks-{w}-vs-brotli.json"
-        bwtpath = timing_dir / f"paired-walks-{w}-bwtpath.json"
-        null = timing_dir / f"paired-null-walks-{w}.json"
+        vs_xz = timing_dir / f"paired-{key}-vs-xz.json"
+        vs_br = timing_dir / f"paired-{key}-vs-brotli.json"
+        bwtpath = timing_dir / f"paired-{key}-bwtpath.json"
+        null = timing_dir / f"paired-null-{key}.json"
         if vs_xz.is_file():
             entry["vs_xz"] = load_pair(vs_xz)
         if vs_br.is_file():
@@ -902,12 +991,9 @@ def summarize(args: argparse.Namespace) -> None:
             entry["bwtpath"] = load_pair(bwtpath)
         if null.is_file():
             entry["null"] = load_pair(null)
-        # Absolute portfolio decode time (the arm that the gate reads).
         if "vs_xz" in entry:
             entry["portfolio_decode_s"] = entry["vs_xz"]["candidate_median_s"]
             entry["portfolio_mbps"] = source_bytes / 1e6 / entry["portfolio_decode_s"]
-        # BWT-path (BWT-routed files only) decode time and throughput.
-        bwt_bytes = int(prep["subsets"]["bwt_bytes"])
         if "bwtpath" in entry:
             bp = entry["bwtpath"]
             entry["bwtpath_decode_s"] = bp["candidate_median_s"]
@@ -918,20 +1004,17 @@ def summarize(args: argparse.Namespace) -> None:
             if k > 1.0:
                 # Amdahl fit: speedup(k) = 1/(1 - f + f/k)  =>
                 #              f = (1 - 1/speedup) / (1 - 1/k)
+                denom = 1.0 - 1.0 / k
                 t_ratio = bp["ratio"]
                 t_lo, t_hi = bp["ci95"]
-                denom = 1.0 - 1.0 / k
-                f_pt = (1.0 - t_ratio) / denom
-                f_lo = (1.0 - t_hi) / denom
-                f_hi = (1.0 - t_lo) / denom
-                entry["k"] = k
-                entry["f_lf_walk_share"] = f_pt
-                entry["f_lf_walk_share_ci95"] = [f_lo, f_hi]
-                entry["f_ceiling_speedup_as_k_inf"] = 1.0 / (1.0 - f_pt) if f_pt < 1.0 else None
-        if rss_data is not None:
-            arm = f"walks-{w}"
-            if arm in rss_data["by_arm"]:
-                entry["rss_kib"] = int(rss_data["by_arm"][arm]["max_peak_rss_kib"])
+                entry["f_lf_walk_share"] = (1.0 - t_ratio) / denom
+                entry["f_lf_walk_share_ci95"] = [
+                    (1.0 - t_hi) / denom, (1.0 - t_lo) / denom]
+                entry["f_ceiling_speedup_as_k_inf"] = (
+                    1.0 / (1.0 - (1.0 - t_ratio) / denom)
+                    if (1.0 - t_ratio) / denom < 1.0 else None)
+        if rss_data is not None and key in rss_data["by_arm"]:
+            entry["rss_kib"] = int(rss_data["by_arm"][key]["max_peak_rss_kib"])
         rows.append(entry)
 
     if rss_data is not None:
@@ -941,8 +1024,6 @@ def summarize(args: argparse.Namespace) -> None:
             if "rss_kib" in entry:
                 entry["rss_ratio_vs_xz"] = entry["rss_kib"] / rss_xz
                 entry["rss_ratio_vs_brotli"] = entry["rss_kib"] / rss_br
-    else:
-        rss_xz = rss_br = 0
 
     for entry in rows:
         entry["g2_bytes_below_xz"] = entry["portfolio_bytes"] < xz_total
@@ -961,19 +1042,18 @@ def summarize(args: argparse.Namespace) -> None:
         entry["all_gates_pass"] = all(gates)
         null = entry.get("null")
         entry["null_valid"] = bool(null and null["timing_valid"]
-                                   and null["ci95"][0] <= 1.0 <= null["ci95"][1]
-                                   and not null.get("clears_speed_gate"))
+                                   and null["ci95"][0] <= 1.0 <= null["ci95"][1])
 
     md = [
         f"# I20 C2 aux walk-budget sweep — {prep['corpus']}",
         "",
         f"- source bytes: {prep['source_bytes']:,}",
-        f"- frozen control identity (W={CONTROL_WALKS}): {prep['control_identity']} "
+        f"- frozen control identity ({control_key}): {prep['control_identity']} "
         f"({prep['expected_control_bytes']:,} B)",
         f"- frozen legacy (aux off) identity: {prep['legacy_identity']} "
         f"({prep['expected_legacy_bytes']:,} B)",
         f"- xz -9e total: {xz_total:,} B   Brotli q11/lw30 total: {brotli_total:,} B",
-        f"- xz surplus over the frozen control: {xz_total - control:,} B",
+        f"- xz surplus over the frozen control: {surplus:,} B",
         f"- BWT-routed subset: {prep['subsets']['bwt_bytes']:,} B "
         f"({len(prep['subsets']['bwt_files'])} files: "
         f"{', '.join(prep['subsets']['bwt_files'])})",
@@ -981,19 +1061,22 @@ def summarize(args: argparse.Namespace) -> None:
         f"({len(prep['subsets']['brotli_files'])} files: "
         f"{', '.join(prep['subsets']['brotli_files'])})",
         "",
-        "| W | k=W/1024 | portfolio bytes | Δ vs xz | index bytes | portfolio decode s | "
-        "BWT-path decode s | BWT-path MB/s | BWT-path speedup vs W=1024 | "
-        "fitted LF-walk share f | decode ratio vs xz (CI95) | decode ratio vs Brotli (CI95) | "
-        "peak RSS MiB | RSS / xz | RSS / Brotli | G2 | G3 | G4 | G5 | G6 |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---:|---:|---:|---|---|---|---|",
+        "| arm | cap MiB | W | k=W/1024 | portfolio bytes | delta vs control | "
+        "surplus left | index bytes total | index delta vs same cap | cap cost | "
+        "BWT sub-blocks | portfolio decode s | BWT-path decode s | BWT-path MB/s | "
+        "BWT-path speedup | fitted f | decode vs xz (CI95) | decode vs Brotli (CI95) | "
+        "peak RSS MiB | RSS/xz | RSS/Brotli | G2 | G3 | G4 | G5 | G6 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---:|---:|---:|---|---|---|---|---|",
     ]
     for e in rows:
         vx = e.get("vs_xz")
         vb = e.get("vs_brotli")
-        bp = e.get("bwtpath")
         md.append(
-            f"| {e['walks']} | {e.get('k', 1.0):.0f} | {e['portfolio_bytes']:,} | "
-            f"{e['delta_vs_xz']:+,} | {e['index_bytes_total']:,} | "
+            f"| {e['arm']} | {e['cap_mib']} | {e['walks']} | {e['k']:.0f} | "
+            f"{e['portfolio_bytes']:,} | {e['delta_vs_control']:+,} | "
+            f"{e['surplus_left']:+,} | {e['index_bytes_total']:,} | "
+            f"{e['index_bytes_delta_same_cap']:+,} | {e['cap_cost_bytes']:+,} | "
+            f"{e['bwt_subblocks_total']} | "
             + (f"{e['portfolio_decode_s']:.4f} | " if "portfolio_decode_s" in e else "n/a | ")
             + (f"{e['bwtpath_decode_s']:.4f} | " if "bwtpath_decode_s" in e else "n/a | ")
             + (f"{e['bwtpath_mbps']:.2f} | " if "bwtpath_mbps" in e else "n/a | ")
@@ -1014,68 +1097,50 @@ def summarize(args: argparse.Namespace) -> None:
         )
     md.extend([
         "",
-        "G2 = total bytes strictly below xz -9e. G3/G4 = paired decode ratio CI-upper "
-        "<= 2.0 vs xz -9e / Brotli q11-lw30. G5/G6 = peak decode RSS ratio <= 2.0 vs "
-        "xz / Brotli.",
-        "BWT-path columns cover the BWT-routed files only (the path the "
-        "auxiliary-index lever can move), timed as a paired A/B against the same "
-        "subset at the W=1024 control.",
+        "G2 = total bytes strictly below xz -9e. G3/G4 = paired decode ratio "
+        "CI-upper <= 2.0 vs xz -9e / Brotli q11-lw30. G5/G6 = peak decode RSS "
+        "ratio <= 2.0 vs xz / Brotli.",
+        "The auxiliary index is charged PER SUB-BLOCK: each sub-block carries its "
+        "own sampling rate derived from its own length, so the charged bytes are "
+        "4 * sum_over_subblocks(auxiliary_count).",
+        "BWT-path columns cover the BWT-routed files only, timed as a paired A/B "
+        "against the same subset at the same cap with the W=1024 control.",
         "f is the Amdahl fit of the LF-walk share of BWT-path decode time: "
         "speedup(k) = 1/(1 - f + f/k), so f = (1 - 1/speedup)/(1 - 1/k).",
         "",
-        "## Charged auxiliary index bytes per file (4 x auxiliary_count)",
+        "## Charged auxiliary index bytes per file (4 x auxiliary_count, summed over sub-blocks)",
         "",
     ])
-    per_file: dict[str, dict[str, Any]] = {}
-    for r in prep["by_walks"][str(CONTROL_WALKS)]["per_file"]:
-        per_file[r["file"]] = {"route": r["route"], "index_bytes": int(r["index_bytes"]),
-                               "aux_rate": r["aux_rate"], "aux_count": r["aux_count"]}
-    for w in prep["walks"]:
-        for r in prep["by_walks"][str(w)]["per_file"]:
-            per_file[r["file"]]["index_bytes_" + str(w)] = int(r["index_bytes"])
-            per_file[r["file"]]["aux_rate_" + str(w)] = r["aux_rate"]
-    md.append("| file | route | " + " | ".join(
-        f"W={w} index B" for w in prep["walks"]) + " |")
-    md.append("|---|---|" + "---:|" * len(prep["walks"]))
-    for name, d in per_file.items():
-        md.append(
-            f"| {name} | {d['route']} | "
-            + " | ".join(f"{d.get('index_bytes_' + str(w), d['index_bytes']):,}"
-                        for w in prep["walks"])
-            + " |"
-        )
-    md.append("| **portfolio total** | | " + " | ".join(
-        f"{int(prep['by_walks'][str(w)]['index_bytes_total']):,}" for w in prep["walks"]) + " |")
-    md.append("")
-    md.append("## Charged index bytes attributable to the walk budget (BWT-routed files only)")
-    md.append("")
-    md.append("| W | index bytes total | Δ vs W=1024 | framing bytes Δ |")
-    md.append("|---:|---:|---:|---:|")
-    for w in prep["walks"]:
-        tot = int(prep["by_walks"][str(w)]["index_bytes_total"])
-        if w == CONTROL_WALKS:
-            md.append(f"| {w} | {tot:,} | 0 | 0 |")
-            continue
-        att = [a for a in prep["attribution"] if int(a["walks"]) == w]
-        idx = sum(int(a["index_bytes_delta"]) for a in att)
-        fram = sum(int(a["framing_bytes_delta"]) for a in att)
-        md.append(f"| {w} | {tot:,} | {idx:+,} | {fram:+,} |")
+    arms = list(prep["by_arm"].keys())
+    md.append("| file | route | " + " | ".join(f"{a} B" for a in arms) + " |")
+    md.append("|---|---|" + "---:|" * len(arms))
+    byfile: dict[str, dict[str, Any]] = {}
+    for a in arms:
+        for r in prep["by_arm"][a]["per_file"]:
+            d = byfile.setdefault(r["file"], {"route": r["route"], "idx": {}})
+            d["idx"][a] = int(r["index_bytes"])
+    for name, d in byfile.items():
+        md.append(f"| {name} | {d['route']} | "
+                  + " | ".join(f"{d['idx'].get(a, 0):,}" for a in arms) + " |")
+    md.append("| **portfolio index total** | | "
+              + " | ".join(f"{int(prep['by_arm'][a]['index_bytes_total']):,}" for a in arms) + " |")
+    md.append("| **portfolio compressed total** | | "
+              + " | ".join(f"{int(prep['by_arm'][a]['portfolio_bytes']):,}" for a in arms) + " |")
     md.append("")
 
     report = "\n".join(md)
     (out / "summary.md").write_text(report, encoding="utf-8")
     result = {
-        "schema": 1,
+        "schema": 2,
         "corpus": prep["corpus"],
-        "control_walks": CONTROL_WALKS,
+        "control_arm": control_key,
         "control_portfolio_bytes": control,
         "xz_total": xz_total,
         "brotli_total": brotli_total,
         "rows": rows,
     }
     (out / "summary.json").write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(report)
 
 
@@ -1089,7 +1154,8 @@ def main() -> None:
     p.add_argument("--anvil", type=Path, required=True)
     p.add_argument("--frozen-anvil", type=Path)
     p.add_argument("--brotli", type=Path, required=True)
-    p.add_argument("--walks", default="1024,4096,16384,65536,262144")
+    p.add_argument("--walks", default="1024,4096,8192,16384,32768,65536")
+    p.add_argument("--caps-mib", default="128,16")
     p.add_argument("--out", type=Path, required=True)
     p.set_defaults(fn=prepare)
 
