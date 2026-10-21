@@ -162,7 +162,6 @@ def parse_anvil_container(path: Path) -> dict[str, Any]:
         out.update({
             "transform": transform, "backend": backend, "transformed_size": xlen,
             "ratio_payload_bytes": len(pl),
-            "backend_payload_bytes": len(pl) - 3 - len(str(xlen)) if False else None,
         })
         # exact: the backend payload is everything after [transform][backend][uvar xlen]
         p2 = 2
@@ -365,6 +364,10 @@ def stage_time(args: argparse.Namespace) -> dict[str, Any]:
         if post == "arith":
             return [str(args.proto), "decode", f"--anvil={packed / f'{name}.anv'}",
                     f"--out={decoded / name}", "--post=arith"]
+        if post == "shipped":
+            # the repository's own postcoder-2 decode path (no token materialisation)
+            return [str(args.proto), "decode", f"--anvil={packed / f'{name}.anv'}",
+                    f"--out={decoded / name}", "--post=shipped"]
         assert postfile is not None
         return [str(args.proto), "decode", f"--anvil={packed / f'{name}.anv'}",
                 f"--out={decoded / name}", "--post=candidate", f"--postfile={postfile}"]
@@ -386,6 +389,7 @@ def stage_time(args: argparse.Namespace) -> dict[str, Any]:
     arms["brotli_all"] = make("brotli-all", [brotli_cmd(n) for n in all_names])
     arms["xz_all"] = make("xz-all", [xz_cmd(n) for n in all_names])
     arms["proto_arith"] = make("proto-arith", [proto_cmd(n, "arith", None) for n in bwt_names])
+    arms["proto_shipped"] = make("proto-shipped", [proto_cmd(n, "shipped", None) for n in bwt_names])
     for cand in selection["timed"]:
         cmds = []
         for n in bwt_names:
@@ -405,10 +409,24 @@ def stage_time(args: argparse.Namespace) -> dict[str, Any]:
         ("null-bwt", "anvil_bwt", "anvil_bwt"),
         ("brotli", "brotli_all", "anvil_all"),
         ("xz", "xz_all", "anvil_all"),
+        # M: the cost of materialising the MTF token stream (the shipped
+        # postcoder path does not materialise it; every stream-suite decoder
+        # necessarily does).
+        ("harness", "proto_shipped", "proto_arith"),
     ]
     for cand in selection["timed"]:
         key = cand.replace(":", "_").replace("+", "_")
-        comparisons.append((f"swap-{key}", "proto_arith", f"proto_{cand}"))
+        # swap-shipped: the repository's own postcoder-2 decode path vs the
+        # candidate path, both inside the SAME prototype harness.  This is the
+        # estimator for the change in the SHIPPED codec's postcoder stage: the
+        # shipped path does not materialise the token stream, the candidate path
+        # necessarily does (a stream decoder returns a vector), and that
+        # difference is part of the real cost of the swap.
+        comparisons.append((f"swap-shipped-{key}", "proto_shipped", f"proto_{cand}"))
+        # swap-arith: the harness-matched swap effect with the token
+        # materialisation common to both arms (the difference between the two
+        # estimators is exactly the materialisation cost M).
+        comparisons.append((f"swap-arith-{key}", "proto_arith", f"proto_{cand}"))
         comparisons.append((f"whole-{key}", "anvil_bwt", f"proto_{cand}"))
 
     # ---- per-candidate stage profile (the trade-curve throughput column) ---
@@ -612,20 +630,41 @@ def stage_estimate(args: argparse.Namespace) -> dict[str, Any]:
     xz_pair = timing.get("xz", {})
 
     per_candidate = []
+    harness = timing.get("harness", {})
     for cand in selection["timed"]:
         key = cand.replace(":", "_").replace("+", "_")
-        swap = timing.get(f"swap-{key}", {})
+        shipped_swap = timing.get(f"swap-shipped-{key}", {})
+        arith_swap = timing.get(f"swap-arith-{key}", {})
         whole = timing.get(f"whole-{key}", {})
+
+        def delta_of(pair: dict[str, Any]) -> float | None:
+            c = (pair.get("control") or {}).get("median_s")
+            k = (pair.get("candidate") or {}).get("median_s")
+            if c is None or k is None:
+                return None
+            return float(k) - float(c)
+
+        d_true = delta_of(shipped_swap)     # shipped postcoder path -> candidate path
+        d_proto = delta_of(arith_swap)      # harness-matched swap effect
+        d_materialise = delta_of(harness)   # M: token-stream materialisation cost
         entry = {
             "candidate": cand,
             "byte": next((d for d in selection["ranked"] if d["candidate"] == cand), None),
-            "swap_pair": {
-                "ratio_candidate_over_control": swap.get("paired_ratio_candidate_over_control"),
-                "ci95": swap.get("paired_ratio_ci95"),
-                "timing_valid": swap.get("timing_valid"),
-                "status": swap.get("status"),
-                "control_median_s": (swap.get("control") or {}).get("median_s"),
-                "candidate_median_s": (swap.get("candidate") or {}).get("median_s"),
+            "swap_shipped_pair": {
+                "ratio_candidate_over_control": shipped_swap.get("paired_ratio_candidate_over_control"),
+                "ci95": shipped_swap.get("paired_ratio_ci95"),
+                "timing_valid": shipped_swap.get("timing_valid"),
+                "status": shipped_swap.get("status"),
+                "control_median_s": (shipped_swap.get("control") or {}).get("median_s"),
+                "candidate_median_s": (shipped_swap.get("candidate") or {}).get("median_s"),
+            },
+            "swap_arith_pair": {
+                "ratio_candidate_over_control": arith_swap.get("paired_ratio_candidate_over_control"),
+                "ci95": arith_swap.get("paired_ratio_ci95"),
+                "timing_valid": arith_swap.get("timing_valid"),
+                "status": arith_swap.get("status"),
+                "control_median_s": (arith_swap.get("control") or {}).get("median_s"),
+                "candidate_median_s": (arith_swap.get("candidate") or {}).get("median_s"),
             },
             "whole_pair": {
                 "ratio_candidate_over_control": whole.get("paired_ratio_candidate_over_control"),
@@ -635,14 +674,13 @@ def stage_estimate(args: argparse.Namespace) -> dict[str, Any]:
                 "control_median_s": (whole.get("control") or {}).get("median_s"),
                 "candidate_median_s": (whole.get("candidate") or {}).get("median_s"),
             },
+            "delta_shipped_postcoder_stage": d_true,
+            "delta_swap_effect_harness_matched": d_proto,
+            "delta_token_materialisation_s": d_materialise,
         }
         # implied whole-codec change on the whole portfolio
-        d_swap = None
-        if swap.get("timing_valid") and swap.get("control", {}).get("median_s") and swap.get("candidate", {}).get("median_s"):
-            d_swap = float(swap["candidate"]["median_s"]) - float(swap["control"]["median_s"])
-        entry["swap_delta_s_bwt_subset"] = d_swap
-        if d_swap is not None and anvil_all is not None:
-            new_all = anvil_all + d_swap
+        if d_true is not None and anvil_all is not None:
+            new_all = anvil_all + d_true
             entry["implied_whole_portfolio_decode_s"] = new_all
             entry["implied_whole_portfolio_speedup"] = anvil_all / new_all if new_all > 0 else None
             # G4: the same-job ANVIL-vs-Brotli ratio scaled by the decode change
