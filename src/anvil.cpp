@@ -3791,6 +3791,7 @@ struct Options {
     // E6 BWT backend experiments (ABLATION ONLY; production default behavior unchanged):
     int bwt_post=-1;         // force one postcoder id (0/1/2/3/4) for the BWT backend; -1 = encoder picks smallest
     bool bwt_aux=false;      // I10-1A: emit auxiliary BWT indexes for faster inverse BWT; default OFF keeps legacy bytes exact
+    uint32_t bwt_aux_walks=1024; // I20 C2: encoder walk budget for the auxiliary-index sampling rate; default 1024 = frozen I10-1A bytes
     bool bwt_lzp=false;      // LZP prepass before BWT (default OFF)
     uint32_t bwt_subblock=128u<<20; // cap BWT sub-block size; default 128 MiB = effectively off for all 12 Silesia files (memory lever only, not a ratio lever)
     uint32_t decode_threads=1; // parallel block-decode worker count; 1 = serial (zero behavioral change)
@@ -3910,8 +3911,16 @@ static constexpr uint8_t kBwtPostQlfc      = 4; // QLFC-like local frequency
 // 0..4. 0xFF is already the OUTER BWT-subblock wrapper, so 0xFE is an
 // unambiguous tag at the bwt_backend_decode boundary.
 static constexpr uint8_t kBwtAuxTag = 0xFE;
-static constexpr uint32_t kBwtAuxTargetWalks = 1024;
+[[maybe_unused]] static constexpr uint32_t kBwtAuxTargetWalks = 1024; // frozen I10-1A default walk budget
 static constexpr uint64_t kBwtAuxMaxIndexes = 1u << 20;
+// I20 C2: the walk budget W is an ENCODER POLICY only.  It selects the
+// auxiliary sampling rate r (see bwt_aux_rate_for_size); the wire format
+// transmits r and auxiliary_count, so any power-of-two r in [2, n] is already
+// decodable and the knob is NOT wire-visible.  The bound mirrors the
+// decoder's auxiliary_count <= min(transformed_size, 1<<20) rule: the encoder
+// policy yields auxiliary_count = 1 + floor((n-1)/r) <= W, so W <= 1<<20 keeps
+// every emitted payload inside the existing decoder bound.
+static constexpr uint32_t kBwtAuxMaxWalks = 1u << 20;
 
 struct BwtMtfRle {
     std::vector<uint8_t> tokens; // 0 = run of rank-0; 1..255 = literal MTF rank
@@ -4244,13 +4253,30 @@ static std::vector<uint8_t> bwt_postcoder_payload(uint8_t post,const std::vector
 // Serialize postcoder candidates ONE AT A TIME, retaining only the current best
 // (memory cap). At most 2 candidate payloads + the BWT/MTF intermediates are
 // live at once; intermediates are released right after selection.
-static int32_t bwt_aux_rate_for_size(int32_t n) {
-    // Target ~1024 independent LF walks. libsais requires r to be a power of 2.
+static int32_t bwt_aux_rate_for_size(int32_t n, uint32_t walks) {
+    // Target ~`walks` independent LF walks.  `walks` is the ENCODER POLICY
+    // knob (--bwt-aux-walks); the checkpoint stride r is the smallest power of
+    // two with r*walks >= n, so auxiliary_count = 1 + floor((n-1)/r) is
+    // approximately `walks` and the index array costs 4*auxiliary_count bytes.
+    // libsais requires r to be a power of 2.
     // For ANVIL's int32-sized BWT blocks this never approaches int32 overflow,
     // but keep the calculation in uint64_t so the policy itself is explicit.
-    uint64_t target=(static_cast<uint64_t>(n)+kBwtAuxTargetWalks-1)/kBwtAuxTargetWalks;
+    if(walks<1 || walks>kBwtAuxMaxWalks) throw std::runtime_error("BWT auxiliary walk budget out of range");
+    uint64_t target=(static_cast<uint64_t>(n)+walks-1)/walks;
     uint64_t r=2;
     while(r<target) r<<=1;
+    // The decoder requires the transmitted sampling rate to satisfy
+    // 2 <= r <= transformed_size.  Only walks == 1 can request r > n (the
+    // policy then asks for the smallest power of two >= n); clamp to the
+    // largest power of two <= n instead of emitting an undecodable payload.
+    // For walks >= 2 (and therefore for the default 1024) r <= n always holds,
+    // so this branch never fires on the default path and the default output is
+    // byte-identical to the frozen I10-1A encoding.
+    if(r>static_cast<uint64_t>(n)) {
+        uint64_t cap=2;
+        while((cap<<1)<=static_cast<uint64_t>(n)) cap<<=1;
+        r=cap;
+    }
     if(r>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("BWT auxiliary sampling rate overflow");
     return static_cast<int32_t>(r);
 }
@@ -4264,7 +4290,7 @@ std::vector<uint8_t> bwt_backend_encode(const std::vector<uint8_t>& in,const Opt
     int32_t aux_rate=0;
     int32_t primary=0;
     if(opt.bwt_aux && n>1) {
-        aux_rate=bwt_aux_rate_for_size(n);
+        aux_rate=bwt_aux_rate_for_size(n,opt.bwt_aux_walks);
         const uint64_t icount=1+(static_cast<uint64_t>(n)-1)/static_cast<uint64_t>(aux_rate);
         if(icount==0 || icount>kBwtAuxMaxIndexes) throw std::runtime_error("BWT auxiliary index count out of range");
         aux_indexes.resize(static_cast<size_t>(icount));
@@ -4939,9 +4965,21 @@ static void write_file(const std::string& path,const std::vector<uint8_t>& d) {
 }
 static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=1469598103934665603ull; for(auto b:d){h^=b;h*=1099511628211ull;} return h; }
 
+// I20 C2: --bwt-aux-walks accepts 1..1048576.  It is an encoder policy only:
+// it selects the auxiliary-index sampling rate r that the wire already
+// transmits, so it is not a wire-visible parameter and the default (1024)
+// reproduces the frozen bytes exactly.
+static uint32_t parse_bwt_aux_walks(const std::string& s) {
+    if(s.empty()) throw std::runtime_error("--bwt-aux-walks must be an integer in 1..1048576");
+    for(char c:s) if(c<'0'||c>'9') throw std::runtime_error("--bwt-aux-walks must be an integer in 1..1048576");
+    uint64_t v=std::stoull(s);
+    if(v<1 || v>static_cast<uint64_t>(kBwtAuxMaxWalks)) throw std::runtime_error("--bwt-aux-walks must be an integer in 1..1048576");
+    return static_cast<uint32_t>(v);
+}
+
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--bwt-aux=on|off] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--bwt-aux=on|off] [--bwt-aux-walks=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
               << "  note: sparse->11, shape->12, topology->13, tcopy->14, hotop->15, ariref->16, ratio->17 (rev-2 transform + explicit backend registry)\n"
@@ -4987,6 +5025,13 @@ int main(int argc,char**argv) {
                 if(v=="on") opt.bwt_aux=true;
                 else if(v=="off") opt.bwt_aux=false;
                 else throw std::runtime_error("--bwt-aux must be on or off");
+            }
+            else if(a=="--bwt-aux-walks"){
+                if(i+1>=argc) throw std::runtime_error("--bwt-aux-walks requires a value");
+                opt.bwt_aux_walks=parse_bwt_aux_walks(argv[++i]);
+            }
+            else if(a.rfind("--bwt-aux-walks=",0)==0){
+                opt.bwt_aux_walks=parse_bwt_aux_walks(a.substr(15));
             }
             else if(a.rfind("--bwt-lzp=",0)==0)opt.bwt_lzp=(a.substr(10)!="off");
             else if(a.rfind("--bwt-subblock=",0)==0){ uint64_t v=std::stoull(a.substr(15)); if(v==0 || v>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("--bwt-subblock must be 1..2GiB"); opt.bwt_subblock=static_cast<uint32_t>(v); }
