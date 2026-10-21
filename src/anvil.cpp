@@ -16,6 +16,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 // CRC32 PCLMULQDQ fast path (S6-1b leg 1, stage 2) — x86-64 only; the
@@ -4331,10 +4332,18 @@ std::vector<uint8_t> bwt_backend_encode(const std::vector<uint8_t>& in,const Opt
     return best;
 }
 
-static std::vector<uint8_t> bwt_backend_decode(const uint8_t* p,size_t n,size_t expected) {
+// in_owner (nullable) is the compressed-input buffer that this payload points
+// into. decompress() hands it over for the FINAL block of the file only: once
+// the postcoder has consumed that payload the compressed bytes are dead, so the
+// whole input buffer can be released before the 4n libsais work array is
+// allocated. That removes c bytes from the decode peak at exactly ZERO wire
+// cost. Only the serial decode path may do this, so decompress() passes
+// nullptr when decode_threads>1.
+static std::vector<uint8_t> bwt_backend_decode(const uint8_t* p,size_t n,size_t expected,std::vector<uint8_t>* in_owner) {
     if(expected==0 || expected>static_cast<size_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("bad BWT output size");
     const uint8_t* e=p+n;
     if(p>=e) throw std::runtime_error("truncated BWT backend header");
+    const uint8_t* const payload_end=e; // one past this backend payload
 
     bool use_aux=false;
     uint8_t post=0;
@@ -4387,13 +4396,35 @@ static std::vector<uint8_t> bwt_backend_decode(const uint8_t* p,size_t n,size_t 
     } else if(post==kBwtPostQlfc) {
         bwt=bwt_qlfc_decode(p,static_cast<size_t>(e-p),expected,static_cast<uint64_t>(primary)); p=e;
     } else throw std::runtime_error("unknown BWT postcoder id");
+    if(bwt.size()!=expected) throw std::runtime_error("BWT string size mismatch");
 
-    std::vector<uint8_t> out(expected); std::vector<int32_t> tmp(expected+1);
+    // I20-W4 lever L1 (release the compressed input): the block payload has
+    // been fully consumed, so the compressed input that held it is dead. When
+    // this payload ends at the end of that buffer (the final block of the
+    // file) the whole buffer is released HERE, before the 4n libsais work
+    // array is allocated: the decode peak drops by the compressed size c at
+    // exactly zero wire cost.
+    if(in_owner&&payload_end==in_owner->data()+in_owner->size()) {
+        std::vector<uint8_t>().swap(*in_owner); in_owner=nullptr;
+    }
+
+    // I20-W4 lever L2 (in-place inverse BWT): the libsais LF walk reads only
+    // its own PSI array and the bigram bucket tables -- never the BWT string
+    // T -- so the reconstructed string can be written over T itself. That
+    // removes a whole n-byte buffer from the decode working set at exactly
+    // zero wire cost. libsais terminates with U[n-1] = T[0]; because T and U
+    // are restrict-qualified a compiler may reload T[0] after the U writes, so
+    // the first byte is captured before the call and re-applied after it. The
+    // result is byte-identical to the separate-buffer path under any
+    // reordering the compiler chooses.
+    const uint8_t bwt_first=bwt[0];
+    std::vector<int32_t> tmp(expected+1);
     int32_t rc=use_aux
-        ? libsais_unbwt_aux(bwt.data(),out.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,aux_rate,aux_indexes.data())
-        : libsais_unbwt(bwt.data(),out.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,primary);
+        ? libsais_unbwt_aux(bwt.data(),bwt.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,aux_rate,aux_indexes.data())
+        : libsais_unbwt(bwt.data(),bwt.data(),tmp.data(),static_cast<int32_t>(expected),nullptr,primary);
     if(rc!=0) throw std::runtime_error("libsais inverse BWT failed");
-    return out;
+    bwt[expected-1]=bwt_first;
+    return bwt;
 }
 #endif
 
@@ -4460,7 +4491,7 @@ static std::vector<uint8_t> ratio_backend_encode(uint8_t backend,const std::vect
     throw std::runtime_error("unknown ratio backend id");
 }
 
-static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* p,size_t n,size_t expected,const Options& opt) {
+static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* p,size_t n,size_t expected,const Options& opt,std::vector<uint8_t>* in_owner) {
 #ifdef ANVIL_HAVE_BROTLI
     if(backend==kRatioBackendBrotli) return brotli_lw_decode_exact(p,n,expected);
 #endif
@@ -4484,15 +4515,20 @@ static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* 
                 if(dlen==0 || dlen>expected-out.size())
                     throw std::runtime_error("bad BWT subblock decoded length");
                 if(plen>uint64_t(e-p)) throw std::runtime_error("truncated BWT subblock");
-                auto sub=bwt_backend_decode(p,static_cast<size_t>(plen),static_cast<size_t>(dlen)); p+=plen;
+                const uint8_t* const sub_end=p+static_cast<size_t>(plen);
+                // The trailing-bytes condition is checked BEFORE the last
+                // subblock is decoded, because that decode may release the
+                // compressed input buffer, after which p/e must not be used.
+                if(i+1==nsub && sub_end!=e) throw std::runtime_error("BWT subblock trailing bytes");
+                auto sub=bwt_backend_decode(p,static_cast<size_t>(plen),static_cast<size_t>(dlen),in_owner);
+                p=sub_end;
                 if(sub.size()!=static_cast<size_t>(dlen)) throw std::runtime_error("BWT subblock size mismatch");
                 out.insert(out.end(),sub.begin(),sub.end());
             }
-            if(p!=e) throw std::runtime_error("BWT subblock trailing bytes");
             if(out.size()!=expected) throw std::runtime_error("BWT subblock reconstruction size mismatch");
             return out;
         }
-        return bwt_backend_decode(p,n,expected);
+        return bwt_backend_decode(p,n,expected,in_owner);
     }
 #endif
     (void)opt;
@@ -4638,7 +4674,7 @@ static std::vector<uint8_t> encode_ratio_block(const std::vector<uint8_t>& d,con
     return best;
 }
 
-static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t out_len,const Options& opt) {
+static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t out_len,const Options& opt,std::vector<uint8_t>* in_owner) {
     if(n<3) throw std::runtime_error("truncated ratio payload");
     const uint8_t* e=p+n; uint8_t transform=*p++; uint8_t backend=*p++;
     if(transform>3) throw std::runtime_error("unknown ratio transform id");
@@ -4650,7 +4686,7 @@ static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t 
     // was underdefined. LZP is a recorded NO-GO (06 §G2 / E6); the encoder
     // refuses --bwt-lzp=on and never emits transform 3.
     if(transform==3) throw std::runtime_error("ratio transform 3 (LZP residue) is not supported");
-    auto x=ratio_backend_decode(backend,p,static_cast<size_t>(e-p),static_cast<size_t>(xlen),opt);
+    auto x=ratio_backend_decode(backend,p,static_cast<size_t>(e-p),static_cast<size_t>(xlen),opt,in_owner);
     if(transform==0){ if(x.size()!=out_len) throw std::runtime_error("ratio direct size mismatch"); return x; }
     if(transform==1) return ratio_inverse_ctx1(x,out_len);
     return ratio_inverse_lines(x,out_len); // transform==2 (validated above)
@@ -4805,7 +4841,8 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
 // exists in exactly one place. Throws on any malformed-block error; the caller
 // owns CRC verification for parallel (to keep CRC checks in the serial path too).
 static std::vector<uint8_t> decode_one_block(uint8_t mode,const uint8_t* p,size_t plen,size_t blen,uint32_t expected_crc,
-                                             uint8_t revision,uint64_t block_size,const uint8_t* e,const Options& opt) {
+                                             uint8_t revision,uint64_t block_size,const uint8_t* e,const Options& opt,
+                                             std::vector<uint8_t>* in_owner) {
     // p points at the block PAYLOAD (plen bytes); mode was parsed by the caller.
     if(revision==2 && mode!=0 && mode!=17) throw std::runtime_error("block mode not valid for revision 2");
     if(mode==0) {
@@ -4828,7 +4865,7 @@ static std::vector<uint8_t> decode_one_block(uint8_t mode,const uint8_t* p,size_
     } else if(mode==16) {
         return decode_tokens_ariref(p,plen,blen);
     } else if(mode==17 && revision==2) {
-        return decode_ratio_block(p,plen,blen,opt);
+        return decode_ratio_block(p,plen,blen,opt,in_owner);
     }
     throw std::runtime_error("unknown block mode");
 }
@@ -4842,7 +4879,7 @@ static bool decode_one_block_into(uint8_t mode,const uint8_t* p,size_t plen,uint
     return false;
 }
 
-static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in,const Options& opt) {
+static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& opt) {
     if(in.size()<5 || std::memcmp(in.data(),"ANV0",4)!=0 || (in[4]!=1 && in[4]!=2)) throw std::runtime_error("not a supported ANVIL revision");
     const uint8_t revision=in[4];
     const uint8_t* p=in.data()+5; const uint8_t* e=in.data()+in.size();
@@ -4865,6 +4902,7 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in,const Opti
     // order. Every block is CRC-checked after decode. The decode helpers read only
     // shared read-only state (g_fused_decode is set once in compress), so parallel
     // decoding into disjoint output buffers is safe.
+    bool tail_checked=false;
     if(opt.decode_threads<=1) {
         while(out.size()<total) {
             uint64_t blen=get_uvar(p,e); if(blen==0 || blen>block_size) throw std::runtime_error("invalid block length");
@@ -4884,9 +4922,24 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in,const Opti
                 }
                 out.resize(base);
             }
-            auto b=decode_one_block(mode,p,static_cast<size_t>(plen),static_cast<size_t>(blen),expected_crc,revision,block_size,e,opt);
+            // I20-W4 lever L1: the final block's payload ends at the end of the
+            // compressed input, so the input buffer can be released as soon as
+            // that payload has been consumed (inside the block decode, before
+            // the 4n libsais work array is allocated). The trailing-bytes
+            // condition is checked HERE because after the release the input
+            // pointers must not be dereferenced again. Only the serial path may
+            // do this: the parallel path decodes blocks concurrently.
+            const bool final_block=(out.size()+blen==total);
+            std::vector<uint8_t>* in_owner=nullptr;
+            if(final_block) {
+                if(p+static_cast<size_t>(plen)!=e) throw std::runtime_error("trailing bytes after final block");
+                tail_checked=true; in_owner=&in;
+            }
+            auto b=decode_one_block(mode,p,static_cast<size_t>(plen),static_cast<size_t>(blen),expected_crc,revision,block_size,e,opt,in_owner);
             if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
-            out.insert(out.end(),b.begin(),b.end()); p+=plen;
+            out.insert(out.end(),b.begin(),b.end());
+            if(final_block) break;
+            p+=plen;
         }
     } else {
         struct Seg { uint8_t mode; const uint8_t* p; size_t plen; size_t blen; uint32_t crc; };
@@ -4911,7 +4964,7 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in,const Opti
             try {
                 for(size_t i=ti;i<segs.size();i+=nthreads) {
                     const Seg& s=segs[i];
-                    auto b=decode_one_block(s.mode,s.p,s.plen,s.blen,s.crc,revision,block_size,e,opt);
+                    auto b=decode_one_block(s.mode,s.p,s.plen,s.blen,s.crc,revision,block_size,e,opt,nullptr);
                     if(crc32(b.data(),b.size())!=s.crc) throw std::runtime_error("block checksum mismatch");
                     blocks[i]=std::move(b);
                 }
@@ -4926,7 +4979,7 @@ static std::vector<uint8_t> decompress(const std::vector<uint8_t>& in,const Opti
         p=q;
     }
     if(out.size()!=total) throw std::runtime_error("size mismatch");
-    if(p!=e) throw std::runtime_error("trailing bytes after final block");
+    if(!tail_checked && p!=e) throw std::runtime_error("trailing bytes after final block");
     return out;
 }
 
@@ -4938,6 +4991,24 @@ static void write_file(const std::string& path,const std::vector<uint8_t>& d) {
     std::ofstream f(path,std::ios::binary); if(!f) throw std::runtime_error("cannot open output: "+path); if(!d.empty())f.write(reinterpret_cast<const char*>(d.data()),d.size());
 }
 static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=1469598103934665603ull; for(auto b:d){h^=b;h*=1099511628211ull;} return h; }
+
+// Every value-taking option of this CLI also accepts the SPACED form
+// ("--opt value") in addition to the historical "--opt=value". Externally
+// generated argument vectors (e.g. the I20 arbiter's --candidate-extra-args)
+// use the spaced form, and a silently rejected flag would change what a
+// measurement measures. The option set is listed explicitly: flags such as
+// --quiet and --stream-log take no value and must not swallow a neighbour.
+static bool anvil_option_takes_value(const std::string& name) {
+    static const char* names[] = {
+        "--parse","--literal","--entropy","--block","--chain","--max-match","--surprise",
+        "--shape-states","--boundary","--negate","--channels","--pnra","--stream-suite",
+        "--stream-ctx","--fused-decode","--stream-lambda","--hotop-rlzp","--hotop-budget",
+        "--ariref","--ratio-context","--ratio-lines","--ratio-backend","--bwt-post",
+        "--bwt-aux","--bwt-lzp","--bwt-subblock","--decode-threads","--bwt-aux-walks"
+    };
+    for(const char* n:names) if(name==n) return true;
+    return false;
+}
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
@@ -4959,6 +5030,9 @@ int main(int argc,char**argv) {
         if(const char* env=getenv("ANVIL_STREAM_LAMBDA")) opt.stream_lambda=std::atof(env);
         for(int i=(cmd=="verify"?3:4);i<argc;++i) {
             std::string a=argv[i];
+            // Normalise the spaced form of every value-taking option.
+            if(a.rfind("--",0)==0 && a.find('=')==std::string::npos &&
+               anvil_option_takes_value(a) && i+1<argc) a=a+"="+argv[++i];
             if(a.rfind("--parse=",0)==0)opt.parse=a.substr(8);
             else if(a.rfind("--literal=",0)==0)opt.literal=a.substr(10);
             else if(a.rfind("--entropy=",0)==0)opt.entropy=a.substr(10);
@@ -5020,12 +5094,12 @@ int main(int argc,char**argv) {
               <<","<<g_diag_sz_z[6]<<"/"<<g_diag_sz_raw[6]
               <<","<<g_diag_sz_z[7]<<"/"<<g_diag_sz_raw[7]<<"]\n";}
         } else if(cmd=="d") {
-            if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(in,opt); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
+            if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(std::move(in),opt); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
             if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}
         } else if(cmd=="verify") {
-            auto in=read_file(argv[2]); GlobalStats st; auto enc=compress(in,opt,&st); auto dec=decompress(enc,opt);
+            auto in=read_file(argv[2]); GlobalStats st; auto enc=compress(in,opt,&st); const size_t enc_bytes=enc.size(); auto dec=decompress(std::move(enc),opt);
             if(dec!=in) throw std::runtime_error("round-trip mismatch");
-            std::cout<<"OK bytes="<<in.size()<<" encoded="<<enc.size()<<" fnv64="<<std::hex<<fnv1a(in)<<std::dec<<"\n";
+            std::cout<<"OK bytes="<<in.size()<<" encoded="<<enc_bytes<<" fnv64="<<std::hex<<fnv1a(in)<<std::dec<<"\n";
         } else { usage(); return 2; }
         return 0;
     } catch(const std::exception& e) { std::cerr<<"anvil: "<<e.what()<<"\n"; return 1; }
