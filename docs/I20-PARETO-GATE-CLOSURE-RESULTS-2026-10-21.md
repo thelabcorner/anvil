@@ -736,6 +736,14 @@ assertion (which **passed in every run**).
 | `39689567974` | 9 | `...-39689567974` | 48,347,006 | 2.0183 s | **1.1688 s** | 0.8414 (0.8583) | **1.7142** (1.8417) | 78,084 KiB (1.4902×) | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
 | `39689570820` | 9 | `...-39689570820` | 48,347,006 | 2.6696 s | **1.0674 s** | 0.8559 (0.8696) | **2.4557** (2.5020) | 77,932 KiB (1.4931×) | `FRONT-GAP_COST` |
 | `39689574015` | 9 | `...-39689574015` | 48,347,006 | 2.6709 s | **1.0678 s** | 0.8538 (0.8700) | **2.5013** (2.5035) | 77,888 KiB (1.4918×) | `FRONT-GAP_COST` |
+| `39693037316` | 9 | `...-39693037316` | 48,347,006 | 2.6588 s | **0.8601 s** | 0.8260 (0.8271) | **3.0911** (3.1555) | 79,036 KiB (1.4424×) | `FRONT-GAP_COST` |
+
+The seventh row is the **final verification of the merged programme branch itself**
+(`candidate_ref = research/anvil-i20-pareto-gate-closure-20261021`, whose `src/anvil.cpp` blob
+`674b5554…` differs from the ruled arm's `d797a19b…` in one comment line only). It **built
+successfully** and its `--expected-candidate-total 48347006` byte assertion **passed**, confirming
+that the merged tree produces byte-identical output; G1/G2/G3/G5/G6 all pass in it, and G4 flipped
+again for the same reference-speed reason.
 
 **Every A/A null CI spans 1.0 and clears no speed gate in all six runs**, so all six are
 timing-valid.
@@ -755,16 +763,16 @@ estimate spanning 1.6261–3.0902.
 
 * The gate is **CLOSED on the run of record** (`39684313068`): the frozen arbiter's `ruling.json`
   contains `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` and every G1–G6 condition is satisfied there.
-  It is closed in **3 of 6** independent replications of the identical arm.
-* The **G2, G3, G5 and G6 conditions are satisfied in 6 of 6 runs** and are not at risk. The
+  It is closed in **3 of 7** independent replications of the identical arm.
+* The **G2, G3, G5 and G6 conditions are satisfied in 7 of 7 runs** and are not at risk. The
   candidate **dominates `xz -9e` on all three gate axes** — smaller bytes (48,347,006 vs
   48,456,004 B), faster decode (0.83–0.91×) and comparable peak RSS (1.44–1.49×) — and it uses
   0.62–0.64× Brotli's peak RSS.
 * The **G4 condition (decode ≤ 2 × Brotli q11/lw30) is not robust** on this runner class: the
   candidate's decode is stable to 1.32×, the *reference's* is not (1.98×), and the 2.0× threshold
   sits inside that band. **The Brotli half of the gate is therefore closed only conditionally, and
-  the programme's honest verdict is "closed, with a measured 3-in-6 G4 pass rate" rather than
-  "closed".**
+  the programme's honest verdict is "closed, with a measured 3-in-7 G4 pass rate" rather than
+  "closed".****
 * **The measurement instrument, not the codec, is the limiting factor here.** The repository's own
   `tools/reference_cost_gate.py` compares the candidate against a *same-job* reference whose
   measured speed is not reproducible on this runner class. That is a finding about the arbiter and
