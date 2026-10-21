@@ -177,11 +177,15 @@ def build_arms(args: argparse.Namespace) -> list[dict[str, Any]]:
                  tools/pareto_front.py classifies them as reference rows)
       kind       candidate | binding | dense | crosscheck
       family     anvil | brotli | xz | zstd | lz4
-      config     human-readable configuration string
       producer   version/commit label of the exact producer used
-      encode     (src, dst) -> (argv, stdout_path|None)
-      decode     (packed, out, n) -> argv
-      out_path   (packed) -> path of the decoded output
+      variants   ordered list of producer variants for this arm.  Each variant
+                 carries its own `config` string, `encode` callable
+                 ((src, dst) -> (argv, stdout_path|None)), `decode` callable
+                 ((packed, out, n) -> argv) and `out_path` callable
+                 ((packed, out) -> decoded output path).  The first variant
+                 whose encode succeeds is the one that is measured; the
+                 others are fallbacks for a producer whose full configuration
+                 the runner image does not support.
     """
     arms: list[dict[str, Any]] = []
 
@@ -205,13 +209,15 @@ def build_arms(args: argparse.Namespace) -> list[dict[str, Any]]:
         "name": CANDIDATE_ARM,
         "kind": "candidate",
         "family": "anvil",
-        "config": "--parse=ratio --ratio-backend=auto --ratio-context=off "
-                  "--ratio-lines=off --bwt-aux=on"
-                  + ((" " + " ".join(extra)) if extra else ""),
         "producer": args.anvil_producer or "frozen candidate binary",
-        "encode": anvil_encode,
-        "decode": anvil_decode,
-        "out_path": lambda packed, out: out,
+        "variants": [{
+            "config": "--parse=ratio --ratio-backend=auto --ratio-context=off "
+                      "--ratio-lines=off --bwt-aux=on"
+                      + ((" " + " ".join(extra)) if extra else ""),
+            "encode": anvil_encode,
+            "decode": anvil_decode,
+            "out_path": lambda packed, out: out,
+        }],
     })
 
     # ---------------- Brotli ----------------
@@ -226,12 +232,14 @@ def build_arms(args: argparse.Namespace) -> list[dict[str, Any]]:
             "name": "brotli-q11-lw30-gate",
             "kind": "binding",
             "family": "brotli",
-            "config": "q11 lgwin30 (repo tools/brotli_lw.cpp, the gate's arm)",
             "producer": args.brotli_gate_producer
                         or "repo brotli_lw + distribution libbrotli-dev",
-            "encode": blw_encode,
-            "decode": blw_decode,
-            "out_path": lambda packed, out: out,
+            "variants": [{
+                "config": "q11 lgwin30 (repo tools/brotli_lw.cpp, the gate's arm)",
+                "encode": blw_encode,
+                "decode": blw_decode,
+                "out_path": lambda packed, out: out,
+            }],
         })
 
     if args.brotli_dense_distro:
@@ -296,11 +304,13 @@ def _brotli_dense_arm(name: str, kind: str, q: int, lw: int, binary: Path,
         "name": name,
         "kind": kind,
         "family": "brotli",
-        "config": config,
         "producer": producer,
-        "encode": encode,
-        "decode": decode,
-        "out_path": lambda packed, out: out,
+        "variants": [{
+            "config": config,
+            "encode": encode,
+            "decode": decode,
+            "out_path": lambda packed, out: out,
+        }],
     }
 
 
@@ -317,45 +327,68 @@ def _xz_arm(name: str, kind: str, level: str, binary: Path,
         "name": name,
         "kind": kind,
         "family": "xz",
-        "config": f"-{level} (per-file, single-threaded)",
         "producer": producer,
-        "encode": encode,
-        "decode": decode,
-        # `xz -d -k -f` writes next to the compressed file, dropping `.xz`.
-        "out_path": lambda packed, out: packed.with_suffix(""),
+        "variants": [{
+            "config": f"-{level} (per-file, single-threaded)",
+            "encode": encode,
+            "decode": decode,
+            # `xz -d -k -f` writes next to the compressed file, dropping `.xz`.
+            "out_path": lambda packed, out: packed.with_suffix(""),
+        }],
     }
 
 
 def _zstd_arm(name: str, level: int, binary: Path, producer: str, *,
               ultra: bool = False, long_window: bool = False) -> dict[str, Any]:
-    def encode(src: Path, dst: Path):
-        argv = [str(binary), "-q", "-f"]
-        if ultra:
-            argv.append("--ultra")
-        argv.append(f"-{level}")
-        if long_window:
-            argv += ["--long=27", "--memory=4096MB"]
-        argv += ["-o", str(dst), str(src)]
-        return argv, None
+    def make_variant(extra_encode: list[str], extra_decode: list[str],
+                     config: str) -> dict[str, Any]:
+        def encode(src: Path, dst: Path):
+            argv = [str(binary), "-q", "-f"]
+            if ultra:
+                argv.append("--ultra")
+            argv.append(f"-{level}")
+            argv += list(extra_encode)
+            argv += ["-o", str(dst), str(src)]
+            return argv, None
 
-    def decode(packed: Path, out: Path, n: int):
-        argv = [str(binary), "-q", "-f", "-d"]
-        if long_window:
-            argv.append("--long=27")
-        argv += ["-o", str(out), str(packed)]
-        return argv
+        def decode(packed: Path, out: Path, n: int):
+            argv = [str(binary), "-q", "-f", "-d"]
+            argv += list(extra_decode)
+            argv += ["-o", str(out), str(packed)]
+            return argv
 
-    config = f"-{level}" + (" --ultra" if ultra else "") \
-             + (" --long=27" if long_window else "") + " (per-file, single-threaded)"
+        return {
+            "config": config,
+            "encode": encode,
+            "decode": decode,
+            "out_path": lambda packed, out: out,
+        }
+
+    base = f"-{level}" + (" --ultra" if ultra else "")
+    variants: list[dict[str, Any]] = []
+    if long_window:
+        # zstd's long mode needs a window larger than the 8 MiB default, and
+        # the decode side must be told the same window log.  The memory cap
+        # uses a plain count with a K/M/G suffix; "4096MB" overflows zstd's
+        # 32-bit unsigned parse, and 1G is ample for a 128 MiB window.
+        variants.append(make_variant(
+            ["--long=27", "--memory=1G"], ["--long=27"],
+            base + " --long=27 --memory=1G (per-file, single-threaded)"))
+        variants.append(make_variant(
+            ["--long=27"], ["--long=27"],
+            base + " --long=27 (per-file, single-threaded)"))
+        variants.append(make_variant(
+            [], [],
+            base + " (long mode unavailable on this build; per-file, single-threaded)"))
+    else:
+        variants.append(make_variant(
+            [], [], base + " (per-file, single-threaded)"))
     return {
         "name": name,
         "kind": "dense",
         "family": "zstd",
-        "config": config,
         "producer": producer,
-        "encode": encode,
-        "decode": decode,
-        "out_path": lambda packed, out: out,
+        "variants": variants,
     }
 
 
@@ -370,11 +403,13 @@ def _lz4_arm(name: str, level: int, binary: Path, producer: str) -> dict[str, An
         "name": name,
         "kind": "dense",
         "family": "lz4",
-        "config": f"-{level} (per-file, single-threaded)",
         "producer": producer,
-        "encode": encode,
-        "decode": decode,
-        "out_path": lambda packed, out: out,
+        "variants": [{
+            "config": f"-{level} (per-file, single-threaded)",
+            "encode": encode,
+            "decode": decode,
+            "out_path": lambda packed, out: out,
+        }],
     }
 
 
@@ -409,31 +444,59 @@ def cmd_prepare(args: argparse.Namespace) -> None:
         arm_bytes = 0
         status = "OK"
         error = ""
+        variant: dict[str, Any] | None = None
+        variant_errors: list[str] = []
 
-        # ---- encode ----
+        # ---- encode (the first variant that works is the measured one) ----
         for src in files:
             ext = {"anvil": ".anv", "brotli": ".br", "xz": ".xz",
                    "zstd": ".zst", "lz4": ".lz4"}[arm["family"]]
             packed = pack_root / name / f"{src.name}{ext}"
             decoded = dec_root / name / src.name
-            try:
-                argv, stdout_path = arm["encode"](src, packed)
-                run(argv, stdout_path=stdout_path)
-            except Exception as exc:  # noqa: BLE001 - recorded as a gap
-                status = "FAILED"
-                error = f"encode {src.name}: {exc}"
-                failures.append({"arm": name, "stage": "encode",
-                                 "file": src.name, "error": str(exc)[:2000]})
-                break
-            if not packed.is_file():
-                status = "FAILED"
-                error = f"encode produced no file for {src.name}"
-                failures.append({"arm": name, "stage": "encode",
-                                 "file": src.name, "error": error})
-                break
-            argv = arm["decode"](packed, decoded, src.stat().st_size)
+            if variant is None:
+                last_error = ""
+                for candidate in arm["variants"]:
+                    try:
+                        argv, stdout_path = candidate["encode"](src, packed)
+                        run(argv, stdout_path=stdout_path)
+                    except Exception as exc:  # noqa: BLE001 - try the next variant
+                        last_error = str(exc)[:2000]
+                        variant_errors.append(f"{candidate['config']}: {last_error}")
+                        if packed.is_file():
+                            packed.unlink()
+                        continue
+                    if not packed.is_file():
+                        last_error = "encode produced no file"
+                        variant_errors.append(f"{candidate['config']}: {last_error}")
+                        continue
+                    variant = candidate
+                    break
+                if variant is None:
+                    status = "FAILED"
+                    error = f"encode {src.name}: {last_error}"
+                    failures.append({"arm": name, "stage": "encode",
+                                     "file": src.name, "error": error,
+                                     "variant_errors": variant_errors})
+                    break
+            else:
+                argv, stdout_path = variant["encode"](src, packed)
+                try:
+                    run(argv, stdout_path=stdout_path)
+                except Exception as exc:  # noqa: BLE001
+                    status = "FAILED"
+                    error = f"encode {src.name}: {exc}"
+                    failures.append({"arm": name, "stage": "encode",
+                                     "file": src.name, "error": str(exc)[:2000]})
+                    break
+                if not packed.is_file():
+                    status = "FAILED"
+                    error = f"encode produced no file for {src.name}"
+                    failures.append({"arm": name, "stage": "encode",
+                                     "file": src.name, "error": error})
+                    break
+            argv = variant["decode"](packed, decoded, src.stat().st_size)
             commands.append([str(x) for x in argv])
-            out_path = arm["out_path"](packed, decoded)
+            out_path = variant["out_path"](packed, decoded)
             outputs.append(out_path)
             packed_paths.append(packed)
             arm_bytes += packed.stat().st_size
@@ -477,10 +540,12 @@ def cmd_prepare(args: argparse.Namespace) -> None:
             "name": name,
             "kind": arm["kind"],
             "family": arm["family"],
-            "config": arm["config"],
+            "config": (variant["config"] if variant is not None
+                       else " | ".join(v["config"] for v in arm["variants"])),
             "producer": arm["producer"],
             "status": status,
             "error": error,
+            "variant_errors": variant_errors,
             "compressed_bytes": arm_bytes if status == "OK" else 0,
             "commands_manifest": f"{name}-commands.json",
             "decode_script": f"decode-{name}.sh",
@@ -500,7 +565,7 @@ def cmd_prepare(args: argparse.Namespace) -> None:
                 "arm": name,
                 "kind": arm["kind"],
                 "family": arm["family"],
-                "config": arm["config"],
+                "config": record["config"],
                 "producer": arm["producer"],
                 "commands": commands,
                 "outputs": [str(p) for p in outputs],

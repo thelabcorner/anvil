@@ -108,7 +108,8 @@ int main(int argc, char** argv) {
       return 0;
     }
     if (op == "d") {
-      if (argc < 6) return 2;
+      // argv: brotli_dense d <input> <output> <expected-bytes>
+      if (argc < 5) return 2;
       auto in = read_file(argv[2]);
       uint64_t n = std::stoull(argv[4]);
       if (n > std::numeric_limits<size_t>::max())
