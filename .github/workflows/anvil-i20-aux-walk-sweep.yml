@@ -207,10 +207,18 @@ jobs:
           grep -q -- "--bwt-aux-walks requires a value" "$TD/err.txt" \
             || { echo "unexpected error for a missing --bwt-aux-walks value:"; cat "$TD/err.txt"; exit 1; }
           echo "rejected a missing --bwt-aux-walks value rc=$rc"
+          # --bwt-subblock must accept both the spaced and the equals spelling
+          # (the coordinator's combined-arm command uses the spaced form).
+          "$ANVIL" c "$SRC" "$TD/s1.anv" "${COMMON[@]}" --bwt-subblock 8388608
+          "$ANVIL" c "$SRC" "$TD/s2.anv" "${COMMON[@]}" --bwt-subblock=8388608
+          test "$(sha256sum "$TD/s1.anv" | cut -d' ' -f1)" = "$(sha256sum "$TD/s2.anv" | cut -d' ' -f1)" \
+            || { echo 'space and equals spellings of --bwt-subblock disagree'; exit 1; }
+          echo "bwt_subblock_space_equals_identical=OK"
           {
             echo "knob_space_equals_identical=OK"
             echo "knob_default_differs_from_4096=OK"
             echo "knob_invalid_values_rejected=OK"
+            echo "bwt_subblock_space_equals_identical=OK"
           } | tee "$OUT_DIR/knob-contract.txt"
           rm -rf "$TD"
 
@@ -271,6 +279,16 @@ jobs:
                   ["bash", str(out / "decode-brotli.sh")],
                   cand,
                   f"paired-walks-{w}-vs-brotli",
+              )
+              # BWT-path only: the BWT-routed files timed against the SAME
+              # subset at the W=1024 control.  This is the arm that isolates
+              # the auxiliary-index lever and yields the Amdahl LF-walk share.
+              bwt_cand = ["bash", str(out / f"decode-walks-{w}-bwt.sh")]
+              run_pair(
+                  f"paired-walks-{w}-bwtpath",
+                  ["bash", str(out / "decode-walks-1024-bwt.sh")],
+                  bwt_cand,
+                  f"paired-walks-{w}-bwtpath",
               )
               # Mandatory A/A null pair for this arm, same job, same protocol.
               run_pair(

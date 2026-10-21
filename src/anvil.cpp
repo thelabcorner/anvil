@@ -5035,6 +5035,12 @@ int main(int argc,char**argv) {
             }
             else if(a.rfind("--bwt-lzp=",0)==0)opt.bwt_lzp=(a.substr(10)!="off");
             else if(a.rfind("--bwt-subblock=",0)==0){ uint64_t v=std::stoull(a.substr(15)); if(v==0 || v>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("--bwt-subblock must be 1..2GiB"); opt.bwt_subblock=static_cast<uint32_t>(v); }
+            else if(a=="--bwt-subblock"){
+                if(i+1>=argc) throw std::runtime_error("--bwt-subblock requires a value");
+                uint64_t v=std::stoull(argv[++i]);
+                if(v==0 || v>static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) throw std::runtime_error("--bwt-subblock must be 1..2GiB");
+                opt.bwt_subblock=static_cast<uint32_t>(v);
+            }
             else if(a.rfind("--decode-threads=",0)==0){ uint64_t v=std::stoull(a.substr(17)); if(v==0 || v>1024) throw std::runtime_error("--decode-threads must be 1..1024"); opt.decode_threads=static_cast<uint32_t>(v); }
             else if(a=="--stream-log")opt.stream_log=true;
             else if(a=="--quiet")opt.quiet=true;

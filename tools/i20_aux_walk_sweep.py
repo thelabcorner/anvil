@@ -400,6 +400,7 @@ def prepare(args: argparse.Namespace) -> None:
     rows: list[dict[str, Any]] = []
     decode_commands: dict[int, list[list[str]]] = {w: [] for w in walks}
     decode_files: dict[int, list[str]] = {w: [] for w in walks}
+    selected_path: dict[tuple[int, str], str] = {}
 
     for w in walks:
         (out / "timed" / f"walks-{w}").mkdir(parents=True, exist_ok=True)
@@ -418,6 +419,7 @@ def prepare(args: argparse.Namespace) -> None:
                 [str(anvil), "d", str(selected["path"]), str(timed_dec), "--quiet"]
             )
             decode_files[w].append(name)
+            selected_path[(w, name)] = str(selected["path"])
             rows.append({
                 "corpus": args.corpus,
                 "file": name,
@@ -433,6 +435,43 @@ def prepare(args: argparse.Namespace) -> None:
                 "index_bytes": wm["index_bytes"],
                 "bwt_postcoder": wm["postcoder"],
             })
+
+    # ------------------------------------------------------------------
+    # Route subsets (fixed by the CONTROL routing so every walk budget is
+    # compared on exactly the same file set).  The BWT subset is the path the
+    # auxiliary-index lever can move; the Brotli subset is the control.
+    # ------------------------------------------------------------------
+    control_rows = {r["file"]: r for r in rows if r["walks"] == CONTROL_WALKS}
+    source_bytes_by_file = {r["file"]: int(r["input_bytes"]) for r in source_rows}
+    bwt_subset = [r["file"] for r in control_rows.values() if r["route"] == "bwt"]
+    brotli_subset = [r["file"] for r in control_rows.values() if r["route"] != "bwt"]
+    subset_bytes = {
+        "bwt": sum(source_bytes_by_file[f] for f in bwt_subset),
+        "brotli": sum(source_bytes_by_file[f] for f in brotli_subset),
+    }
+    subset_manifests: dict[str, str] = {}
+    for w in walks:
+        for label, members in (("bwt", bwt_subset), ("brotli", brotli_subset)):
+            d = out / "timed" / f"walks-{w}-{label}"
+            d.mkdir(parents=True, exist_ok=True)
+            cmds = []
+            for name in members:
+                cmds.append([
+                    str(anvil), "d", selected_path[(w, name)],
+                    str(d / name), "--quiet",
+                ])
+            sp = out / f"decode-walks-{w}-{label}.sh"
+            write_script(sp, cmds)
+            mp = out / f"decode-walks-{w}-{label}.json"
+            mp.write_text(json.dumps({
+                "schema": 1,
+                "corpus": args.corpus,
+                "walks": w,
+                "subset": label,
+                "files": members,
+                "commands": cmds,
+            }, indent=2) + "\n", encoding="utf-8")
+            subset_manifests[f"walks-{w}-{label}"] = str(mp)
 
     # Legacy (auxiliary-off) portfolio: byte identity against the frozen I9 bytes.
     legacy_rows: list[dict[str, Any]] = []
@@ -648,6 +687,8 @@ def prepare(args: argparse.Namespace) -> None:
     }, indent=2) + "\n", encoding="utf-8")
     manifests["brotli"] = str(out / "brotli-commands.json")
     manifests["xz"] = str(out / "xz-commands.json")
+    for k, v in subset_manifests.items():
+        manifests[k] = v
 
     fields = [
         "corpus", "file", "walks", "route", "selected_bytes", "selected_sha256",
@@ -685,6 +726,12 @@ def prepare(args: argparse.Namespace) -> None:
         "attribution": attribution,
         "identity": identity,
         "reference_rows": ref_rows,
+        "subsets": {
+            "bwt_files": bwt_subset,
+            "brotli_files": brotli_subset,
+            "bwt_bytes": subset_bytes["bwt"],
+            "brotli_bytes": subset_bytes["brotli"],
+        },
         "decode_manifests": manifests,
         "source": source_rows,
     }
@@ -821,6 +868,7 @@ def summarize(args: argparse.Namespace) -> None:
     control = int(prep["by_walks"][str(CONTROL_WALKS)]["portfolio_bytes"])
     xz_total = int(prep["xz_total"])
     brotli_total = int(prep["brotli_total"])
+    source_bytes = int(prep["source_bytes"])
 
     rows: list[dict[str, Any]] = []
     for w in prep["walks"]:
@@ -844,13 +892,42 @@ def summarize(args: argparse.Namespace) -> None:
         }
         vs_xz = timing_dir / f"paired-walks-{w}-vs-xz.json"
         vs_br = timing_dir / f"paired-walks-{w}-vs-brotli.json"
+        bwtpath = timing_dir / f"paired-walks-{w}-bwtpath.json"
         null = timing_dir / f"paired-null-walks-{w}.json"
         if vs_xz.is_file():
             entry["vs_xz"] = load_pair(vs_xz)
         if vs_br.is_file():
             entry["vs_brotli"] = load_pair(vs_br)
+        if bwtpath.is_file():
+            entry["bwtpath"] = load_pair(bwtpath)
         if null.is_file():
             entry["null"] = load_pair(null)
+        # Absolute portfolio decode time (the arm that the gate reads).
+        if "vs_xz" in entry:
+            entry["portfolio_decode_s"] = entry["vs_xz"]["candidate_median_s"]
+            entry["portfolio_mbps"] = source_bytes / 1e6 / entry["portfolio_decode_s"]
+        # BWT-path (BWT-routed files only) decode time and throughput.
+        bwt_bytes = int(prep["subsets"]["bwt_bytes"])
+        if "bwtpath" in entry:
+            bp = entry["bwtpath"]
+            entry["bwtpath_decode_s"] = bp["candidate_median_s"]
+            entry["bwtpath_mbps"] = bwt_bytes / 1e6 / bp["candidate_median_s"]
+            entry["bwtpath_control_decode_s"] = bp["control_median_s"]
+            entry["bwtpath_speedup"] = 1.0 / bp["ratio"] if bp["ratio"] > 0 else None
+            k = w / CONTROL_WALKS
+            if k > 1.0:
+                # Amdahl fit: speedup(k) = 1/(1 - f + f/k)  =>
+                #              f = (1 - 1/speedup) / (1 - 1/k)
+                t_ratio = bp["ratio"]
+                t_lo, t_hi = bp["ci95"]
+                denom = 1.0 - 1.0 / k
+                f_pt = (1.0 - t_ratio) / denom
+                f_lo = (1.0 - t_hi) / denom
+                f_hi = (1.0 - t_lo) / denom
+                entry["k"] = k
+                entry["f_lf_walk_share"] = f_pt
+                entry["f_lf_walk_share_ci95"] = [f_lo, f_hi]
+                entry["f_ceiling_speedup_as_k_inf"] = 1.0 / (1.0 - f_pt) if f_pt < 1.0 else None
         if rss_data is not None:
             arm = f"walks-{w}"
             if arm in rss_data["by_arm"]:
@@ -897,24 +974,38 @@ def summarize(args: argparse.Namespace) -> None:
         f"({prep['expected_legacy_bytes']:,} B)",
         f"- xz -9e total: {xz_total:,} B   Brotli q11/lw30 total: {brotli_total:,} B",
         f"- xz surplus over the frozen control: {xz_total - control:,} B",
+        f"- BWT-routed subset: {prep['subsets']['bwt_bytes']:,} B "
+        f"({len(prep['subsets']['bwt_files'])} files: "
+        f"{', '.join(prep['subsets']['bwt_files'])})",
+        f"- Brotli-routed subset: {prep['subsets']['brotli_bytes']:,} B "
+        f"({len(prep['subsets']['brotli_files'])} files: "
+        f"{', '.join(prep['subsets']['brotli_files'])})",
         "",
-        "| W | portfolio bytes | Δ vs W=1024 | Δ vs xz | index bytes | aux r (min..max) | "
-        "decode ratio vs xz (CI95) | decode ratio vs Brotli (CI95) | peak RSS MiB | "
-        "RSS / xz | RSS / Brotli | G2 | G4 | G5 | G6 |",
-        "|---:|---:|---:|---:|---:|---|---|---|---:|---:|---:|---|---|---|---|",
+        "| W | k=W/1024 | portfolio bytes | Δ vs xz | index bytes | portfolio decode s | "
+        "BWT-path decode s | BWT-path MB/s | BWT-path speedup vs W=1024 | "
+        "fitted LF-walk share f | decode ratio vs xz (CI95) | decode ratio vs Brotli (CI95) | "
+        "peak RSS MiB | RSS / xz | RSS / Brotli | G2 | G3 | G4 | G5 | G6 |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---:|---:|---:|---|---|---|---|",
     ]
     for e in rows:
         vx = e.get("vs_xz")
         vb = e.get("vs_brotli")
+        bp = e.get("bwtpath")
         md.append(
-            f"| {e['walks']} | {e['portfolio_bytes']:,} | {e['delta_vs_control']:+,} | "
+            f"| {e['walks']} | {e.get('k', 1.0):.0f} | {e['portfolio_bytes']:,} | "
             f"{e['delta_vs_xz']:+,} | {e['index_bytes_total']:,} | "
-            f"{e['aux_rate_min']}..{e['aux_rate_max']} | "
+            + (f"{e['portfolio_decode_s']:.4f} | " if "portfolio_decode_s" in e else "n/a | ")
+            + (f"{e['bwtpath_decode_s']:.4f} | " if "bwtpath_decode_s" in e else "n/a | ")
+            + (f"{e['bwtpath_mbps']:.2f} | " if "bwtpath_mbps" in e else "n/a | ")
+            + (f"{e['bwtpath_speedup']:.4f} | " if e.get("bwtpath_speedup") else "n/a | ")
+            + (f"{e['f_lf_walk_share']:.4f} [{e['f_lf_walk_share_ci95'][0]:.4f}, "
+               f"{e['f_lf_walk_share_ci95'][1]:.4f}] | " if "f_lf_walk_share" in e else "n/a | ")
             + (f"{vx['ratio']:.4f} [{vx['ci95'][0]:.4f}, {vx['ci95'][1]:.4f}] | " if vx else "n/a | ")
             + (f"{vb['ratio']:.4f} [{vb['ci95'][0]:.4f}, {vb['ci95'][1]:.4f}] | " if vb else "n/a | ")
             + (f"{e['rss_kib']/1024:.1f} | {e.get('rss_ratio_vs_xz', 0):.3f} | "
                f"{e.get('rss_ratio_vs_brotli', 0):.3f} | " if "rss_kib" in e else "n/a | n/a | n/a | ")
             + f"{'PASS' if e['g2_bytes_below_xz'] else 'FAIL'} | "
+            + (f"{'PASS' if e.get('g3_decode_ci_upper_le_2x_xz') else 'FAIL'} | " if vx else "n/a | ")
             + (f"{'PASS' if e.get('g4_decode_ci_upper_le_2x_brotli') else 'FAIL'} | " if vb else "n/a | ")
             + (f"{'PASS' if e.get('g5_rss_ratio_le_2x_xz') else 'FAIL'} | " if "rss_ratio_vs_xz" in e else "n/a | ")
             + (f"{'PASS' if e.get('g6_rss_ratio_le_2x_brotli') else 'FAIL'} | " if "rss_ratio_vs_brotli" in e else "n/a | ")
@@ -923,11 +1014,54 @@ def summarize(args: argparse.Namespace) -> None:
         )
     md.extend([
         "",
-        "G2 = total bytes strictly below xz -9e. G4 = paired decode ratio CI-upper vs "
-        "Brotli q11/lw30 <= 2.0. G5/G6 = peak decode RSS ratio <= 2.0 vs xz / Brotli.",
-        "G3 (decode CI-upper vs xz) is in the table as the first ratio column.",
+        "G2 = total bytes strictly below xz -9e. G3/G4 = paired decode ratio CI-upper "
+        "<= 2.0 vs xz -9e / Brotli q11-lw30. G5/G6 = peak decode RSS ratio <= 2.0 vs "
+        "xz / Brotli.",
+        "BWT-path columns cover the BWT-routed files only (the path the "
+        "auxiliary-index lever can move), timed as a paired A/B against the same "
+        "subset at the W=1024 control.",
+        "f is the Amdahl fit of the LF-walk share of BWT-path decode time: "
+        "speedup(k) = 1/(1 - f + f/k), so f = (1 - 1/speedup)/(1 - 1/k).",
+        "",
+        "## Charged auxiliary index bytes per file (4 x auxiliary_count)",
         "",
     ])
+    per_file: dict[str, dict[str, Any]] = {}
+    for r in prep["by_walks"][str(CONTROL_WALKS)]["per_file"]:
+        per_file[r["file"]] = {"route": r["route"], "index_bytes": int(r["index_bytes"]),
+                               "aux_rate": r["aux_rate"], "aux_count": r["aux_count"]}
+    for w in prep["walks"]:
+        for r in prep["by_walks"][str(w)]["per_file"]:
+            per_file[r["file"]]["index_bytes_" + str(w)] = int(r["index_bytes"])
+            per_file[r["file"]]["aux_rate_" + str(w)] = r["aux_rate"]
+    md.append("| file | route | " + " | ".join(
+        f"W={w} index B" for w in prep["walks"]) + " |")
+    md.append("|---|---|" + "---:|" * len(prep["walks"]))
+    for name, d in per_file.items():
+        md.append(
+            f"| {name} | {d['route']} | "
+            + " | ".join(f"{d.get('index_bytes_' + str(w), d['index_bytes']):,}"
+                        for w in prep["walks"])
+            + " |"
+        )
+    md.append("| **portfolio total** | | " + " | ".join(
+        f"{int(prep['by_walks'][str(w)]['index_bytes_total']):,}" for w in prep["walks"]) + " |")
+    md.append("")
+    md.append("## Charged index bytes attributable to the walk budget (BWT-routed files only)")
+    md.append("")
+    md.append("| W | index bytes total | Δ vs W=1024 | framing bytes Δ |")
+    md.append("|---:|---:|---:|---:|")
+    for w in prep["walks"]:
+        tot = int(prep["by_walks"][str(w)]["index_bytes_total"])
+        if w == CONTROL_WALKS:
+            md.append(f"| {w} | {tot:,} | 0 | 0 |")
+            continue
+        att = [a for a in prep["attribution"] if int(a["walks"]) == w]
+        idx = sum(int(a["index_bytes_delta"]) for a in att)
+        fram = sum(int(a["framing_bytes_delta"]) for a in att)
+        md.append(f"| {w} | {tot:,} | {idx:+,} | {fram:+,} |")
+    md.append("")
+
     report = "\n".join(md)
     (out / "summary.md").write_text(report, encoding="utf-8")
     result = {
