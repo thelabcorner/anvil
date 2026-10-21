@@ -48,9 +48,13 @@ on:
           - 'silesia'
           - 'enwik8'
           - 'both'
+      label:
+        description: 'Concurrency label (distinct per arm so parallel arms are not queued/replaced)'
+        required: true
+        default: 'default'
 
 concurrency:
-  group: anvil-i20-gate-closure
+  group: anvil-i20-gate-closure-${{ inputs.label }}-${{ inputs.corpus }}
   cancel-in-progress: false
 
 permissions:
