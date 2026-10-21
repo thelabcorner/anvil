@@ -106,14 +106,96 @@ The gate's three binding Silesia deficits are decode-vs-Brotli (G4), RSS-vs-xz (
 RSS-vs-Brotli (G6). No single lever clears all three; the programme's working combination is:
 
 1. **C2 — auxiliary-index walk budget.** More checkpoints ⇒ shorter LF walks ⇒ faster inverse BWT.
-   Charged cost ≈ 4 B × aux_count per BWT-routed file (≈ +430 KB over seven files at W = 16384).
-2. **C3 — BWT subblock cap.** Bounds the per-piece inverse-BWT working set. Prior run `35930672607`
-   measured 8 MiB at +898,935 B with peak RSS 124.4 MiB; 4 MiB and below were never measured.
-3. **C4 — decode working-set reduction.** Zero byte cost; removes the materialised block output
-   (≈39.5 MiB on webster) and the retained compressed input (≈7.3 MiB) from the peak.
+2. **C3 — BWT subblock cap.** Bounds the per-piece inverse-BWT working set.
+3. **C4 — decode working-set reduction.** Zero byte cost; removes the materialised output and the
+   retained compressed input from the decode peak.
 
-The combined byte cost must stay inside the **1,989,665 B** Silesia surplus, and the combined peak
-RSS must fall to ≤108.2 MiB (2.0 × the measured `xz -9e` 54.1 MiB) for G5.
+### 3.1 Measured per-file routing facts (from run `39654699366`, `bytes.csv`)
+
+`DERIVED` from the measured baseline artifact (exact arithmetic over measured bytes):
+
+| file | input bytes | ANVIL total | Brotli total | `xz -9e` | BWT saving vs Brotli | route |
+|---|---:|---:|---:|---:|---:|---|
+| webster | 41,458,703 | 7,319,896 | 8,340,058 | 8,368,672 | **1,020,162** | BWT |
+| nci | 33,553,445 | 1,369,810 | 1,497,411 | 1,449,272 | 127,601 | BWT |
+| x-ray | 8,474,240 | 4,019,394 | 4,682,754 | 4,491,264 | 663,360 | BWT |
+| dickens | 10,192,446 | 2,574,367 | 2,827,779 | 2,831,212 | 253,412 | BWT |
+| osdb | 10,085,684 | 2,587,124 | 2,816,279 | 2,844,556 | 229,155 | BWT |
+| mr | 9,970,564 | 2,384,760 | 2,823,137 | 2,751,892 | 438,377 | BWT |
+| reymont | 6,627,202 | 1,147,270 | 1,332,159 | 1,315,592 | 184,889 | BWT |
+| mozilla | 51,220,480 | 13,806,173 | 13,806,141 | 13,376,240 | −32 | Brotli |
+| samba | 21,606,400 | 3,761,931 | 3,761,899 | 3,739,524 | −32 | Brotli |
+| ooffice | 6,152,192 | 2,478,889 | 2,478,857 | 2,427,224 | −32 | Brotli |
+| xml | 5,345,280 | 430,599 | 430,568 | 434,892 | −31 | Brotli |
+| sao | 7,251,944 | 4,586,126 | 4,586,094 | 4,425,664 | −32 | Brotli |
+| **total** | 211,938,580 | **46,466,339** | 49,383,136 | 48,456,004 | 2,916,797 | 7 BWT / 5 Brotli |
+
+The mode-17 envelope costs 31–32 B per Brotli-routed file; that is the whole difference. The
+BWT-routed files hold **120,362,284 B (56.79 % of Silesia)** and the Brotli-routed files
+**91,576,296 B (43.21 %)**.
+
+### 3.2 Two derived constraints that decide the arm
+
+**(a) G5 (peak RSS ≤ 2.0 × `xz -9e` = 110,816 KiB) is *not* reachable by any Brotli-backed route.**
+Brotli's own Silesia peak decode RSS is 125,228 KiB (122.3 MiB) = 2.26× `xz -9e`. So a route that
+moves files to the Brotli backend can clear G4 but can never clear G5. **G5 therefore requires the BWT
+route with a bounded working set.** Its dominant term is the accumulated per-file output buffer
+(webster = 41,458,703 B = 39.5 MiB) plus the per-piece inverse-BWT set (BWT string `C` + libsais
+`int32` array `4C`). With the output streamed to disk (C4) the peak becomes ≈ `6C`; with the output
+materialised it becomes ≈ `41.5 MB + 6C`. Solving `6C + input ≤ 110,816 KiB` gives **C ≤ 16 MiB**
+(with streaming) and **C ≤ 8 MiB** (without). The prior sweep measured 8 MiB at 124.4 MiB
+(2.30× `xz`, still a G5 FAIL) and 16 MiB at 125.7 MiB.
+
+**(b) The auxiliary-index cost is PER SUB-BLOCK, so the cap and the walk budget interact
+multiplicatively.** The `0xFF` outer frame splits the BWT input into `ceil(file_size / cap)` pieces
+(confirmed by W3's enwik8 sweep: 100,000,000 B gives 96 / 48 / 24 / 12 / 6 / 3 / 2 / 1 pieces at
+caps 1 / 2 / 4 / 8 / 16 / 32 / 64 / 128 MiB), and each piece carries its own inner BWT payload with
+its own auxiliary index. So the total index bytes are `4 × W × (total sub-blocks)`, not
+`4 × W × (number of files)`. For the seven BWT-routed Silesia files the sub-block totals are:
+
+| cap | dickens | mr | nci | osdb | reymont | webster | x-ray | **total sub-blocks** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 16 MiB | 1 | 1 | 2 | 1 | 1 | 3 | 1 | **10** |
+| 8 MiB | 2 | 2 | 4 | 2 | 1 | 5 | 2 | **18** |
+
+Therefore:
+
+| arm | cap byte cost (prior run `35930672607`) | aux index bytes at W = 16384 | total charged | vs 1,989,665 B surplus |
+|---|---:|---:|---:|---|
+| 16 MiB cap + W = 16384 | +472,650 B | 10 × 65,536 = 655,360 B | **+1,128,010 B** | 861,655 B left — **fits** |
+| 8 MiB cap + W = 16384 | +898,935 B | 18 × 65,536 = 1,179,648 B | **+2,078,583 B** | **exceeds the surplus** |
+| 16 MiB cap + W = 32768 | +472,650 B | 10 × 131,072 = 1,310,720 B | +1,783,370 B | 206,295 B left |
+| 16 MiB cap + W = 8192 | +472,650 B | 10 × 32,768 = 327,680 B | +800,330 B | 1,189,335 B left |
+| 16 MiB cap + W = 4096 | +472,650 B | 10 × 16,384 = 163,840 B | +636,490 B | 1,353,175 B left |
+
+**Consequence:** the walk budget cannot be chosen independently of the cap. The 8 MiB cap is
+excluded at W = 16384 on the byte budget alone, so **16 MiB is the leading cap** — it is *cheaper*
+in bytes than 8 MiB (the warm-up tax grows as the cap shrinks) while still clearing G5 provided the
+output is streamed.
+
+### 3.3 The decisive unknown: the LF-walk share `f`
+
+Let `f` be the fraction of BWT-path decode time spent in the inverse-BWT LF walk. Reducing the
+checkpoint stride by a factor `k` (i.e. `k`× more checkpoints) gives a whole-path speed-up of
+`1/(1−f+f/k)`. The Silesia budget is: portfolio decode ≤ **1.733 s** (48.452 MB/s → 122.3 MB/s).
+The five Brotli-routed files (91,576,296 B) take ≈0.375 s at the measured 244.517 MB/s, leaving
+**≤1.358 s** for the seven BWT-routed files (120,362,284 B), which currently take ≈4.000 s
+(≈30.1 MB/s) — i.e. the BWT path must reach **≈88.6 MB/s, a 2.94× speed-up**. Solving
+`1/(1−f+f/k) ≥ 2.94`:
+
+| checkpoint factor `k` | required LF-walk share `f` | walk budget `W` | index bytes at the 16 MiB cap |
+|---:|---:|---:|---:|
+| 4 | ≈ 0.88 | 4096 | 163,840 B |
+| 8 | ≈ 0.75 | 8192 | 327,680 B |
+| 16 | ≈ 0.70 | 16384 | 655,360 B |
+| 32 | ≈ 0.67 | 32768 | 1,310,720 B |
+
+**This is the single number the programme turns on.** It is C1's (W1's) measurement, and it is
+implicitly fitted by C2's (W2's) sweep. C1 and C2 are therefore the critical path; C3 and C4 are
+the arithmetic that makes their combination fit the byte budget and clear G5.
+
+
+### 3.4 The final arbiter
 
 The final arm is ruled by the **frozen** `tools/reference_cost_gate.py` via
 `.github/workflows/anvil-i20-gate-closure.yml`, with the candidate built from the merged branch and
