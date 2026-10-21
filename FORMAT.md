@@ -229,6 +229,19 @@ LF walks by choosing the smallest power-of-two `r >= ceil(n/1024)`, with a
 minimum of 2. That choice is encoder policy, not a redefinition of the v2 wire
 contract.
 
+**Encoder policy knob (not wire-visible).** `--bwt-aux-walks=N` selects the
+walk budget `W` used by that policy: the encoder picks the smallest
+power-of-two `r` with `r * W >= n` (minimum 2, and never `r > transformed_size`),
+so `auxiliary_count = 1 + floor((transformed_size-1)/r) <= W` and the index
+array costs `4 * auxiliary_count` bytes. `N` must satisfy
+`1 <= N <= 1048576`; values outside that range are rejected with an explicit
+error before any payload is produced. The default `N = 1024` is the frozen
+policy and reproduces the frozen bytes exactly. Because the chosen `r` is
+transmitted in the payload and the decoder's validation rules above place no
+constraint on the checkpoint count other than the ones already listed, this
+knob changes **no wire semantics**: every `r` it can select is a value the
+v2 contract already permits.
+
 Decode memory bound: the decoder allocates at most `transformed_size` output
 bytes plus an `int32` work array of size `transformed_size + 1`, the bounded
 auxiliary-index array for v2, plus the postcoder's own intermediate buffers
