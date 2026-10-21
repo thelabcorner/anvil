@@ -377,9 +377,67 @@ the measured heap reduction equals `n + c` to the byte. The coordinator's attrib
 libsais array at ~63 % of the peak, the BWT string and the output buffer at ~16 % each) is
 **confirmed**.
 
-### 5.6 The L3 arms — measured
+### 5.6 The L3 arm (streaming) — measured
 
-*(filled from runs `39674862702` (L1+L2+L3) and `39678336260` (L1+L2+L3 + streaming Brotli); see §7)*
+**MEASURED** — run `39674862702` (workflow `.github/workflows/anvil-i20-working-set.yml`, jobs
+`working-set (silesia)` and `working-set (enwik8)`, commit
+`b0a0897115838a4eb3d513f4604aa328cdb9d93b`, artifacts
+`anvil-i20-working-set-silesia-39674862702` / `anvil-i20-working-set-enwik8-39674862702`; the
+build is L1+L2+L3, i.e. **without** the streaming-Brotli decode of §2/L3 added in `f9be2fc`).
+
+Byte identity: `--bwt-aux=on` **46,466,339 B** and `--bwt-aux=off` **46,446,995 B** — both exactly
+the frozen Silesia totals. Round-trip: **48/48** byte-exact (both arms, both `aux` settings).
+In-place proof re-run on this build: `cases=80 failures=0 bytes=326,802,592`. In-job fuzz:
+**PASS** (1040 round-trip variants, 6240 mutations, 14 block modes, 5 transforms, 20 forced
+postcoders, 24 auxiliary-BWT assertions, 9+24 deterministic malformed cases, 4 golden vectors).
+
+**Per-file peak decode RSS, KiB (Silesia):**
+
+| file | frozen baseline | L1+L2 (run `39666730135`) | **L1+L2+L3 (run `39674862702`)** | Δ vs baseline |
+|---|---:|---:|---:|---:|
+| webster | 254,456 | 206,612 | **206,824** | −47,632 |
+| nci | 202,332 | 168,016 | 168,356 | −33,976 |
+| dickens | 66,656 | 53,952 | 54,148 | −12,508 |
+| mr | 65,120 | 52,844 | 53,028 | −12,092 |
+| osdb | 66,080 | 53,632 | 53,708 | −12,372 |
+| x-ray | 57,808 | 45,492 | 45,584 | −12,224 |
+| reymont | 44,476 | 36,600 | 36,796 | −7,680 |
+| **mozilla (Brotli route)** | **125,708** | **125,548** | **125,768** | **+60 (unchanged)** |
+| samba (Brotli route) | 61,740 | 61,572 | 61,720 | −20 |
+| sao (Brotli route) | 22,664 | 22,436 | 22,608 | −56 |
+| ooffice (Brotli route) | 18,876 | 18,748 | 18,900 | +24 |
+| xml | 15,104 | 14,868 | 15,064 | −40 |
+
+**Per-file peak decode RSS at a sub-block cap, KiB (Silesia)** — this is where L3 pays:
+
+| cap | file | frozen baseline | L1+L2 | **L1+L2+L3** | vs `xz` 55,408 |
+|---|---|---:|---:|---:|---:|
+| 16 MiB | webster | 126,688 | 110,220 | **93,944** | 1.695× |
+| 16 MiB | nci | 120,624 | 102,636 | 87,804 | 1.585× |
+| 16 MiB | mozilla | 125,592 | 125,560 | 125,752 | 2.270× |
+| 8 MiB | webster | 109,560 | 93,396 | **53,264** | 0.961× |
+| 8 MiB | nci | 70,996 | 70,836 | 71,088 | 1.283× |
+| 8 MiB | mozilla | 125,704 | 125,616 | 125,640 | 2.268× |
+| 4 MiB | webster | 118,016 | 105,692 | **33,212** | 0.599× |
+| 4 MiB | nci | 71,000 | 70,812 | 70,992 | 1.281× |
+| 4 MiB | mozilla | 125,664 | 125,568 | 125,688 | 2.269× |
+
+**Two readings, both important:**
+
+1. **L3 is worth ~56,000 KiB (55 MiB) on `webster` at the 8 MiB cap** (93,396 → 53,264) and
+   ~85,000 KiB at the 4 MiB cap: it removes the file-level accumulator, which at a cap is the
+   dominant term. This is the same effect the coordinator measured on the merged arm
+   (`webster` 53,156 KiB, §5.7) — independently reproduced.
+2. **L3 alone leaves `mozilla` untouched** (125,768 KiB vs the baseline's 125,708 KiB) — exactly
+   as predicted: at the default cap the file-level accumulator is not resident at the peak, and
+   the 50,020 KiB term is Brotli's *own* whole-file output buffer inside the Brotli decode. **That
+   is the defect the coordinator found, and the streaming-Brotli decode of §2/L3 (`f9be2fc`) is the
+   fix.** It is measured in §5.8.
+
+**Paired decode timing for the L3 arm (Silesia, same job):** candidate/frozen ratio
+**0.84861, CI95 [0.80567, 0.87474]** — the C4 arms are **1.18× FASTER** than the frozen baseline
+(portfolio decode 4.2232 s vs 4.9314 s), with a valid A/A null (0.99960, CI95 [0.98943, 1.02116]).
+The decision rule's 2 % epsilon is satisfied with a wide margin, in the *improving* direction.
 
 ### 5.7 The merged-arm arbiter arms (coordinator's measurement, cited for the programme)
 
