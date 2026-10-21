@@ -1,0 +1,193 @@
+name: ANVIL I20 subblock-cap sweep
+
+# I20 candidate C3 — BWT subblock-cap sweep for the external reference-cost
+# gate. This workflow does not mutate codec behaviour: it exercises the
+# existing `--bwt-subblock` CLI flag over a cap grid, reconstructs the
+# canonical `--ratio-backend=auto` portfolio exactly as encode_ratio_block()
+# does, and measures exact charged bytes, per-file peak decode RSS and
+# whole-codec decode time against the two binding references (xz -9e and
+# Brotli q11/lgwin30) IN THE SAME JOB.
+#
+# The ruling token for every timed cap is produced by the repo's own frozen
+# arbiter, tools/reference_cost_gate.py (summarize).
+#
+# Manual dispatch only. The candidate source is the dispatched ref itself; the
+# provenance step asserts that src/anvil.cpp is byte-identical to the frozen
+# I10-1A baseline blob so the measurements are on the unmodified baseline
+# binary.
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: Canonical corpus
+        required: true
+        default: 'silesia'
+        type: choice
+        options:
+          - 'silesia'
+          - 'enwik8'
+      caps_mib:
+        description: 'Comma-separated --bwt-subblock caps in MiB (must include 128)'
+        required: true
+        default: '1,2,4,8,16,32,64,128'
+      timed_caps:
+        description: 'Comma-separated caps to time in the same job (empty = bytes+RSS only)'
+        required: false
+        default: ''
+      reps:
+        description: Paired decode repetitions
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  group: anvil-i20-subblock-sweep
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/subblock-${{ inputs.corpus }}
+
+    steps:
+      - name: Checkout candidate source and measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils time python3
+
+      - name: Fingerprint runner, source and arm
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "source_sha=$(git -C source rev-parse HEAD)"
+            echo "source_src_anvil_blob=$(git -C source rev-parse HEAD:src/anvil.cpp)"
+            echo "source_src_anvil_sha256=$(sha256sum source/src/anvil.cpp | cut -d' ' -f1)"
+            echo "tool_sha256=$(sha256sum source/tools/i20_subblock_sweep.py | cut -d' ' -f1)"
+            echo "driver_sha256=$(sha256sum source/tools/paired_bench.py | cut -d' ' -f1)"
+            echo "arbiter_sha256=$(sha256sum source/tools/reference_cost_gate.py | cut -d' ' -f1)"
+            echo "corpus=${{ inputs.corpus }}"
+            echo "caps_mib=${{ inputs.caps_mib }}"
+            echo "timed_caps=${{ inputs.timed_caps }}"
+            echo "reps=${{ inputs.reps }}"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+          } | tee "$OUT_DIR/provenance.txt"
+          # The candidate binary must be the unmodified frozen baseline source
+          # (I10-1A candidate blob 755df76ae53795aea040f4c99784d1effb43b3ab).
+          BLOB="$(git -C source rev-parse HEAD:src/anvil.cpp)"
+          if [ "$BLOB" != "755df76ae53795aea040f4c99784d1effb43b3ab" ]; then
+            echo "FATAL: src/anvil.cpp blob $BLOB is not the frozen baseline blob" >&2
+            exit 1
+          fi
+
+      - name: Build candidate and Brotli reference helper
+        run: |
+          cmake -S source -B source/build-subblock -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build source/build-subblock --parallel 4 --target anvil brotli_lw
+          sha256sum source/build-subblock/anvil source/build-subblock/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 source/tools/gha_fetch_corpus.py \
+            "${{ inputs.corpus }}" \
+            --out "$CORPUS_ROOT"
+
+      - name: Prepare exact payloads, routing and round-trip gate
+        run: |
+          python3 source/tools/i20_subblock_sweep.py prepare \
+            --corpus "${{ inputs.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --anvil source/build-subblock/anvil \
+            --brotli source/build-subblock/brotli_lw \
+            --caps-mib "${{ inputs.caps_mib }}" \
+            --out "$OUT_DIR"
+
+      - name: Measure per-file decode peak RSS for every arm
+        run: |
+          python3 source/tools/i20_subblock_sweep.py rss \
+            --prepare "$OUT_DIR/prepare.json" \
+            --out "$OUT_DIR"
+
+      - name: Same-job paired/interleaved decode timing
+        if: ${{ inputs.timed_caps != '' }}
+        run: |
+          python3 source/tools/i20_subblock_sweep.py timing \
+            --prepare "$OUT_DIR/prepare.json" \
+            --out "$OUT_DIR" \
+            --driver source/tools/paired_bench.py \
+            --timed-caps "${{ inputs.timed_caps }}" \
+            --reps "${{ inputs.reps }}" \
+            --warmups 2 \
+            --seed 41246 \
+            --bootstrap 20000 \
+            --epsilon 0.02 \
+            --max-cv 0.15 \
+            --cpu 0 \
+            --ambient-reps 5 \
+            --ambient-iterations 250000 \
+            --ambient-max-cv 0.10
+
+      - name: Verify round trips and payload identity after the timed pass
+        if: ${{ always() }}
+        run: |
+          python3 source/tools/i20_subblock_sweep.py verify \
+            --prepare "$OUT_DIR/prepare.json" \
+            --anvil source/build-subblock/anvil \
+            --out "$OUT_DIR"
+
+      - name: Summarize caps, gate verdicts and arbiter rulings
+        if: ${{ always() }}
+        run: |
+          python3 source/tools/i20_subblock_sweep.py summarize \
+            --prepare "$OUT_DIR/prepare.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --timing-dir "$OUT_DIR" \
+            --arbiter source/tools/reference_cost_gate.py \
+            --out "$OUT_DIR"
+          cat "$OUT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload compact raw evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-subblock-${{ inputs.corpus }}-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/*.json
+            ${{ env.OUT_DIR }}/*.csv
+            ${{ env.OUT_DIR }}/*.md
+            ${{ env.OUT_DIR }}/*.txt
+            ${{ env.OUT_DIR }}/*.sh
+            ${{ env.OUT_DIR }}/arbiter-cap-*/
+          if-no-files-found: error
+          retention-days: 30
