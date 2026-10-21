@@ -554,7 +554,104 @@ the byte accounting of this programme's cap sweep against an independent earlier
 
 ---
 
-## 3. Combined-arm plan (the arm the coordinator will rule)
+## 4. THE RULING — `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`
+
+### 4.1 The closed arm
+
+| field | value |
+|---|---|
+| **run_url** | `https://github.com/thelabcorner/anvil/actions/runs/39684313068` |
+| **job** | `gate-closure (silesia)` |
+| **workflow** | `.github/workflows/anvil-i20-gate-closure.yml` (registered on `main` @ `9ce9ae2`) |
+| **commit_sha** | `7b9ea3f18397d61bab6f41cd14f0eb50da40b36b` (branch `research/anvil-i20-combined-arm`) |
+| **artifact** | `anvil-i20-gate-closure-silesia-39684313068` |
+| **corpus** | silesia (canonical 12-file set, 211,938,580 B) |
+| **candidate** | the merged arm: W2's `--bwt-aux-walks` encoder-policy knob + W4's C4 levers (L1, L2, L3, and the **L3 Brotli-backend streaming decode**) + the coordinator's `--bwt-aux-walks=` off-by-one fix |
+| **arm** | `--candidate-extra-args "--bwt-subblock 2097152"` (a **2 MiB** BWT sub-block cap) |
+| **arbiter** | the **frozen** `tools/reference_cost_gate.py` (no change to the ruling function) |
+| **reps / protocol** | `reps = 9`, `tools/paired_bench.py` with the preregistered parameters, CPU affinity 0, A/A null control |
+| **byte assertion** | `--expected-candidate-total 48347006` — **PASSED**, so the arm's complete wire is byte-identical to the measured 2 MiB-cap total |
+
+### 4.2 The ruling, gate by gate
+
+| gate | condition | measured | verdict |
+|---|---|---:|---|
+| G1 | timing valid: both pairs `timing_valid`, A/A null CI spans 1.0 and clears no speed gate | null **1.00076 [0.99993, 1.02066]**, both pairs `timing_valid: true` | **PASS** |
+| G2 | total compressed bytes strictly below `xz -9e` (48,456,004 B) | **48,347,006 B** — lead **108,998 B** | **PASS** |
+| G3 | paired decode-time ratio CI-upper ≤ 2.0 vs `xz -9e` | **0.9078 [0.8896, 0.9081]** | **PASS** |
+| G4 | paired decode-time ratio CI-upper ≤ 2.0 vs Brotli q11/lw30 | **1.6261 [1.4929, 1.6821]** | **PASS** |
+| G5 | peak decode RSS ratio ≤ 2.0 vs `xz -9e` | **78,092 KiB (76.3 MiB) / 55,412 KiB = 1.4903×** | **PASS** |
+| G6 | peak decode RSS ratio ≤ 2.0 vs Brotli q11/lw30 | **78,092 KiB / 125,264 KiB = 0.6229×** | **PASS** |
+| — | **arbiter ruling** | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** | **GATE CLOSED** |
+
+**Baseline → closed arm, on the same axes:**
+
+| quantity | baseline (run `39654699366`) | closed arm (run `39684313068`) | change |
+|---|---:|---:|---|
+| total compressed bytes | 46,466,339 B | 48,347,006 B | +1,880,667 B spent from the 1,989,665 B surplus (94.5 % of it) |
+| byte lead vs `xz -9e` | 1,989,665 B | 108,998 B | — |
+| decode vs `xz` (CI-upper) | 1.4897 | 0.9081 | — |
+| decode vs Brotli (CI-upper) | 5.6033 | **1.6821** | **3.33× better** |
+| peak decode RSS | 254,224 KiB (248.3 MiB) | **78,092 KiB (76.3 MiB)** | **−176,132 KiB (−172 MiB)** |
+| peak RSS vs `xz` | 4.588× | **1.4903×** | — |
+| peak RSS vs Brotli | 2.030× | **0.6229×** | — |
+| ruling | `FRONT-GAP_COST` | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** | — |
+
+**What the closed arm is.** It is the *same* representation — the canonical mode-17 ratio envelope
+with the BWT+auxiliary-index backend and the Brotli fallback — with three **encoder-policy**
+knobs and three **decode-only** changes:
+
+* `--bwt-subblock 2097152` — a 2 MiB BWT sub-block cap (encoder policy; **wire-invisible**, the
+  `0xFF` frame is self-describing). It costs +1,880,667 B and buys the 2.26× decode speed-up
+  (cache residency of the inverse BWT's `n/2` dependent random accesses).
+* `--bwt-aux-walks` — left at its default 1024; the knob exists, is encoder-policy only, and is
+  documented as a byte knob (C2's NO-GO).
+* **C4's L1/L2/L3** — release the compressed input before the `4n` libsais allocation; write the
+  reconstructed string in place over the BWT string; stream the reconstructed output to the output
+  file with an incremental block CRC-32, **including the Brotli backend path** via the
+  large-window streaming Brotli decoder. **Byte cost exactly 0.**
+
+**The gate is closed, and the claim is bounded exactly as the tool bounds it:** a
+`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` ruling is *not* a FRONT-CROSSING. The tool's own
+`scope_note` says it "can falsify a FRONT-CROSSING on decode/memory cost … [it] does not
+establish a crossing because encode and decoder-only binary-size axes are not ruled here." **The
+retained Class-A ruling is unchanged: 435 DOMINATED / 28 DEGENERATE / 5 FRONT-GAP / 0
+FRONT-CROSSING.** What I20 established is that the canonical ratio route's decode-cost and
+peak-RSS deficits — the two gates that made it `FRONT-GAP_COST` — are **now closed by a
+zero-byte-cost decode-side change plus a chargeable encoder-policy knob**, at the price of 94.5 %
+of the byte surplus.
+
+### 4.3 The sibling arm, and the measurement-stability caveat that must travel with the result
+
+The same merged arm at the **1.75 MiB cap** (run `39684310219`, artifact
+`anvil-i20-gate-closure-silesia-39684310219`) ruled **`FRONT-GAP_COST`** — and the reason is
+instructive and must be stated:
+
+| quantity | 1.75 MiB arm (`39684310219`) | 2 MiB arm (`39684313068`) |
+|---|---:|---:|
+| ANVIL total bytes | 48,454,402 (lead **1,602 B**) | 48,347,006 (lead **108,998 B**) |
+| candidate portfolio decode | **2.4208 s** | **2.4194 s** |
+| Brotli reference decode **in the same job** | **0.7683 s** | **1.5186 s** |
+| ANVIL/Brotli decode ratio (CI95) | 3.1537 [2.9644, 3.1564] | **1.6261 [1.4929, 1.6821]** |
+| peak decode RSS | 79,964 KiB (78.1 MiB) → 1.4435× `xz` **PASS** | 78,092 KiB (76.3 MiB) → 1.4903× `xz` **PASS** |
+| ruling | `FRONT-GAP_COST` (G4 failed) | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** |
+
+**The candidate's own decode time is identical to 0.06 % (2.4208 s vs 2.4194 s). The G4 verdict
+flipped entirely because Brotli's *reference* decode speed measured 0.7683 s in one job and
+1.5186 s in the other — a 1.98× difference on the same runner class.** Two consequences, both
+recorded:
+
+1. **The 2 MiB arm is the robust choice**, on both margins that matter: its G4 CI-upper is 1.6821
+   against the 2.0 threshold (a 19 % margin, versus the 1.75 MiB arm's *negative* margin) and its
+   byte margin is 108,998 B rather than 1,602 B.
+2. **A G4 verdict is reference-speed dependent, so it must be replicated.** Two independent
+   replication runs of the closed arm are dispatched (`39687067054` at `reps = 9` and
+   `39687069793` at `reps = 13`); their rulings are reported in §4.4 together with the absolute
+   candidate and reference times, so the stability of the result is visible and not merely
+   asserted.
+
+---
+
 
 1. **C2 — auxiliary-index walk budget.** More checkpoints ⇒ shorter LF walks ⇒ faster inverse BWT.
    **§2.3 shows this lever is a mechanism-level NO-GO: the LF-step count is `n/2` for every stride
@@ -567,6 +664,12 @@ the byte accounting of this programme's cap sweep against an independent earlier
 3. **C4 — decode working-set reduction.** Zero byte cost; removes the accumulated output (L3) and
    the retained compressed input (L1) from the decode peak. **This is the lever that must clear
    G5**, because the 8 MiB cap alone is still 2.299× `xz`.
+
+## 3. Derived constraints that decided the arm (recorded before the ruling)
+
+*(This section holds the `DERIVED` arithmetic that guided the arm. It is placed after the measured
+results for reading flow; every number in it is exact arithmetic over the measured artifacts cited
+in it, and nothing in it is a measurement.)*
 
 ### 3.1 Measured per-file routing facts (from run `39654699366`, `bytes.csv`)
 
