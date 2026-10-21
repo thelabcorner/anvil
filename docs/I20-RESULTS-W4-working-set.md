@@ -130,6 +130,19 @@ new `decompress_to_file()` opens the output, and the `0xFF` sub-block loop hands
 bytes to the sink as soon as they are produced, so neither the file-level accumulator nor the
 `0xFF` block accumulator is ever resident at the inverse-BWT peak.
 
+**Does L3 cover the Brotli backend (backend_id 1) as well as the BWT backend (backend_id 2)? —
+the load-bearing question for G5.** Precisely:
+
+| term | backend 1 (Brotli) | backend 2 (BWT) |
+|---|---|---|
+| **file-level accumulator** (`decompress()`'s `out`, the whole decoded file, up to `n` bytes) | **REMOVED by L3** — the `streaming` flag is `sink && sink->out && revision==2` and is **backend-independent**; the accumulator is only allocated when `!streaming`, and the block bytes go to the sink instead of into it | **REMOVED by L3** |
+| `0xFF` block accumulator (up to `n` bytes) | n/a (no `0xFF` frame on the Brotli route) | **REMOVED by L3** (the sub-block loop pushes each sub-block to the sink) |
+| per-block output vector | **still materialised**: `ratio_backend_decode` returns `brotli_lw_decode_exact(p,n,expected)`, and `BrotliDecoderDecompress` allocates the whole 51,220,480-byte output *inside the Brotli API*. L3 writes it to the sink and frees it immediately, but it is resident during that block's decode. Removing it would need a `BrotliDecoderDecompressStream` loop — a **new arm, outside C4's decode-path scope** | removed at the default cap only by L2 (the BWT string *is* the output buffer); at a sub-block cap it is removed by L3 as well |
+
+So **L3 removes the ~50 MiB file-proportional term for the Brotli-routed `mozilla`** — which is
+exactly the term that floors the Silesia portfolio peak — but it does **not** remove Brotli's own
+whole-file output buffer. The measured consequence is in §5.6.
+
 *CRC correctness (the coordinator's specific question)*: the block CRC-32 covers the **original**
 block bytes. The sub-block bytes **are** the original block bytes, in order (the `0xFF` frame's
 per-sub-block decoded lengths partition the block in order), and they are handed to the sink in
@@ -158,6 +171,11 @@ decode still leaves **no output file** behind, exactly as before.
   in the merged arm (arbiter run `39670486612` failed in the **encode** step with
   `--bwt-aux-walks must be an integer in 1..1048576`). The bug was in the sibling's code, not in
   the C4 levers; the coordinator fixed the offset in the merged arm (`ec2238e`).
+  The normaliser is **empirically proven** by that failure: the arbiter passed the *spaced*
+  `--bwt-aux-walks 16384` and the parser chain received the `=` form, which is only possible if
+  the normaliser ran. `--bwt-subblock=` is parsed with `a.substr(15)`, which is correct
+  (`"--bwt-subblock="` is 15 characters); `--bwt-aux-walks=` needs `a.substr(16)` — that is the
+  sibling's defect, fixed in the merged arm.
 
 ---
 
