@@ -62,7 +62,7 @@ on:
           - 'false'
 
 concurrency:
-  group: anvil-i20-dense-reference
+  group: anvil-i20-dense-reference-${{ inputs.corpus }}
   cancel-in-progress: false
 
 permissions:
