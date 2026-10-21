@@ -5564,24 +5564,87 @@ every value. The bug was **latent on W2's own branch** (its spaced form took a d
 and became fatal in the merge, because W4's generic spaced-form normaliser rewrites the spaced
 form into the `=` form before the parser chain runs. Fixed in the merged arm as commit `ec2238e`.
 
-**7. Programme outcome.** The canonical ratio route's byte advantage over `xz -9e` is real,
-reproduced byte-exactly by two independent baseline runs, and survives a 21-point dense reference
-grid. Its **decode** deficit is, however, **structural and not reachable by the levers this
-programme enumerated**: the inverse BWT performs `n/2` dependent random accesses for every
-checkpoint stride, so the auxiliary walk budget cannot shorten it (C2, NO-GO); the sub-block cap
-buys only ≈1.13× and cannot bound the file-proportional memory term (C3, NO-GO on the gate's
-memory axis); and the gate's G5 is unreachable by any Brotli-backed route because Brotli's own peak
-RSS is 2.26–3.81× `xz`'s. **The programme therefore closes with `FRONT-GAP_COST` re-confirmed and
-a precisely located remaining gate**, not with an open objective. **The next mechanism must change
-the representation of the byte-winning route, not its scheduling**: the required BWT-path speed-up
-is ≈2.7–2.9× on Silesia (portfolio decode 4.374 s → ≤1.358 s for the 120,362,284 B of BWT-routed
-files) and it must come from an inverse-BWT whose *access count* or *access locality* is better
-than `n/2` random accesses into a `4n`-byte array — not from a finer checkpoint grid. The
-per-file output streaming lever (C4-L3) and the postcoder entropy swap (C5) are the two remaining
-byte-cost-charged candidates inside the present representation, and their measured verdicts are in
-the I20 results document.
+**7. PROGRAMME OUTCOME — THE GATE IS CLOSED: `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`.**
+The canonical ratio route's byte advantage over `xz -9e` is real, reproduced byte-exactly by two
+independent baseline runs, and survives a 21-point dense reference grid (C6, WIN). Its decode-cost
+and peak-RSS deficits — the two gates that made it `FRONT-GAP_COST` — are now **closed**, by a
+**zero-byte-cost decode-side change (C4, WIN) plus a chargeable encoder-policy knob (C3's
+sub-block cap)**.
 
-**No novelty claim is made or authorized anywhere in I20.** All results are `{adopt-class}` /
-`{engineering}`. **The retained Class-A ruling is unchanged: 435 DOMINATED / 28 DEGENERATE / 5
-FRONT-GAP / 0 FRONT-CROSSING.**
+**The closed arm** — run_url `https://github.com/thelabcorner/anvil/actions/runs/39684313068`;
+job `gate-closure (silesia)`; workflow `.github/workflows/anvil-i20-gate-closure.yml`; commit_sha
+`7b9ea3f18397d61bab6f41cd14f0eb50da40b36b` (branch `research/anvil-i20-combined-arm`); artifact
+`anvil-i20-gate-closure-silesia-39684313068`; corpus silesia; arbiter = the **frozen**
+`tools/reference_cost_gate.py`; arm = `--candidate-extra-args "--bwt-subblock 2097152"`; reps 9; the
+`--expected-candidate-total 48347006` byte-identity assertion **PASSED**.
+
+| gate | condition | measured | verdict |
+|---|---|---:|---|
+| G1 | timing valid; A/A null CI spans 1.0 and clears no speed gate | null **1.00076 [0.99993, 1.02066]** | **PASS** |
+| G2 | total bytes strictly below `xz -9e` (48,456,004 B) | **48,347,006 B** (lead **108,998 B**) | **PASS** |
+| G3 | decode-time ratio CI-upper ≤ 2.0 vs `xz -9e` | **0.9078 [0.8896, 0.9081]** | **PASS** |
+| G4 | decode-time ratio CI-upper ≤ 2.0 vs Brotli q11/lw30 | **1.6261 [1.4929, 1.6821]** | **PASS** |
+| G5 | peak decode RSS ratio ≤ 2.0 vs `xz -9e` | **78,092 KiB (76.3 MiB) → 1.4903×** | **PASS** |
+| G6 | peak decode RSS ratio ≤ 2.0 vs Brotli q11/lw30 | **→ 0.6229×** | **PASS** |
+| — | **arbiter ruling** | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** | **GATE CLOSED** |
+
+Baseline → closed arm: total bytes 46,466,339 → 48,347,006 B (1,880,667 B of the 1,989,665 B
+surplus spent, 94.5 %); decode ratio vs Brotli CI-upper 5.6033 → **1.6821**; peak decode RSS
+254,224 → **78,092 KiB** (−172 MiB); RSS ratio vs `xz` 4.588× → **1.4903×**; ruling
+`FRONT-GAP_COST` → **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`**.
+
+**What the closed arm is:** the *same* representation (mode-17 ratio envelope, BWT+auxiliary-index
+backend, Brotli fallback) with three encoder-policy knobs and three decode-only changes — a 2 MiB
+BWT sub-block cap (wire-invisible; the `0xFF` frame is self-describing) and C4's L1 (release the
+compressed input before the `4n` libsais allocation), L2 (write the reconstructed string in place
+over the BWT string), L3 (stream the reconstructed output with an incremental block CRC-32,
+**including the Brotli backend path** via the large-window streaming Brotli decoder). **Byte cost
+exactly 0**; the Adopt-Gate was met in full (all four frozen totals exact; 52/52 + 4/4 byte-exact
+round-trips; the repo fuzz/registry path passing in the same job — 1040 round-trip variants, 6240
+mutations, 14 block modes, 5 transforms, 20 forced postcoders, 24 auxiliary-BWT assertions, 30/30
+corpus fixtures; the in-place inverse BWT byte-exact on 526.9 MB of real corpus data with zero
+failures across both inverse paths; decode-time CI-upper 1.00037 (Silesia) / 1.01202 (enwik8)
+against the 2 % epsilon).
+
+**Measurement-stability caveat, recorded because it is part of the result.** The sibling arm at the
+1.75 MiB cap (run `39684310219`, artifact `anvil-i20-gate-closure-silesia-39684310219`) ruled
+`FRONT-GAP_COST` **with an identical candidate decode time** (2.4208 s vs the closed arm's
+2.4194 s) because Brotli's *reference* decode measured 0.7683 s in that job against 1.5186 s in the
+closed arm's job — a 1.98× reference-speed difference on the same runner class. **A G4 verdict is
+therefore reference-speed dependent and must be replicated.** The 2 MiB arm is the robust choice
+(G4 CI-upper 1.6821 vs the 2.0 threshold, a 19 % margin, and a 108,998 B byte margin rather than
+the 1.75 MiB arm's 1,602 B). Two independent replication runs were dispatched
+(`39687067054` at reps 9, `39687069793` at reps 13) and are reported in
+`docs/I20-PARETO-GATE-CLOSURE-RESULTS-2026-10-21.md` §4.4 with their absolute candidate and
+reference times.
+
+**What the programme learned, and what it did not.** (i) The inverse BWT performs `n/2` dependent
+random accesses for **every** checkpoint stride, so the auxiliary walk budget is a **byte knob
+only** (C2, NO-GO — measured: W = 8192 → 16384 made the same-job decode ratio *worse*,
+1.2866 → 1.3986, for +419,744 B). (ii) What *does* speed the inverse BWT up is making its working
+set smaller: the 1 MiB cap decodes the Silesia portfolio **2.26× faster** because the `n/2`
+accesses become cache-resident in a `4C`-byte LF array. (iii) The gate's memory axis is decided by
+a single file — `mozilla` (51,220,480 B), which the router keeps on the **Brotli** route at every
+cap — so no sub-block cap and no BWT working-set lever can touch it; only streaming the Brotli
+backend's output can, and that is exactly what closed G5. (iv) G5 is unreachable by any
+Brotli-backed route (Brotli q11/lw30's own peak RSS is 2.26× `xz` on Silesia and 3.81× on enwik8),
+so the decode gates and the memory gate are reachable only by *disjoint* routes — which is why the
+closed arm is a BWT-routed, memory-bounded, byte-charged point rather than a Brotli-routed fast
+one. (v) **enwik8 remains structurally out of reach for this gate**, with the arithmetic recorded:
+the caps that bound the working set flip the file to Brotli (G3/G4 pass, G5 fails at 3.803×) and
+the caps that keep the BWT route leave the peak at 6.223–9.059×.
+
+**C1 and C5 are INCONCLUSIVE, not NO-GO.** C1's profiling workflow failed four times on the hosted
+runner and its worker's session ended before the write-up; C5's session ended before its
+measurement was published. Neither is evidence for or against its hypothesis and neither is counted
+as a win.
+
+**The claim is bounded exactly as the tool bounds it.** `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`
+is **not** a FRONT-CROSSING: the tool's own scope note says it "does not establish a crossing
+because encode and decoder-only binary-size axes are not ruled here". **The retained Class-A ruling
+is unchanged: 435 DOMINATED / 28 DEGENERATE / 5 FRONT-GAP / 0 FRONT-CROSSING.** What I20
+established is that the canonical ratio route's decode-cost and peak-RSS deficits are closable by a
+zero-byte-cost decode-side change plus a chargeable encoder-policy knob, at the price of 94.5 % of
+the byte surplus. **No novelty claim is made or authorized anywhere in I20**; all results are
+`{adopt-class}` / `{engineering}`.
 
