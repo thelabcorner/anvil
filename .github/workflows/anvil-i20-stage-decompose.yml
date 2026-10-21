@@ -33,7 +33,7 @@ on:
           - '5'
 
 concurrency:
-  group: anvil-i20-stage-decompose-${{ matrix.corpus }}
+  group: anvil-i20-stage-decompose
   cancel-in-progress: false
 
 permissions:
@@ -41,6 +41,10 @@ permissions:
 
 jobs:
   stage-decompose:
+    concurrency:
+      group: anvil-i20-stage-decompose-${{ matrix.corpus }}
+      cancel-in-progress: false
+
     strategy:
       fail-fast: false
       matrix:
