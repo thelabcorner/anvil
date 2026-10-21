@@ -1,0 +1,320 @@
+name: ANVIL I20 C1 BWT decode stage decomposition
+
+# I20 candidate C1: attribute the whole-codec decode cost of the canonical
+# ANVIL ratio route (BWT backend + auxiliary-index v2 payload) into
+#   (a) postcoder entropy decode, (b) MTF + zero-run RLE expansion,
+#   (c) inverse BWT (libsais LF walk / checkpoint jumps),
+#   (d) residual: framing, allocation, CRC-32, file I/O.
+#
+# This job does NOT modify src/anvil.cpp.  It profiles the frozen candidate
+# with valgrind --tool=callgrind (deterministic instruction counts) and gprof
+# (wall-clock samples), and cross-checks the baseline byte/RSS identity.
+# Manual dispatch only; no local compute.
+on:
+  workflow_dispatch:
+    inputs:
+      reps:
+        description: Paired decode repetitions per file
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+      gprof_reps:
+        description: gprof sampling repetitions per BWT-routed file
+        required: true
+        default: '3'
+        type: choice
+        options:
+          - '1'
+          - '3'
+          - '5'
+
+concurrency:
+  group: anvil-i20-stage-decompose
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stage-decompose:
+    concurrency:
+      group: anvil-i20-stage-decompose-${{ matrix.corpus }}
+      cancel-in-progress: false
+
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus:
+          - silesia
+          - enwik8
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    env:
+      CANDIDATE_TAG: i10-aux-unbwt-final-v1
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/i20-stage-${{ matrix.corpus }}
+
+    steps:
+      - name: Checkout evaluation tooling (this branch)
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Checkout frozen I10-1A candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_TAG }}
+          path: candidate
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils time python3 valgrind binutils
+
+      - name: Fingerprint runner and source
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "candidate_tag=$CANDIDATE_TAG"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "anvil_cpp_blob=$(git -C candidate rev-parse HEAD:src/anvil.cpp)"
+            echo "libsais_blob=$(git -C candidate rev-parse HEAD:third_party/libsais/src/libsais.c)"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            valgrind --version
+            gprof --version 2>&1 | head -n 1 || true
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+            dpkg-query -W -f='valgrind=${Version}\n' valgrind
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build frozen candidate (reference build)
+        run: |
+          cmake -S candidate -B candidate/build-ref -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-ref --parallel 4 --target anvil brotli_lw
+          sha256sum candidate/build-ref/anvil candidate/build-ref/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Build attribution binary (Release + -g -fno-inline)
+        continue-on-error: true
+        run: |
+          cmake -S candidate -B candidate/build-attr -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_C_FLAGS="-g" \
+            -DCMAKE_CXX_FLAGS="-g" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -fno-inline" \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-attr --parallel 4 --target anvil
+          sha256sum candidate/build-attr/anvil | tee -a "$OUT_DIR/binary-sha256.txt"
+
+      - name: Build gprof binary (Release + -g -pg)
+        continue-on-error: true
+        run: |
+          cmake -S candidate -B candidate/build-prof -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_C_FLAGS="-g" \
+            -DCMAKE_CXX_FLAGS="-g" \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -pg" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -pg" \
+            -DCMAKE_EXE_LINKER_FLAGS="-pg" \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-prof --parallel 4 --target anvil
+          sha256sum candidate/build-prof/anvil | tee -a "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py \
+            "${{ matrix.corpus }}" \
+            --out "$CORPUS_ROOT"
+          {
+            echo "corpus=${{ matrix.corpus }}"
+            find "$CORPUS_ROOT" -type f | sort | while read -r f; do
+              echo "$(sha256sum "$f" | cut -d' ' -f1)  $(stat -c %s "$f")  $f"
+            done
+          } | tee "$OUT_DIR/corpus-sha256.txt"
+
+      - name: Assert all three builds are byte-identical encoders
+        run: |
+          python3 - <<'PY' | tee "$OUT_DIR/build-equivalence.txt"
+          import hashlib, os, pathlib, subprocess, sys
+          corpus = os.environ["CORPUS_ROOT"]
+          if "silesia" in corpus:
+              root = pathlib.Path(corpus) / "silesia"
+              files = sorted(root.iterdir(), key=lambda p: p.stat().st_size)
+              src = files[0]
+          else:
+              src = pathlib.Path(corpus) / "enwik8" / "enwik8"
+          builds = {
+              "ref": "candidate/build-ref/anvil",
+              "attr": "candidate/build-attr/anvil",
+              "prof": "candidate/build-prof/anvil",
+          }
+          digests = {}
+          for name, rel in builds.items():
+              p = pathlib.Path(rel)
+              if not p.is_file():
+                  print(f"{name}: MISSING ({rel})")
+                  continue
+              dst = pathlib.Path("/tmp") / f"equiv-{name}.anv"
+              r = subprocess.run([str(p), "c", str(src), str(dst),
+                                  "--parse=ratio", "--ratio-backend=auto",
+                                  "--ratio-context=off", "--ratio-lines=off",
+                                  "--bwt-aux=on", "--quiet"],
+                                 capture_output=True)
+              if r.returncode != 0:
+                  print(f"{name}: ENCODE FAILED rc={r.returncode} "
+                        f"{r.stderr.decode(errors='replace')[-400:]}")
+                  continue
+              digests[name] = hashlib.sha256(dst.read_bytes()).hexdigest()
+              print(f"{name}: {digests[name]}  bytes={dst.stat().st_size}")
+          print(f"file: {src} ({src.stat().st_size} B)")
+          if len(digests) == 3:
+              ok = len(set(digests.values())) == 1
+              print("BUILD_BYTE_IDENTITY:", "PASS" if ok else "FAIL")
+              if not ok:
+                  sys.exit(1)
+          else:
+              print("BUILD_BYTE_IDENTITY: INCONCLUSIVE (missing build)")
+          PY
+
+      - name: Prepare exact payloads and correctness gate
+        run: |
+          python3 tooling/tools/i20_stage_decompose.py prepare \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --anvil candidate/build-ref/anvil \
+            --brotli candidate/build-ref/brotli_lw \
+            --out "$OUT_DIR" \
+            --encode-reps 3
+
+      - name: Measure per-process decode peak RSS
+        run: |
+          python3 tooling/tools/i20_stage_decompose.py rss \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --out "$OUT_DIR"
+
+      - name: Upload prepare + RSS evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-stage-a-prepare-${{ matrix.corpus }}-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/prepare-summary.json
+            ${{ env.OUT_DIR }}/bytes.csv
+            ${{ env.OUT_DIR }}/rss.json
+            ${{ env.OUT_DIR }}/rss.csv
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/corpus-sha256.txt
+            ${{ env.OUT_DIR }}/binary-sha256.txt
+            ${{ env.OUT_DIR }}/build-equivalence.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Per-file paired/interleaved decode timing
+        run: |
+          python3 tooling/tools/i20_stage_decompose.py time \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --driver tooling/tools/paired_bench.py \
+            --out "$OUT_DIR" \
+            --reps "${{ inputs.reps }}" \
+            --warmups 2 \
+            --cpu 0
+
+      - name: Upload paired timing evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-stage-b-timing-${{ matrix.corpus }}-${{ github.run_id }}
+          path: ${{ env.OUT_DIR }}/paired-*.csv
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: BWT decode stage decomposition (callgrind + gprof)
+        run: |
+          python3 tooling/tools/i20_stage_decompose.py profile \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --source candidate/src/anvil.cpp \
+            --anvil candidate/build-ref/anvil \
+            --anvil-attr candidate/build-attr/anvil \
+            --anvil-prof candidate/build-prof/anvil \
+            --gprof-reps "${{ inputs.gprof_reps }}" \
+            --out "$OUT_DIR"
+
+      - name: Best-effort perf stat cross-check
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          prep = json.loads((out / "prepare-summary.json").read_text())
+          bwt = [f for f in prep["files"] if "bwt" in f["arms"]["anvil"]["routing"]]
+          if not bwt:
+              print("no BWT-routed file; skipping perf")
+              raise SystemExit(0)
+          f = bwt[0]
+          cmd = f["arms"]["anvil"]["cmd"]
+          r = subprocess.run(["perf", "stat"] + cmd, capture_output=True)
+          txt = r.stdout.decode(errors="replace") + r.stderr.decode(errors="replace")
+          (out / "perf-stat.txt").write_text(txt)
+          print(txt[-3000:])
+          PY
+
+      - name: Summarize stage shares and Amdahl arithmetic
+        if: ${{ always() }}
+        run: |
+          python3 tooling/tools/i20_stage_decompose.py summarize \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --timing "$OUT_DIR/timing.json" \
+            --profile "$OUT_DIR/profile.json" \
+            --out "$OUT_DIR"
+          if [ -f "$OUT_DIR/summary.md" ]; then
+            cat "$OUT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Prune bulky intermediates
+        if: ${{ always() }}
+        run: |
+          rm -rf "$OUT_DIR/packed" "$OUT_DIR/decoded" || true
+          du -sh "$OUT_DIR" || true
+
+      - name: Upload stage-decomposition evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-stage-c-profile-${{ matrix.corpus }}-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/profile.json
+            ${{ env.OUT_DIR }}/summary.json
+            ${{ env.OUT_DIR }}/summary.md
+            ${{ env.OUT_DIR }}/timing.json
+            ${{ env.OUT_DIR }}/callgrind
+            ${{ env.OUT_DIR }}/gprof
+            ${{ env.OUT_DIR }}/perf-stat.txt
+          if-no-files-found: warn
+          retention-days: 30
