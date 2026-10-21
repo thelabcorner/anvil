@@ -1,0 +1,224 @@
+name: ANVIL I20 Pareto gate closure
+
+# Coordinator-owned final arbiter for the I20 program.
+#
+# It reuses the FROZEN arbiter (tools/reference_cost_gate.py) unmodified in
+# behaviour: same corpus lock, same same-job paired protocol, same A/A null,
+# same per-process peak-RSS measurement, same ruling function. The only
+# addition is that the candidate binary may be built from an arbitrary git ref
+# and may receive extra encoder-policy flags, so that a winning I20 arm can be
+# ruled by exactly the same tool that produced the baseline ruling.
+#
+# This workflow cannot invent a crossing: the ruling token is emitted by
+# tools/reference_cost_gate.py::summarize and nothing else.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: 'Git ref to build as the ANVIL candidate (branch, tag or SHA)'
+        required: true
+        default: 'research/anvil-i20-pareto-gate-closure-20261021'
+      candidate_extra_args:
+        description: 'Space-separated extra ANVIL encoder flags for the candidate arm (empty = frozen baseline arm)'
+        required: false
+        default: ''
+      reps:
+        description: Paired decode repetitions
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+      expect_silesia:
+        description: 'Expected Silesia candidate total bytes (0 = do not assert)'
+        required: true
+        default: '46466339'
+      expect_enwik8:
+        description: 'Expected enwik8 candidate total bytes (0 = do not assert)'
+        required: true
+        default: '23537422'
+
+concurrency:
+  group: anvil-i20-gate-closure
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate-closure:
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus:
+          - silesia
+          - enwik8
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/gate-closure-${{ matrix.corpus }}
+      CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      CANDIDATE_EXTRA_ARGS: ${{ inputs.candidate_extra_args }}
+
+    steps:
+      - name: Checkout measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          path: candidate
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils time python3
+
+      - name: Fingerprint runner, source and arm
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "candidate_ref=$CANDIDATE_REF"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "candidate_src_sha256=$(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "tooling_ref_gate_sha256=$(sha256sum tooling/tools/reference_cost_gate.py | cut -d' ' -f1)"
+            echo "candidate_extra_args=[$CANDIDATE_EXTRA_ARGS]"
+            echo "reps=${{ inputs.reps }}"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+          } | tee "$OUT_DIR/provenance.txt"
+          printf '%s\n' "$CANDIDATE_REF" > "$OUT_DIR/candidate-ref.txt"
+          printf '%s\n' "$CANDIDATE_EXTRA_ARGS" > "$OUT_DIR/candidate-extra-args.txt"
+
+      - name: Build candidate and Brotli reference helper
+        run: |
+          cmake -S candidate -B candidate/build-gate -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-gate --parallel 4 --target anvil brotli_lw
+          sha256sum candidate/build-gate/anvil candidate/build-gate/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py \
+            "${{ matrix.corpus }}" \
+            --out "$CORPUS_ROOT"
+
+      - name: Prepare exact payloads and correctness gate
+        run: |
+          if [ "${{ matrix.corpus }}" = "silesia" ]; then
+            EXPECTED="${{ inputs.expect_silesia }}"
+          else
+            EXPECTED="${{ inputs.expect_enwik8 }}"
+          fi
+          EXTRA=()
+          if [ -n "$CANDIDATE_EXTRA_ARGS" ]; then
+            # shellcheck disable=SC2206
+            EXTRA=($CANDIDATE_EXTRA_ARGS)
+          fi
+          ARGS=()
+          if [ "$EXPECTED" != "0" ]; then
+            ARGS=(--expected-candidate-total "$EXPECTED")
+          fi
+          python3 tooling/tools/reference_cost_gate.py prepare \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --anvil candidate/build-gate/anvil \
+            --brotli candidate/build-gate/brotli_lw \
+            --out "$OUT_DIR" \
+            --candidate-extra-args "${EXTRA[@]}" \
+            "${ARGS[@]}"
+
+      - name: Paired/interleaved decode timing
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          reps = "${{ inputs.reps }}"
+          candidate = ["bash", str(out / "decode-anvil-aux.sh")]
+
+          comparisons = {
+              "xz": ["bash", str(out / "decode-xz.sh")],
+              "brotli": ["bash", str(out / "decode-brotli.sh")],
+              "null": candidate,
+          }
+
+          for name, control in comparisons.items():
+              cmd = [
+                  sys.executable, str(driver),
+                  "--control-json", json.dumps(control),
+                  "--candidate-json", json.dumps(candidate),
+                  "--reps", reps,
+                  "--warmups", "2",
+                  "--seed", "41246",
+                  "--bootstrap", "20000",
+                  "--epsilon", "0.02",
+                  "--max-cv", "0.15",
+                  "--cpu", "0",
+                  "--ambient-reps", "5",
+                  "--ambient-iterations", "250000",
+                  "--ambient-max-cv", "0.10",
+                  "--out", str(out / f"paired-{name}.csv"),
+                  "--summary", str(out / f"paired-{name}.json"),
+                  "--stdout-dir", str(out / f"stdout-{name}"),
+              ]
+              print("RUN", name, flush=True)
+              subprocess.run(cmd, check=True)
+          PY
+
+      - name: Measure per-process decode peak RSS
+        run: |
+          python3 tooling/tools/reference_cost_gate.py rss \
+            --manifest "$OUT_DIR/anvil-aux-commands.json" \
+            --manifest "$OUT_DIR/brotli-commands.json" \
+            --manifest "$OUT_DIR/xz-commands.json" \
+            --out "$OUT_DIR"
+
+      - name: Rule the external reference-cost gate
+        run: |
+          python3 tooling/tools/reference_cost_gate.py summarize \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --xz-pair "$OUT_DIR/paired-xz.json" \
+            --brotli-pair "$OUT_DIR/paired-brotli.json" \
+            --null-pair "$OUT_DIR/paired-null.json" \
+            --out "$OUT_DIR/ruling.json"
+
+          cat "$OUT_DIR/ruling.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw gate-closure evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-gate-closure-${{ matrix.corpus }}-${{ github.run_id }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30

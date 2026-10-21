@@ -384,5 +384,30 @@ separate branches**, and the coordinator performs any merge. W1/W3/W5/W6 never m
 
 ---
 
+## 10. Coordinator tooling (additive, default-preserving)
+
+Two pieces of coordinator-owned tooling exist so that a winning arm is judged by **exactly** the
+same arbiter that produced the baseline ruling. Neither changes the arbiter's behaviour.
+
+1. **`tools/reference_cost_gate.py` — new optional flag `--candidate-extra-args`** (default
+   `[]`). The flag appends encoder-policy flags to the ANVIL candidate arm's encode command so a
+   candidate arm (for example `--bwt-aux-walks 16384 --bwt-subblock 4194304`) can be ruled by the
+   frozen arbiter. **With the default the generated command is byte-identical to the pre-I20
+   form** (verified by inspection of the command construction and by the baseline reproduction
+   run asserting the frozen portfolio totals). No other function of the tool is touched: the
+   corpus lock, the round-trip gate, the paired protocol, the A/A null, the RSS measurement and
+   the `summarize` ruling function are unchanged.
+2. **`.github/workflows/anvil-i20-gate-closure.yml`** — a coordinator-owned workflow that builds a
+   candidate from an arbitrary git ref, runs the frozen `prepare` / `paired_bench` / `rss` /
+   `summarize` sequence, and uploads the ruling. It is `workflow_dispatch` only,
+   `permissions: contents: read`, `cancel-in-progress: false`, with a finite timeout and
+   `if: always()` artifact upload. It emits the ruling token produced by the frozen tool and
+   nothing else.
+
+Both are recorded here so that the arbiter's integrity is auditable: the I20 program's final
+verdict is a `tools/reference_cost_gate.py` token, not a coordinator opinion.
+
+---
+
 *Preregistered 2026-10-21 by the I20 coordinator. All thresholds above are fixed before
 measurement and will not be altered after results are observed.*
