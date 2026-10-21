@@ -130,18 +130,21 @@ new `decompress_to_file()` opens the output, and the `0xFF` sub-block loop hands
 bytes to the sink as soon as they are produced, so neither the file-level accumulator nor the
 `0xFF` block accumulator is ever resident at the inverse-BWT peak.
 
-**Does L3 cover the Brotli backend (backend_id 1) as well as the BWT backend (backend_id 2)? —
-the load-bearing question for G5.** Precisely:
+**Does L3 cover the Brotli backend path (backend_id 1) as well as the BWT backend (backend_id 2)? —
+the load-bearing question for G5.** **YES, since commit `f9be2fc`** (the answer was NO in the first
+L3 revision, and the coordinator's prompt is what closed it). Precisely:
 
 | term | backend 1 (Brotli) | backend 2 (BWT) |
 |---|---|---|
 | **file-level accumulator** (`decompress()`'s `out`, the whole decoded file, up to `n` bytes) | **REMOVED by L3** — the `streaming` flag is `sink && sink->out && revision==2` and is **backend-independent**; the accumulator is only allocated when `!streaming`, and the block bytes go to the sink instead of into it | **REMOVED by L3** |
 | `0xFF` block accumulator (up to `n` bytes) | n/a (no `0xFF` frame on the Brotli route) | **REMOVED by L3** (the sub-block loop pushes each sub-block to the sink) |
-| per-block output vector | **still materialised**: `ratio_backend_decode` returns `brotli_lw_decode_exact(p,n,expected)`, and `BrotliDecoderDecompress` allocates the whole 51,220,480-byte output *inside the Brotli API*. L3 writes it to the sink and frees it immediately, but it is resident during that block's decode. Removing it would need a `BrotliDecoderDecompressStream` loop — a **new arm, outside C4's decode-path scope** | removed at the default cap only by L2 (the BWT string *is* the output buffer); at a sub-block cap it is removed by L3 as well |
+| **the backend's own whole-file output buffer** | **REMOVED by L3 since `f9be2fc`** — `brotli_lw_decode_exact()` (which allocated `expected+1` bytes and filled them in one `BrotliDecoderDecompressStream` call) is no longer used when a sink is present; the new `brotli_lw_decode_stream()` decodes through a 256 KiB window and hands every produced chunk to the sink as the decoder produces it. Same decoder, same stream, same byte order, same total — the bytes are identical to `brotli_lw_decode_exact()`'s. This is the **50,020 KiB** term (Silesia's `mozilla` is 51,220,480 B) that floors the Silesia portfolio peak | removed at the default cap by L2 (the BWT string *is* the output buffer); at a sub-block cap it is removed by L3 as well |
 
-So **L3 removes the ~50 MiB file-proportional term for the Brotli-routed `mozilla`** — which is
-exactly the term that floors the Silesia portfolio peak — but it does **not** remove Brotli's own
-whole-file output buffer. The measured consequence is in §5.6.
+**The 51,220,480-byte Brotli output buffer was invisible to every BWT-side lever** — the file never
+touches the BWT path — and it is the term that sets the Silesia portfolio peak, because the
+router keeps `mozilla` on the Brotli route at every cap (its split-BWT payload, 17,773,492 B at the
+8 MiB cap, always exceeds its Brotli payload of 13,806,173 B). Brotli's *internal* ring buffer
+(the history window) is not removable by this lever; it stays.
 
 *CRC correctness (the coordinator's specific question)*: the block CRC-32 covers the **original**
 block bytes. The sub-block bytes **are** the original block bytes, in order (the `0xFF` frame's
@@ -467,17 +470,19 @@ the file-level accumulator (measured: enwik8 at the 8 MiB cap is 257,632 KiB wit
 
 ## 9. Next steps / blockers
 
-1. **Merge PR #16 (or `b0a0897`) into the programme branch before ruling the combined arm.** The
-   two in-flight arbiter runs (`39674648000` at the 4 MiB cap, `39674653288` at the 8 MiB cap) are
-   built from the programme branch `research/anvil-i20-pareto-gate-closure-20261021` @ `bbfd7fc`,
-   which **does not contain the C4 levers** (verified: that tree has no `decompress_to_file`, no
-   `anvil_option_takes_value` and no `I20-W4 lever` markers). They therefore measure the
-   cap-only arm, not cap+C4.
+1. **Merge PR #16 (branch head `f9be2fc`) into the programme branch before ruling the combined
+   arm.** The arbiter runs dispatched so far (`39674648000` at the 4 MiB cap, `39674653288` at the
+   8 MiB cap, and the two coordinator arms) are built from the programme branch
+   `research/anvil-i20-pareto-gate-closure-20261021`, whose HEAD (`e84b5eb…`) **does not contain the
+   C4 levers** — verified by reading that tree: it has no `decompress_to_file`, no
+   `brotli_lw_decode_stream`, no `anvil_option_takes_value` and no `I20-W4 lever` marker. They
+   therefore measure the cap-only arm, not cap+C4.
 2. **The Silesia G5 gate needs a Brotli-side lever, not a BWT-side one.** `mozilla` (Brotli route)
-   floors the portfolio peak at ≈125.6 MiB = 2.27× `xz`. L3 removes ~50 MiB of it (the
-   file-level accumulator), which should bring it to ≈75 MiB = 1.36× and clear G5 — measured in
-   §5.6. What remains after L3 is Brotli's *own* whole-file output buffer, which would need a
-   streaming Brotli decode (`BrotliDecoderDecompressStream`) to remove as well.
+   floors the portfolio peak at ≈125.6 MiB = 2.27× `xz`. L3 removes the whole-file output buffer
+   from the Brotli decode (§2, L3) — the **50,020 KiB** term — which should bring `mozilla` to
+   ≈75 MiB = 1.36× and clear G5; §5.6 reports the measurement. What remains after L3 is Brotli's
+   *internal* history ring buffer, which cannot be removed without changing the Brotli window
+   size (an encoder-policy change, outside C4's scope).
 3. **The `--bwt-aux-walks` off-by-one** (a sibling worker's flag parser: `a.substr(15)` where the
    value starts at index 16) was surfaced by the spaced-form normaliser and fixed by the
    coordinator in the merged arm (`ec2238e`). If the branch is re-merged, re-check `a.substr(16)`.
