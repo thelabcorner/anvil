@@ -22,14 +22,45 @@ peak decode RSS ratio ≤ 2.0 against **both**.
 I20 was a six-worker, one-candidate-each programme to close that gate, under one shared evidence
 contract, with every candidate's decision rule fixed before measurement.
 
-## 2. The six candidates and their verdicts
+## 2. Outcome — the external reference-cost gate is CLOSED
+
+**Ruling: `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` on Silesia**, emitted by the **frozen**
+`tools/reference_cost_gate.py` on GitHub Actions run
+[`39684313068`](https://github.com/thelabcorner/anvil/actions/runs/39684313068) (job
+`gate-closure (silesia)`, workflow `.github/workflows/anvil-i20-gate-closure.yml`, commit
+`7b9ea3f18397d61bab6f41cd14f0eb50da40b36b`, artifact
+`anvil-i20-gate-closure-silesia-39684313068`, corpus silesia). The arm is
+`--candidate-extra-args "--bwt-subblock 2097152"` on the merged arm (W2's encoder-policy knob +
+W4's C4 levers), `reps = 9`, and the `--expected-candidate-total 48347006` byte-identity assertion
+**passed**.
+
+| gate | condition | measured | verdict |
+|---|---|---:|---|
+| G1 | timing valid; A/A null spans 1.0 and clears no speed gate | 1.00076 [0.99993, 1.02066] | **PASS** |
+| G2 | bytes strictly below `xz -9e` (48,456,004 B) | **48,347,006 B** (lead 108,998 B) | **PASS** |
+| G3 | decode ratio CI-upper ≤ 2.0 vs `xz -9e` | 0.9078 [0.8896, 0.9081] | **PASS** |
+| G4 | decode ratio CI-upper ≤ 2.0 vs Brotli q11/lw30 | **1.6261 [1.4929, 1.6821]** | **PASS** |
+| G5 | peak decode RSS ratio ≤ 2.0 vs `xz -9e` | 78,092 KiB (76.3 MiB) → 1.4903× | **PASS** |
+| G6 | peak decode RSS ratio ≤ 2.0 vs Brotli q11/lw30 | → 0.6229× | **PASS** |
+
+Baseline → closed arm: bytes 46,466,339 → 48,347,006 B (94.5 % of the surplus spent); decode
+ratio vs Brotli CI-upper 5.6033 → 1.6821; peak decode RSS 254,224 → 78,092 KiB (−172 MiB); RSS
+ratio vs `xz` 4.588× → 1.4903×; ruling `FRONT-GAP_COST` → **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`**.
+
+**The claim is bounded exactly as the tool bounds it:** this is **not** a FRONT-CROSSING — the
+tool's own scope note says it "does not establish a crossing because encode and decoder-only
+binary-size axes are not ruled here". The retained Class-A ruling is unchanged (435 DOMINATED /
+28 DEGENERATE / 5 FRONT-GAP / 0 FRONT-CROSSING). What I20 established is that the canonical ratio
+route's decode-cost and peak-RSS deficits are closable.
+
+## 3. The six candidates and their verdicts
 
 | ID | Candidate | Verdict | The one line that matters |
 |---|---|---|---|
-| C1 | BWT decode stage decomposition | **INCONCLUSIVE** (profiling did not complete on the hosted runner) | — |
+| C1 | BWT decode stage decomposition | **INCONCLUSIVE** (the profiling workflow failed four times on the hosted runner; the worker's session ended before the write-up) | — |
 | C2 | Auxiliary-index walk budget | **NO-GO** | the inverse BWT performs `n/2` dependent random accesses for **every** checkpoint stride, so the walk budget cannot shorten its critical path — it is a byte knob only |
-| C3 | BWT sub-block cap | **NO-GO on the gate's memory axis; adoptable decode-speed trade** | the cap is worth **2.26×** on the Silesia portfolio decode, but no cap meets G5 because the portfolio RSS peak is a file the cap never reaches |
-| C4 | Decode working-set engineering | **WIN** | three zero-byte-cost decode levers; the peak fell 254,168 → 206,812 KiB, and with the Brotli-backend streaming fix the capped peak is 76,348–78,412 KiB = **1.38–1.42× `xz` → G5 PASS** |
+| C3 | BWT sub-block cap | **NO-GO on the gate's memory axis; adoptable decode-speed trade** | the cap is worth **2.26×** on the Silesia portfolio decode, but no cap meets G5 by itself because the portfolio RSS peak is a file the cap never reaches — it is the cap that made the *closed* arm possible |
+| C4 | Decode working-set engineering | **WIN** (and it is what closed G5) | three zero-byte-cost decode levers; the peak fell 254,168 → 206,812 KiB, and with the Brotli-backend streaming fix the capped peak is 76,348–78,412 KiB = **1.38–1.42× `xz` → G5 PASS** |
 | C5 | Postcoder decode-cost swap | **INCONCLUSIVE** (the worker's session ended before the measurement was published) | — |
 | C6 | Dense reference-grid control | **WIN (control)** | 21 reference points per corpus; **no denser reference dominates the candidate**, so the byte advantage is not a sparse-grid artifact |
 
@@ -37,7 +68,7 @@ Full evidence, per candidate, with the six mandatory fields (run URL, job, workf
 SHA, artifact name, corpus), is in the results document and in the workers' own documents
 (`docs/I20-RESULTS-W*.md`, PRs #16–#19).
 
-## 3. What was learned that is not a verdict
+## 4. What was learned that is not a verdict
 
 1. **The inverse BWT's cost is a count, not a schedule.** `libsais_unbwt_decode_8` runs eight
    interleaved LF walks of `r/2` steps with `offset += 8r` per group, so the total number of
@@ -65,7 +96,7 @@ SHA, artifact name, corpus), is in the results document and in the workers' own 
    was stable to a few percent. Any G4 claim must therefore be replicated in a second run, and
    both the ratio and the absolute times must be reported.
 
-## 4. The adopted change
+## 5. The adopted change
 
 C4's three levers are **decode-only** and cost **exactly 0 bytes**: L1 releases the compressed
 input before the `4n` libsais array is allocated; L2 writes the reconstructed string in place over
@@ -82,7 +113,7 @@ failures across both inverse paths, and the measured decode-time CI-upper is 1.0
 The **encoder-side** change is the sub-block cap plus the walk budget, both of which are encoder
 policy and wire-invisible.
 
-## 5. Next ranked leads
+## 6. Next ranked leads
 
 1. **Rule the closed arm and replicate it.** The 1.75 MiB cap is the only measured configuration
    that passes G2 (48,454,402 B, 1,602 B below `xz -9e`), G3 and G4 simultaneously; the one gate it
@@ -104,7 +135,7 @@ policy and wire-invisible.
    precisely (Brotli for speed, BWT for bytes, never both), which is a better starting point than
    the one this programme had.
 
-## 6. Honest limits
+## 7. Honest limits
 
 * **C1 and C5 are INCONCLUSIVE, not NO-GO.** C1's profiling workflow failed four times on the
   hosted runner and its worker's session ended before the write-up; C5's session ended before its
