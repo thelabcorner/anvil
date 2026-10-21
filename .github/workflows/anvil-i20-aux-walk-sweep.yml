@@ -54,7 +54,10 @@ on:
           - '13'
 
 concurrency:
-  group: anvil-i20-aux-walk-sweep
+  # One group per configuration so that a byte-only sweep, a timed sweep and
+  # a cap-only sweep can run in parallel on separate runner VMs, while two
+  # runs of the SAME configuration are still serialized.
+  group: anvil-i20-aux-walk-sweep-${{ inputs.mode }}-${{ inputs.caps }}-${{ inputs.walks }}
   cancel-in-progress: false
 
 permissions:
@@ -187,6 +190,22 @@ jobs:
             --caps-mib "$CAPS" \
             --out "$OUT_DIR" \
             "${FROZEN_ARG[@]}"
+
+      - name: Assert the Adopt-Gate byte identity on the collected data
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+          p = pathlib.Path(os.environ["OUT_DIR"]) / "prepare.json"
+          d = json.loads(p.read_text(encoding="utf-8"))
+          checks = d.get("checks", {})
+          for k, v in sorted(checks.items()):
+              print(f"{'OK  ' if v['ok'] else 'FAIL'} {k}: {v['detail']}")
+          bad = sorted(k for k, v in checks.items() if not v["ok"])
+          if bad:
+              print("FAILED CHECKS: " + ", ".join(bad))
+              sys.exit(1)
+          print("all byte-identity checks OK")
+          PY
 
       - name: Validate the --bwt-aux-walks and --bwt-subblock knob contracts
         run: |
