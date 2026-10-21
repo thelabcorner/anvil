@@ -136,6 +136,19 @@ def parse_anvil_container(path: Path) -> dict[str, Any]:
                 return x, p
             sh += 7
 
+    def uvar_buf(buf: bytes, p: int) -> tuple[int, int]:
+        x = 0
+        sh = 0
+        while True:
+            if p >= len(buf):
+                raise RuntimeError("truncated varint")
+            b = buf[p]
+            p += 1
+            x |= (b & 0x7F) << sh
+            if not (b & 0x80):
+                return x, p
+            sh += 7
+
     block_size, pos = uvar(pos)
     total, pos = uvar(pos)
     blocks = []
@@ -158,14 +171,12 @@ def parse_anvil_container(path: Path) -> dict[str, Any]:
         pl = blocks[0]["payload"]
         transform = pl[0]
         backend = pl[1]
-        xlen, _ = uvar(2)
+        # the xlen varint lives INSIDE the ratio payload, not in the file buffer
+        xlen, p2 = uvar_buf(pl, 2)
         out.update({
             "transform": transform, "backend": backend, "transformed_size": xlen,
             "ratio_payload_bytes": len(pl),
         })
-        # exact: the backend payload is everything after [transform][backend][uvar xlen]
-        p2 = 2
-        _, p2 = uvar(p2)
         out["backend_payload_bytes"] = len(pl) - p2
         out["container_overhead_bytes"] = len(data) - len(pl)
         if backend == 2:
@@ -254,12 +265,14 @@ def stage_prepare(args: argparse.Namespace) -> dict[str, Any]:
             "bwt_routed": bwt_routed,
             "backend_id": info.get("backend"),
             "postcoder_id": info.get("postcoder"),
+            "transform_id": info.get("transform"),
             "transformed_size": info.get("transformed_size"),
         })
         print(
             f"{name}: canonical={canon_sz:,} brotli_forced={brt_sz:,} "
             f"brotli_ref={br_sz:,} xz9e={xz_sz:,} backend={info.get('backend')} "
-            f"postcoder={info.get('postcoder')} bwt_routed={bwt_routed}",
+            f"transform={info.get('transform')} postcoder={info.get('postcoder')} "
+            f"bwt_routed={bwt_routed}",
             flush=True,
         )
 

@@ -441,7 +441,9 @@ struct I20Target {
     size_t block_index = 0;
     I20Ratio ratio;
     I20Bwt bwt;
-    uint64_t xlen = 0;
+    uint64_t xlen = 0;         // transformed size (the BWT block size)
+    uint64_t out_len = 0;      // the original block length (the container blen)
+    uint8_t transform = 0;     // 0 direct, 1 ctx1-256, 2 line-columns
     const uint8_t* arith_body = nullptr;  // [uvar nbits][arith bytes] for post 2
     size_t arith_body_len = 0;
     uint64_t nbits = 0;
@@ -459,8 +461,10 @@ static I20Target i20_open_target(const std::vector<uint8_t>& anv) {
     const I20Block& b = t.cont.blocks[0];
     if (b.mode != 17) throw std::runtime_error("prototype expects block mode 17 (ratio envelope)");
     t.old_plen = b.payload.size();
+    t.out_len = b.blen;
     t.ratio = i20_parse_ratio(b.payload);
-    if (t.ratio.transform != 0) throw std::runtime_error("prototype expects ratio transform 0");
+    t.transform = t.ratio.transform;
+    if (t.ratio.transform > 2) throw std::runtime_error("prototype expects ratio transform 0..2");
     if (t.ratio.backend != kRatioBackendBwt) throw std::runtime_error("prototype expects ratio backend 2 (BWT)");
     t.xlen = t.ratio.xlen;
     t.bwt = i20_parse_bwt(t.ratio.body, t.ratio.body_len);
@@ -528,6 +532,27 @@ static std::vector<uint8_t> i20_inverse_bwt(const I20Target& t, const std::vecto
     return out;
 }
 
+// Apply the ratio-envelope INVERSE transform to the backend output.  Mirrors
+// src/anvil.cpp `decode_ratio_block` (lines 4653-4656).  The postcoder swap is
+// independent of the transform (the BWT is of the TRANSFORMED bytes), so the
+// swap only needs the inverse transform applied afterwards to reproduce the
+// original block.
+static std::vector<uint8_t> i20_finish_block(const I20Target& t, const std::vector<uint8_t>& x) {
+    if (t.transform == 0) {
+        if (x.size() != t.out_len) throw std::runtime_error("ratio direct size mismatch");
+        return x;
+    }
+    if (t.transform == 1) return ratio_inverse_ctx1(x, static_cast<size_t>(t.out_len));
+    return ratio_inverse_lines(x, static_cast<size_t>(t.out_len));
+}
+
+// The whole block decode: postcoder -> BWT bytes -> inverse BWT -> inverse transform.
+static std::vector<uint8_t> i20_decode_block(const I20Target& t, I20DecodeMode mode,
+                                             const std::vector<uint8_t>* cand_body) {
+    auto bwt = i20_decode_bwt(t, mode, cand_body);
+    return i20_finish_block(t, i20_inverse_bwt(t, bwt));
+}
+
 // ---------------------------------------------------------------------------
 // command: info
 // ---------------------------------------------------------------------------
@@ -535,7 +560,7 @@ static int i20_cmd_info(int argc, char** argv) {
     std::string anv_path;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
-        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(7);
+        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(8);
         else throw std::runtime_error("unknown option: " + a);
     }
     if (anv_path.empty()) throw std::runtime_error("--anvil is required");
@@ -612,7 +637,7 @@ static int i20_cmd_sweep(int argc, char** argv) {
     bool full = false;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
-        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(7);
+        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(8);
         else if (a.rfind("--out=", 0) == 0) out_path = a.substr(6);
         else if (a.rfind("--outdir=", 0) == 0) outdir = a.substr(9);
         else if (a == "--full-grid") full = true;
@@ -624,10 +649,9 @@ static int i20_cmd_sweep(int argc, char** argv) {
 
     // Baseline: the shipped decode of this container (reference bytes).
     double d0 = i20_now();
-    auto bwt_ship = i20_decode_bwt(t, I20_DEC_SHIPPED, nullptr);
-    auto reference = i20_inverse_bwt(t, bwt_ship);
+    auto reference = i20_decode_block(t, I20_DEC_SHIPPED, nullptr);
     double d1 = i20_now();
-    if (reference.size() != t.xlen) throw std::runtime_error("reference decode size mismatch");
+    if (reference.size() != t.out_len) throw std::runtime_error("reference decode size mismatch");
 
     // The MTF token stream carried by the shipped postcoder-2 payload.
     auto ts = i20_arith_token_stream(t.arith_body, t.arith_body_len, static_cast<size_t>(t.xlen),
@@ -691,8 +715,7 @@ static int i20_cmd_sweep(int argc, char** argv) {
             new_body_len = body.size();
             new_file_bytes = i20_new_file_bytes(t, new_body_len);
             // end-to-end verification
-            auto cand_bwt = i20_decode_bwt(t, I20_DEC_CANDIDATE, &body);
-            auto out = i20_inverse_bwt(t, cand_bwt);
+            auto out = i20_decode_block(t, I20_DEC_CANDIDATE, &body);
             ok = (out == reference);
             if (!ok) note = "round-trip mismatch";
         } catch (const std::exception& ex) {
@@ -729,7 +752,7 @@ static int i20_cmd_decode(int argc, char** argv) {
     std::string anv_path, out_path, post = "shipped", postfile;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
-        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(7);
+        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(8);
         else if (a.rfind("--out=", 0) == 0) out_path = a.substr(6);
         else if (a.rfind("--post=", 0) == 0) post = a.substr(7);
         else if (a.rfind("--postfile=", 0) == 0) postfile = a.substr(10);
@@ -750,8 +773,7 @@ static int i20_cmd_decode(int argc, char** argv) {
     } else throw std::runtime_error("unknown --post value: " + post);
 
     double t0 = i20_now();
-    auto bwt = i20_decode_bwt(t, mode, mode == I20_DEC_CANDIDATE ? &body : nullptr);
-    auto out = i20_inverse_bwt(t, bwt);
+    auto out = i20_decode_block(t, mode, mode == I20_DEC_CANDIDATE ? &body : nullptr);
     double t1 = i20_now();
     uint64_t ck = fnv1a(out);
     write_file(out_path, out);
@@ -798,7 +820,7 @@ static int i20_cmd_profile(int argc, char** argv) {
     int reps = 3;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
-        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(7);
+        if (a.rfind("--anvil=", 0) == 0) anv_path = a.substr(8);
         else if (a.rfind("--postfile=", 0) == 0) postfile = a.substr(10);
         else if (a.rfind("--reps=", 0) == 0) reps = std::atoi(a.substr(7).c_str());
         else throw std::runtime_error("unknown option: " + a);
