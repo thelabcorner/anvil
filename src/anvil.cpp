@@ -3831,6 +3831,16 @@ struct Options {
     bool ratio_context=true; // ratio mode 17: decoder-routed order-1 context partition candidate
     bool ratio_lines=true;   // ratio mode 17: line-record column transpose candidate
     std::string ratio_backend="brotli"; // rev-2 mode-17 backend registry choice (wire id 1 today)
+    // I20 C7: decode-budgeted routing.  The inverse BWT costs n/2 dependent
+    // random accesses, so routing a file to it buys compressed bytes at the
+    // price of decode work.  Within one transform the BWT backend becomes
+    // eligible only if its complete payload is at least this percent of the
+    // transformed size smaller than the Brotli backend's payload for the same
+    // transform.  0 (the default) reproduces the previous "smallest payload
+    // wins" selection byte-for-byte.  Encoder policy only: the wire format and
+    // the decoder are unchanged, because the backend id is already carried in
+    // the mode-17 envelope.
+    double ratio_bwt_min_gain_pct=0.0;
     // E6 BWT backend experiments (ABLATION ONLY; production default behavior unchanged):
     int bwt_post=-1;         // force one postcoder id (0/1/2/3/4) for the BWT backend; -1 = encoder picks smallest
     bool bwt_aux=false;      // I10-1A: emit auxiliary BWT indexes for faster inverse BWT; default OFF keeps legacy bytes exact
@@ -4791,15 +4801,36 @@ static std::vector<uint8_t> bwt_backend_encode_lzp(const std::vector<uint8_t>& i
 static std::vector<uint8_t> encode_ratio_block(const std::vector<uint8_t>& d,const Options& opt) {
     const auto backends=ratio_backend_ids(opt); std::vector<uint8_t> best;
     auto consider=[&](uint8_t transform,const std::vector<uint8_t>& x){
+        // I20 C7 (decode-budgeted routing).  Pass 1 computes the Brotli payload
+        // for this transform: it is the byte baseline the BWT candidate has to
+        // beat, and it is also the candidate that carries no inverse-BWT work.
+        std::vector<uint8_t> br; size_t br_size=0; bool has_br=false;
+        for(uint8_t backend:backends){
+            if(backend!=kRatioBackendBrotli) continue;
+            br=ratio_wrap(transform,backend,x,opt); br_size=br.size(); has_br=true; break;
+        }
         for(uint8_t backend:backends){
             std::vector<uint8_t> p;
+            if(backend==kRatioBackendBrotli){
+                if(!has_br) continue;
+                p=std::move(br);
+            } else {
 #ifdef ANVIL_HAVE_LIBSAIS
-            if(backend==kRatioBackendBwt && transform==3) {
-                p=encode_ratio_lzp_block(x,opt); // LZP residue path
-            } else
+                if(backend==kRatioBackendBwt && transform==3) {
+                    p=encode_ratio_lzp_block(x,opt); // LZP residue path
+                } else
 #endif
-            {
-                p=ratio_wrap(transform,backend,x,opt);
+                {
+                    p=ratio_wrap(transform,backend,x,opt);
+                }
+            }
+            if(backend==kRatioBackendBwt && has_br && opt.ratio_bwt_min_gain_pct>0.0){
+                // gain is expressed in compressed bytes saved per byte of
+                // inverse-BWT work (the transformed size is the work proxy).
+                const double gain=(br_size>0 && x.size()>0)
+                    ? 100.0*(double)(br_size-p.size())/(double)x.size()
+                    : 0.0;
+                if(gain<opt.ratio_bwt_min_gain_pct) continue; // not worth the inverse-BWT work
             }
             if(best.empty()||p.size()<best.size())best=std::move(p);
         }
@@ -5218,7 +5249,7 @@ static bool anvil_option_takes_value(const std::string& name) {
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--bwt-aux=on|off] [--bwt-aux-walks=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--ratio-bwt-min-gain-pct=N] [--bwt-aux=on|off] [--bwt-aux-walks=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
               << "  note: sparse->11, shape->12, topology->13, tcopy->14, hotop->15, ariref->16, ratio->17 (rev-2 transform + explicit backend registry)\n"
@@ -5261,6 +5292,23 @@ int main(int argc,char**argv) {
             else if(a.rfind("--ratio-context=",0)==0)opt.ratio_context=(a.substr(16)!="off");
             else if(a.rfind("--ratio-lines=",0)==0)opt.ratio_lines=(a.substr(14)!="off");
             else if(a.rfind("--ratio-backend=",0)==0)opt.ratio_backend=a.substr(16);
+    else if(a.rfind("--ratio-bwt-min-gain-pct=",0)==0){
+        const std::string v=a.substr(27);
+        if(v.empty()) throw std::runtime_error("--ratio-bwt-min-gain-pct must be a number in 0..100");
+        try { opt.ratio_bwt_min_gain_pct=std::stod(v); }
+        catch(...) { throw std::runtime_error("--ratio-bwt-min-gain-pct must be a number in 0..100"); }
+        if(!(opt.ratio_bwt_min_gain_pct>=0.0 && opt.ratio_bwt_min_gain_pct<=100.0))
+            throw std::runtime_error("--ratio-bwt-min-gain-pct must be a number in 0..100");
+    }
+    else if(a=="--ratio-bwt-min-gain-pct"){
+        if(i+1>=argc) throw std::runtime_error("--ratio-bwt-min-gain-pct requires a value");
+        const std::string v=argv[++i];
+        if(v.empty()) throw std::runtime_error("--ratio-bwt-min-gain-pct must be a number in 0..100");
+        try { opt.ratio_bwt_min_gain_pct=std::stod(v); }
+        catch(...) { throw std::runtime_error("--ratio-bwt-min-gain-pct must be a number in 0..100"); }
+        if(!(opt.ratio_bwt_min_gain_pct>=0.0 && opt.ratio_bwt_min_gain_pct<=100.0))
+            throw std::runtime_error("--ratio-bwt-min-gain-pct must be a number in 0..100");
+    }
             else if(a.rfind("--bwt-post=",0)==0){ int v=std::stoi(a.substr(11)); if(v<-1||v>255) throw std::runtime_error("--bwt-post must be -1 or 0..255"); opt.bwt_post=v; }
             else if(a.rfind("--bwt-aux=",0)==0){
                 const std::string v=a.substr(10);

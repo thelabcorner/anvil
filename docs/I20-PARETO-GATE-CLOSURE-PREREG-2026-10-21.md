@@ -137,7 +137,62 @@ authorizes exactly one follow-up: an integration/validation run.
 
 ---
 
-## 3. What the canonical ratio route actually does (mechanism facts, from source)
+## 2a. C7 — decode-budgeted routing profile (preregistered 2026-10-21, before any C7 measurement)
+
+**Status:** preregistered before measurement. The goal's win criterion requires the closure to be
+*reproducible*, and the 2026-10-21 replication series showed why the first closure was not: the
+candidate's decode time (2.02–2.67 s) is dominated by the **volume of corpus bytes routed through
+the inverse BWT** (120.4 MB at the 2 MiB cap, ≈32 MB/s), while the arbiter's same-job Brotli
+reference varies 1.98× (0.77–1.52 s) — so the G4 ratio lands inside the 2.0× threshold
+unpredictably (3 of 7 runs closed). C7 attacks the numerator directly.
+
+### Mechanism
+
+The canonical route's encoder currently routes each file to whichever backend produces the smaller
+complete payload (`encode_ratio_block`, `src/anvil.cpp`). That rule is a *bytes-only* rule, and it
+systematically buys bytes with inverse-BWT work: the BWT backend's decode cost is proportional to the
+decoded size (the inverse BWT performs `n/2` dependent random accesses), so a bytes-only router
+routes a large file to BWT if BWT saves even 1 % on it.
+
+**C7 adds an explicit, named, encoder-policy-only knob `--ratio-bwt-min-gain-pct=P`:** within one
+transform, the BWT backend is *eligible* only if its complete payload is at least `P` percent of the
+transformed size smaller than the Brotli backend's payload for the same transform. `P = 0` (the
+default) reproduces the current selection **byte-for-byte**. The wire format and the decoder are
+unchanged — the backend id is already carried in the mode-17 envelope, so this is a routing policy,
+not a format change.
+
+**Why this currency:** the gate's objective is bytes-versus-decode-work; the BWT path's decode work
+is proportional to the *decoded* size while its benefit is in *compressed* bytes. "Bytes saved per
+byte decoded" is therefore the natural per-file currency, and it is exactly what a bytes-only router
+ignores.
+
+### Expected effect on the canonical Silesia corpus (DERIVED from the measured baseline bytes)
+
+Per-file BWT gain as a percentage of the decoded size (measured ANVIL vs Brotli totals, run
+`39654699366`): x-ray 7.83 %, mr 4.40 %, reymont 2.79 %, dickens 2.49 %, webster 2.46 %,
+osdb 2.27 %, nci 0.38 %.
+
+At `P = 3.0` the router keeps **mr and x-ray** on the BWT backend and routes the other ten files
+to Brotli: portfolio **48,281,399 B** (199,605 B below `xz -9e`), and the inverse-BWT-decoded
+volume falls from 120.4 MB to **18.4 MB**. The expected G4 ratio becomes
+`≈ 0.913 + 0.575/ref`, i.e. ≈1.66 at the fastest observed reference (0.767 s) and ≈1.29 at the
+slowest (1.519 s) — i.e. **≤ 2.0 with margin in every run, which is what the replication series
+showed the first closure lacked.**
+
+### Pre-registered decision rule (C7)
+
+> **Adopt iff, for the Silesia corpus, (a) the portfolio total is strictly below `xz -9e`
+> (48,456,004 B), (b) the peak decode RSS ratio is ≤ 2.0 against BOTH `xz -9e` and Brotli
+> q11/lw30, (c) the paired ANVIL/Brotli decode-time ratio CI-upper is ≤ 2.0 in 5 of 5
+> independent same-job replications of the identical arm, and (d) the default
+> (`--ratio-bwt-min-gain-pct=0`) remains byte-identical to the frozen totals (46,466,339 B
+> Silesia / 23,537,422 B enwik8) and passes the repo fuzz/registry path.**
+
+C7 is `{adopt-class}` / `{engineering}`. It claims no novelty: a bytes-versus-work routing rule is
+occupied prior art (Brotli's and zstd's block splitters, OpenZL's graph selection).
+
+---
+
 
 `--parse=ratio` writes revision-2 block mode 17: `transform_id`, `backend_id`,
 `transformed_size`, then a backend payload. `backend_id = 2` is
