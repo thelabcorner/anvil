@@ -5448,7 +5448,7 @@ preregistration, mark I19 BLOCKED_FOR_EFFICACY. Class-A remains **zero**.
 
 **Research progression:** (1) close original-byte snapshot custody, version/rights, source-to-typed semantics and control-lineage attribution; (2) obtain a genuinely unobserved heldout source and more than one discovery origin; (3) freeze a typed-competitor panel including Sprintz/FastLanes/FOR-PFOR/OpenZL and matched baseline geometry; (4) preregister candidate work, byte-regret and memory bounds; (5) run real discovery trials remotely; (6) validate and unseal exactly once only after irrevocable freeze; (7) seek an independently audited general-purpose Class-A assessment only with heterogeneous sources and dense resource-matched references. Preserve all failed gates and do not retrofit their thresholds.
 
-### A27. October 21 I20 — "Pareto gate closure" on the canonical ratio route — FRONT-GAP_COST RE-CONFIRMED, WITH TWO MECHANISM-LEVEL NEGATIVES AND ONE POSITIVE
+### A27. October 21 I20 - "Pareto gate closure" on the canonical ratio route - THE EXTERNAL REFERENCE-COST GATE IS CLOSED (`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`), WITH TWO MECHANISM-LEVEL NEGATIVES, ONE WINNING LEVER AND ONE MEASUREMENT-INSTABILITY CAVEAT
 
 **Author:** I20 coordinator. **Workers:** six `@swarm` members (W1–W6), each owning one
 pre-registered candidate under one shared evidence contract. **Preregistration (binding):**
