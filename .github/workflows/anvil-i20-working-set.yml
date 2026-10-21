@@ -411,6 +411,16 @@ jobs:
           "$OUT_DIR/prototype/inplace_unbwt" "${FILES[@]}" \
             | tee "$OUT_DIR/prototype/inplace_unbwt.txt"
 
+      - name: Repo fuzz / registry coverage path (same job as the byte-identity gate)
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR/fuzz"
+          # 0xA11E == 41246 (argparse's int type does not accept a hex literal).
+          python3 candidate/tests/fuzz.py \
+            --exe candidate/build-w4/anvil \
+            --cases 120 --seed 41246 --mutations 6 \
+            | tee "$OUT_DIR/fuzz/fuzz.txt"
+
       - name: Heap-peak attribution by allocation site (valgrind massif)
         run: |
           set -euo pipefail
@@ -553,9 +563,10 @@ jobs:
       - name: Repo fuzz / registry coverage path
         run: |
           set -euo pipefail
+          # 0xA11E == 41246 (argparse's int type does not accept a hex literal).
           python3 candidate/tests/fuzz.py \
             --exe candidate/build-fuzz/anvil \
-            --cases 120 --seed 0xA11E --mutations 6 \
+            --cases 120 --seed 41246 --mutations 6 \
             | tee "$OUT_DIR/fuzz.txt"
 
       - name: Round-trip on the repo tests/corpus fixtures
