@@ -167,7 +167,10 @@ def cmd_manifest(args: argparse.Namespace) -> None:
         outputs: list[str] = []
         names: list[str] = []
         for src in files:
-            payload = Path(args.payload_dir) / arm / f"{src.name}.anv"
+            # The payloads are arm-independent on purpose: the change under test is
+            # DECODE-ONLY, so the frozen wire bytes are identical for both arms and
+            # both binaries must decode exactly the same payload files.
+            payload = Path(args.payload_dir) / f"{src.name}.anv"
             if not payload.is_file():
                 raise RuntimeError(f"missing payload: {payload}")
             dec = out / f"decoded-{arm}" / src.name

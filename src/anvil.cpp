@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -435,6 +436,47 @@ static uint32_t crc32(const uint8_t* p, size_t n) {
 #else
     return crc32_slice8(p, n);
 #endif
+}
+
+// I20-W4 lever L3 support: INCREMENTAL CRC-32 (IEEE, reflected). The value is
+// identical to crc32() over the whole buffer, but it can be folded in chunk by
+// chunk so a streamed block can be checksummed while it is produced:
+//   crc32_update(0, A, na)                  == crc32(A, na)
+//   crc32_update(crc32_update(0,A,na),B,nb) == crc32(A||B, na+nb)
+// The running value is the FINAL (post-final-xor) form, so the first call
+// starts from the standard init register. The slicing-by-8 update is
+// bit-identical to eight bytewise refinements (see the derivation above), so a
+// chunk boundary never changes the result.
+static uint32_t crc32_update(uint32_t crc_running,const uint8_t* p,size_t n) {
+    static const std::array<std::array<uint32_t,256>,8> qtabs = []{
+        std::array<std::array<uint32_t,256>,8> t{};
+        for(uint32_t i=0;i<256;++i){ uint32_t c=i; for(int k=0;k<8;++k)c=(c&1)?(0xEDB88320u^(c>>1)):(c>>1); t[7][i]=c; }
+        for(int s=0;s<8;++s){
+            int steps=7-s;
+            for(uint32_t i=0;i<256;++i){
+                uint32_t c=t[7][i];
+                for(int r=0;r<steps;++r) c=(t[7][c&0xFFu])^(c>>8);
+                t[s][i]=c;
+            }
+        }
+        return t;
+    }();
+    uint32_t c=crc_running^0xFFFFFFFFu;
+    while(n>=8){
+        uint32_t one = c ^ ((uint32_t)p[0] | ((uint32_t)p[1]<<8) | ((uint32_t)p[2]<<16) | ((uint32_t)p[3]<<24));
+        uint32_t two = (uint32_t)p[4] | ((uint32_t)p[5]<<8) | ((uint32_t)p[6]<<16) | ((uint32_t)p[7]<<24);
+        c = qtabs[0][one&0xFFu]
+          ^ qtabs[1][(one>>8)&0xFFu]
+          ^ qtabs[2][(one>>16)&0xFFu]
+          ^ qtabs[3][one>>24]
+          ^ qtabs[4][two&0xFFu]
+          ^ qtabs[5][(two>>8)&0xFFu]
+          ^ qtabs[6][(two>>16)&0xFFu]
+          ^ qtabs[7][two>>24];
+        p+=8; n-=8;
+    }
+    for(size_t i=0;i<n;++i)c=qtabs[7][(c^p[i])&0xFFu]^(c>>8);
+    return c^0xFFFFFFFFu;
 }
 static void put_u32le(std::vector<uint8_t>& out,uint32_t x){ for(int i=0;i<4;++i)out.push_back(static_cast<uint8_t>(x>>(8*i))); }
 static uint32_t get_u32le(const uint8_t*& p,const uint8_t* e){ if(e-p<4)throw std::runtime_error("truncated u32"); uint32_t x=uint32_t(p[0])|(uint32_t(p[1])<<8)|(uint32_t(p[2])<<16)|(uint32_t(p[3])<<24); p+=4; return x; }
@@ -4517,7 +4559,26 @@ static std::vector<uint8_t> ratio_backend_encode(uint8_t backend,const std::vect
     throw std::runtime_error("unknown ratio backend id");
 }
 
-static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* p,size_t n,size_t expected,const Options& opt,std::vector<uint8_t>* in_owner) {
+// I20-W4 lever L3: destination for the reconstructed bytes.
+// The reconstructed bytes of a block are handed over in RECONSTRUCTION order
+// (the order in which they are produced) and the block CRC-32 is folded in over
+// exactly that byte sequence, so the per-block checksum still covers the
+// ORIGINAL block bytes in the original order. When `out` is null the caller
+// keeps the bytes in RAM (the full-buffer path used by verify/round-trip).
+struct DecodeSink {
+    std::ostream* out=nullptr;   // null => full-buffer path
+    uint32_t crc=0;              // running CRC-32 over the current block
+    uint64_t written=0;          // total bytes handed over so far
+    bool streamed=false;         // the current block's bytes went to `out`
+    void begin_block(){ crc=0; streamed=false; }
+    void put(const uint8_t* p,size_t n){ crc=crc32_update(crc,p,n); write_only(p,n); streamed=true; }
+    void write_only(const uint8_t* p,size_t n){
+        if(out) out->write(reinterpret_cast<const char*>(p),static_cast<std::streamsize>(n));
+        written+=n;
+    }
+};
+
+static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* p,size_t n,size_t expected,const Options& opt,std::vector<uint8_t>* in_owner,DecodeSink* sink) {
 #ifdef ANVIL_HAVE_BROTLI
     if(backend==kRatioBackendBrotli) return brotli_lw_decode_exact(p,n,expected);
 #endif
@@ -4535,10 +4596,18 @@ static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* 
             // iteration count relative to the enclosing payload.
             if(nsub==0 || nsub>expected || nsub>static_cast<uint64_t>(e-p)/2u)
                 throw std::runtime_error("bad BWT subblock count");
-            std::vector<uint8_t> out; out.reserve(expected);
+            std::vector<uint8_t> out;
+            // I20-W4 lever L3: when a sink is present the sub-block bytes are
+            // handed over as they are produced instead of being accumulated in
+            // a whole-block buffer. The sub-block bytes ARE the original block
+            // bytes, in order, so the block CRC folded in by the sink still
+            // covers the original block.
+            const bool stream=(sink&&sink->out);
+            if(!stream) out.reserve(expected);
+            size_t written=0;
             for(uint64_t i=0;i<nsub;++i) {
                 uint64_t dlen=get_uvar(p,e); uint64_t plen=get_uvar(p,e);
-                if(dlen==0 || dlen>expected-out.size())
+                if(dlen==0 || dlen>expected-written)
                     throw std::runtime_error("bad BWT subblock decoded length");
                 if(plen>uint64_t(e-p)) throw std::runtime_error("truncated BWT subblock");
                 const uint8_t* const sub_end=p+static_cast<size_t>(plen);
@@ -4549,9 +4618,14 @@ static std::vector<uint8_t> ratio_backend_decode(uint8_t backend,const uint8_t* 
                 auto sub=bwt_backend_decode(p,static_cast<size_t>(plen),static_cast<size_t>(dlen),in_owner);
                 p=sub_end;
                 if(sub.size()!=static_cast<size_t>(dlen)) throw std::runtime_error("BWT subblock size mismatch");
-                out.insert(out.end(),sub.begin(),sub.end());
+                if(stream) sink->put(sub.data(),sub.size());
+                else out.insert(out.end(),sub.begin(),sub.end());
+                written+=static_cast<size_t>(dlen);
             }
-            if(out.size()!=expected) throw std::runtime_error("BWT subblock reconstruction size mismatch");
+            // The per-sub-block decoded lengths must still sum to the declared
+            // transformed size, in both the streamed and the buffered path.
+            if(written!=expected) throw std::runtime_error("BWT subblock reconstruction size mismatch");
+            if(stream) return std::vector<uint8_t>();
             return out;
         }
         return bwt_backend_decode(p,n,expected,in_owner);
@@ -4700,7 +4774,7 @@ static std::vector<uint8_t> encode_ratio_block(const std::vector<uint8_t>& d,con
     return best;
 }
 
-static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t out_len,const Options& opt,std::vector<uint8_t>* in_owner) {
+static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t out_len,const Options& opt,std::vector<uint8_t>* in_owner,DecodeSink* sink) {
     if(n<3) throw std::runtime_error("truncated ratio payload");
     const uint8_t* e=p+n; uint8_t transform=*p++; uint8_t backend=*p++;
     if(transform>3) throw std::runtime_error("unknown ratio transform id");
@@ -4712,7 +4786,15 @@ static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t 
     // was underdefined. LZP is a recorded NO-GO (06 §G2 / E6); the encoder
     // refuses --bwt-lzp=on and never emits transform 3.
     if(transform==3) throw std::runtime_error("ratio transform 3 (LZP residue) is not supported");
-    auto x=ratio_backend_decode(backend,p,static_cast<size_t>(e-p),static_cast<size_t>(xlen),opt,in_owner);
+    // Only transform 0 can be streamed: the inverse transforms (1/2) need the
+    // whole transformed buffer in RAM.
+    auto x=ratio_backend_decode(backend,p,static_cast<size_t>(e-p),static_cast<size_t>(xlen),opt,in_owner,(transform==0)?sink:nullptr);
+    if(sink&&sink->streamed) {
+        // The backend handed the transformed bytes to the sink already.
+        if(transform!=0) throw std::runtime_error("ratio streamed transform mismatch");
+        if(xlen!=out_len) throw std::runtime_error("ratio direct size mismatch");
+        return x;
+    }
     if(transform==0){ if(x.size()!=out_len) throw std::runtime_error("ratio direct size mismatch"); return x; }
     if(transform==1) return ratio_inverse_ctx1(x,out_len);
     return ratio_inverse_lines(x,out_len); // transform==2 (validated above)
@@ -4868,7 +4950,7 @@ static std::vector<uint8_t> compress(const std::vector<uint8_t>& input, const Op
 // owns CRC verification for parallel (to keep CRC checks in the serial path too).
 static std::vector<uint8_t> decode_one_block(uint8_t mode,const uint8_t* p,size_t plen,size_t blen,uint32_t expected_crc,
                                              uint8_t revision,uint64_t block_size,const uint8_t* e,const Options& opt,
-                                             std::vector<uint8_t>* in_owner) {
+                                             std::vector<uint8_t>* in_owner,DecodeSink* sink) {
     // p points at the block PAYLOAD (plen bytes); mode was parsed by the caller.
     if(revision==2 && mode!=0 && mode!=17) throw std::runtime_error("block mode not valid for revision 2");
     if(mode==0) {
@@ -4891,7 +4973,7 @@ static std::vector<uint8_t> decode_one_block(uint8_t mode,const uint8_t* p,size_
     } else if(mode==16) {
         return decode_tokens_ariref(p,plen,blen);
     } else if(mode==17 && revision==2) {
-        return decode_ratio_block(p,plen,blen,opt,in_owner);
+        return decode_ratio_block(p,plen,blen,opt,in_owner,sink);
     }
     throw std::runtime_error("unknown block mode");
 }
@@ -4905,7 +4987,7 @@ static bool decode_one_block_into(uint8_t mode,const uint8_t* p,size_t plen,uint
     return false;
 }
 
-static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& opt) {
+static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& opt,DecodeSink* sink=nullptr) {
     if(in.size()<5 || std::memcmp(in.data(),"ANV0",4)!=0 || (in[4]!=1 && in[4]!=2)) throw std::runtime_error("not a supported ANVIL revision");
     const uint8_t revision=in[4];
     const uint8_t* p=in.data()+5; const uint8_t* e=in.data()+in.size();
@@ -4920,7 +5002,14 @@ static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& op
     // reallocate; the hint is bounded by the container size (256x) with a 1 MiB
     // floor, so a crafted tiny header cannot force an unbounded reserve.
     const uint64_t reserve_hint=std::min<uint64_t>(total,std::max<uint64_t>(1ull<<20,static_cast<uint64_t>(in.size())*256));
-    std::vector<uint8_t> out; out.reserve(static_cast<size_t>(reserve_hint));
+    // I20-W4 lever L3: in the streaming path the whole-file output buffer is
+    // never allocated; the reconstructed bytes are handed to the sink as they
+    // are produced, so the file-level accumulator cannot be resident at the
+    // inverse-BWT peak.
+    const bool streaming=(sink&&sink->out&&revision==2);
+    std::vector<uint8_t> out;
+    if(!streaming) out.reserve(static_cast<size_t>(reserve_hint));
+    uint64_t produced=0;
     // Each block decodes independently into a fixed-size output slot (blen) and is
     // CRC-verified, so block decode is embarrassingly parallel. decode_threads==1
     // keeps the exact serial path (zero behavioral change); >1 uses a thread pool
@@ -4929,22 +5018,22 @@ static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& op
     // shared read-only state (g_fused_decode is set once in compress), so parallel
     // decoding into disjoint output buffers is safe.
     bool tail_checked=false;
-    if(opt.decode_threads<=1) {
-        while(out.size()<total) {
+    if(streaming||opt.decode_threads<=1) {
+        while(produced<total) {
             uint64_t blen=get_uvar(p,e); if(blen==0 || blen>block_size) throw std::runtime_error("invalid block length");
             if(p>=e) throw std::runtime_error("truncated block header");
             uint8_t mode=*p++; uint64_t plen=get_uvar(p,e); uint32_t expected_crc=get_u32le(p,e);
             if(plen>uint64_t(e-p)) throw std::runtime_error("truncated block payload");
-            if(blen>total-out.size()) throw std::runtime_error("block exceeds declared output");
+            if(blen>total-produced) throw std::runtime_error("block exceeds declared output");
             size_t base=out.size();
             // ALLOC leg: modes 10/15 (the measured decode cells) write straight
             // into out; other modes keep the generic vector path unchanged.
-            if(revision==1 && (mode==10 || mode==15)) {
+            if(!streaming && revision==1 && (mode==10 || mode==15)) {
                 out.resize(base+static_cast<size_t>(blen));
                 uint8_t* dst=out.data()+base;
                 if(decode_one_block_into(mode,p,static_cast<size_t>(plen),dst,static_cast<size_t>(blen))) {
                     if(crc32(dst,static_cast<size_t>(blen))!=expected_crc) throw std::runtime_error("block checksum mismatch");
-                    p+=plen; continue;
+                    produced+=blen; p+=plen; continue;
                 }
                 out.resize(base);
             }
@@ -4955,15 +5044,25 @@ static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& op
             // condition is checked HERE because after the release the input
             // pointers must not be dereferenced again. Only the serial path may
             // do this: the parallel path decodes blocks concurrently.
-            const bool final_block=(out.size()+blen==total);
+            const bool final_block=(produced+blen==total);
             std::vector<uint8_t>* in_owner=nullptr;
             if(final_block) {
                 if(p+static_cast<size_t>(plen)!=e) throw std::runtime_error("trailing bytes after final block");
                 tail_checked=true; in_owner=&in;
             }
-            auto b=decode_one_block(mode,p,static_cast<size_t>(plen),static_cast<size_t>(blen),expected_crc,revision,block_size,e,opt,in_owner);
-            if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
-            out.insert(out.end(),b.begin(),b.end());
+            if(sink) sink->begin_block();
+            auto b=decode_one_block(mode,p,static_cast<size_t>(plen),static_cast<size_t>(blen),expected_crc,revision,block_size,e,opt,in_owner,streaming?sink:nullptr);
+            if(streaming&&sink->streamed) {
+                // I20-W4 lever L3: the block's bytes were handed to the sink and
+                // checksummed as they were produced, in reconstruction order, so
+                // the per-block checksum still covers the original block bytes.
+                if(sink->crc!=expected_crc) throw std::runtime_error("block checksum mismatch");
+            } else {
+                if(crc32(b.data(),b.size())!=expected_crc) throw std::runtime_error("block checksum mismatch");
+                if(streaming) sink->write_only(b.data(),b.size());
+                else out.insert(out.end(),b.begin(),b.end());
+            }
+            produced+=blen;
             if(final_block) break;
             p+=plen;
         }
@@ -4990,7 +5089,7 @@ static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& op
             try {
                 for(size_t i=ti;i<segs.size();i+=nthreads) {
                     const Seg& s=segs[i];
-                    auto b=decode_one_block(s.mode,s.p,s.plen,s.blen,s.crc,revision,block_size,e,opt,nullptr);
+                    auto b=decode_one_block(s.mode,s.p,s.plen,s.blen,s.crc,revision,block_size,e,opt,nullptr,nullptr);
                     if(crc32(b.data(),b.size())!=s.crc) throw std::runtime_error("block checksum mismatch");
                     blocks[i]=std::move(b);
                 }
@@ -5004,7 +5103,8 @@ static std::vector<uint8_t> decompress(std::vector<uint8_t> in,const Options& op
         for(auto& b:blocks) out.insert(out.end(),b.begin(),b.end());
         p=q;
     }
-    if(out.size()!=total) throw std::runtime_error("size mismatch");
+    if(!streaming) produced=out.size();
+    if(produced!=total) throw std::runtime_error("size mismatch");
     if(!tail_checked && p!=e) throw std::runtime_error("trailing bytes after final block");
     return out;
 }
@@ -5015,6 +5115,33 @@ static std::vector<uint8_t> read_file(const std::string& path) {
 }
 static void write_file(const std::string& path,const std::vector<uint8_t>& d) {
     std::ofstream f(path,std::ios::binary); if(!f) throw std::runtime_error("cannot open output: "+path); if(!d.empty())f.write(reinterpret_cast<const char*>(d.data()),d.size());
+}
+// I20-W4 lever L3: decode straight into the output file. The reconstructed
+// bytes of each block are written as they are produced instead of being
+// accumulated in a whole-file buffer, so the file-level output buffer never
+// has to be resident at the inverse-BWT peak. The block CRC-32 is folded in
+// over exactly the same byte sequence in the same (reconstruction) order, so
+// the per-block checksum semantics are unchanged. The bytes go to a temporary
+// file that is renamed on success, so a failed decode still leaves no output
+// file behind, exactly like the full-buffer path.
+static uint64_t decompress_to_file(std::vector<uint8_t> in,const std::string& path,const Options& opt) {
+    const std::string tmp=path+".anvil-part";
+    uint64_t written=0;
+    try {
+        DecodeSink sink;
+        {
+            std::ofstream f(tmp,std::ios::out|std::ios::binary|std::ios::trunc);
+            if(!f) throw std::runtime_error("cannot open output: "+path);
+            sink.out=&f;
+            auto buf=decompress(std::move(in),opt,&sink);
+            if(!buf.empty()) sink.write_only(buf.data(),buf.size()); // non-streamed path
+            f.flush(); if(!f) throw std::runtime_error("cannot write output: "+path);
+        }
+        written=sink.written;
+    } catch(...) { std::remove(tmp.c_str()); throw; }
+    std::remove(path.c_str());
+    if(std::rename(tmp.c_str(),path.c_str())!=0) { std::remove(tmp.c_str()); throw std::runtime_error("cannot finalise output: "+path); }
+    return written;
 }
 static uint64_t fnv1a(const std::vector<uint8_t>& d) { uint64_t h=1469598103934665603ull; for(auto b:d){h^=b;h*=1099511628211ull;} return h; }
 
@@ -5145,8 +5272,8 @@ int main(int argc,char**argv) {
               <<","<<g_diag_sz_z[6]<<"/"<<g_diag_sz_raw[6]
               <<","<<g_diag_sz_z[7]<<"/"<<g_diag_sz_raw[7]<<"]\n";}
         } else if(cmd=="d") {
-            if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); auto out=decompress(std::move(in),opt); auto t1=std::chrono::steady_clock::now(); write_file(argv[3],out);
-            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<out.size()<<" MB/s="<<(sec?out.size()/1e6/sec:0)<<"\n";}
+            if(argc<4){usage();return 2;} auto in=read_file(argv[2]); auto t0=std::chrono::steady_clock::now(); uint64_t nbytes=decompress_to_file(std::move(in),argv[3],opt); auto t1=std::chrono::steady_clock::now();
+            if(!opt.quiet){double sec=std::chrono::duration<double>(t1-t0).count(); std::cerr<<"ANVIL d out="<<nbytes<<" MB/s="<<(sec?nbytes/1e6/sec:0)<<"\n";}
         } else if(cmd=="verify") {
             auto in=read_file(argv[2]); GlobalStats st; auto enc=compress(in,opt,&st); const size_t enc_bytes=enc.size(); auto dec=decompress(std::move(enc),opt);
             if(dec!=in) throw std::runtime_error("round-trip mismatch");
