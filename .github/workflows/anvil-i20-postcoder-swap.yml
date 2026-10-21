@@ -1,0 +1,186 @@
+name: ANVIL I20 C5 postcoder decode-cost swap
+
+# Evaluation-only lane for I20 candidate C5.
+#
+# It does NOT modify the codec.  It builds the I20 prototype
+# (prototypes/i20-postcoder-swap/proto.cpp, which compiles the repository's own
+# src/anvil.cpp unmodified with -DANVIL_NO_MAIN), measures the byte cost and the
+# decode throughput of re-coding the BWT backend's MTF token stream with
+# cheaper members of ANVIL's own stream suite, and emits the integration
+# estimate in the I20 program's currency.
+#
+# Nothing here is a novelty claim: an entropy-coder swap is occupied prior art
+# (Brotli / zstd / FSE / ANS all do it).  This is {adopt-class} engineering.
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: Canonical corpus
+        required: true
+        default: 'silesia'
+        type: choice
+        options:
+          - silesia
+          - enwik8
+      reps:
+        description: Paired decode repetitions
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  group: anvil-i20-postcoder-swap
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  postcoder-swap:
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus:
+          - silesia
+          - enwik8
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/i20-postcoder-swap-${{ matrix.corpus }}
+
+    steps:
+      - name: Checkout the candidate branch
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev \
+            xz-utils time python3
+
+      - name: Fingerprint runner and source
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "workflow_name=${GITHUB_WORKFLOW}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "candidate_branch=$(git -C candidate rev-parse --abbrev-ref HEAD)"
+            echo "anvil_cpp_sha256=$(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build the frozen ANVIL candidate, the Brotli reference helper and the I20 prototype
+        run: |
+          set -euo pipefail
+          cd candidate
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build build --parallel 4 --target anvil brotli_lw
+          # The I20 prototype compiles the repository's own src/anvil.cpp
+          # unmodified (ANVIL_NO_MAIN) and links the pinned libsais primitive.
+          mkdir -p build/i20
+          clang-18 -O3 -DNDEBUG -c third_party/libsais/src/libsais.c \
+            -I third_party/libsais/include -o build/i20/libsais.o
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra \
+            -DANVIL_NO_MAIN -DANVIL_HAVE_LIBSAIS=1 \
+            -I third_party/libsais/include \
+            prototypes/i20-postcoder-swap/proto.cpp build/i20/libsais.o \
+            -o build/i20/proto
+          {
+            sha256sum build/anvil build/brotli_lw build/i20/proto build/i20/libsais.o
+            echo "prototype_source_sha256=$(sha256sum prototypes/i20-postcoder-swap/proto.cpp | cut -d' ' -f1)"
+            echo "prototype_huffman_fix_sha256=$(sha256sum prototypes/i20-postcoder-swap/huffman_fixed.hpp | cut -d' ' -f1)"
+            echo "driver_sha256=$(sha256sum tools/i20_postcoder_swap.py | cut -d' ' -f1)"
+          } | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch the canonical corpus
+        run: |
+          python3 candidate/tools/gha_fetch_corpus.py \
+            "${{ matrix.corpus }}" \
+            --out "$CORPUS_ROOT"
+          {
+            find "$CORPUS_ROOT" -type f -print0 | sort -z | xargs -0 sha256sum
+          } | tee "$OUT_DIR/corpus-sha256.txt"
+
+      - name: Stage 1 — prepare, byte sweep and postcoder stage profile
+        run: |
+          set -euo pipefail
+          python3 candidate/tools/i20_postcoder_swap.py prepare \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --out "$OUT_DIR" \
+            --anvil candidate/build/anvil \
+            --proto candidate/build/i20/proto \
+            --brotli candidate/build/brotli_lw \
+            --xz xz
+
+      - name: Stage 2 — same-job paired/interleaved timing
+        run: |
+          set -euo pipefail
+          python3 candidate/tools/i20_postcoder_swap.py time \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --out "$OUT_DIR" \
+            --anvil candidate/build/anvil \
+            --proto candidate/build/i20/proto \
+            --brotli candidate/build/brotli_lw \
+            --xz xz \
+            --reps "${{ inputs.reps }}"
+
+      - name: Stage 3 — integration estimate in program currency
+        run: |
+          set -euo pipefail
+          python3 candidate/tools/i20_postcoder_swap.py estimate \
+            --corpus "${{ matrix.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --out "$OUT_DIR" \
+            --anvil candidate/build/anvil \
+            --proto candidate/build/i20/proto \
+            --brotli candidate/build/brotli_lw \
+            --xz xz
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### I20 C5 postcoder decode-cost swap — ${{ matrix.corpus }}"
+            echo
+            if [ -f "$OUT_DIR/estimate.json" ]; then
+              echo '```json'
+              cat "$OUT_DIR/estimate.json"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw I20 C5 evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-postcoder-swap-${{ matrix.corpus }}-${{ github.run_id }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
