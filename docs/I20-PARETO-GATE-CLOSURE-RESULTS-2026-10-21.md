@@ -624,6 +624,16 @@ the byte accounting of this programme's cap sweep against an independent earlier
 | G6 | peak decode RSS ratio ≤ 2.0 vs Brotli q11/lw30 | **78,092 KiB / 125,264 KiB = 0.6229×** | **PASS** |
 | — | **arbiter ruling** | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** | **GATE CLOSED** |
 
+**Provenance note on the merged tree.** The ruling was measured on a candidate whose
+`src/anvil.cpp` blob is `d797a19bc6624eee75242231a9b02322f294eae6` (the merged-arm commit
+`7b9ea3f18397d61bab6f41cd14f0eb50da40b36b`). After the programme branch merged the worker
+branches, its `src/anvil.cpp` blob is `674b555472b12c370d331898543a46467280ff92`. The two blobs
+**differ in exactly one comment line** (the wording of the `--bwt-aux-walks=` value-offset
+comment); the compiled code is identical, and the `--bwt-aux-walks=` value offset is `16` in both.
+**The merged programme tree is therefore behaviourally identical to the tree that produced the
+ruling**, and the byte-identity assertion (`--expected-candidate-total 48347006`) passed in all six
+runs, so the compressed output is identical as well.
+
 **Baseline → closed arm, on the same axes:**
 
 | quantity | baseline (run `39654699366`) | closed arm (run `39684313068`) | change |
