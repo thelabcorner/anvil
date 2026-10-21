@@ -182,7 +182,50 @@ of surplus) reached ANVIL/Brotli = 2.2104 [2.1108, 2.3185] without the C4 levers
 remaining measurement**, because `--bwt-subblock` accepts any byte count and the G2/G4 trade-off
 may have a feasible interior point.
 
-### 2.8 C4 — decode working-set engineering: WIN (the adoptable lever)
+### 2.10 The L3 arm (run `39674862702`) — proof that the C4 levers cannot reach the peak
+
+**Evidence:** run `39674862702`, workflow `.github/workflows/anvil-i20-working-set.yml`, jobs
+`working-set (silesia)` / `working-set (enwik8)`, artifacts
+`anvil-i20-working-set-silesia-39674862702` / `...-enwik8-39674862702`, corpus silesia + enwik8.
+
+Measured portfolio maximum peak decode RSS (KiB):
+
+| arm | max peak RSS | vs `xz -9e` (55,412 KiB) |
+|---|---:|---:|
+| baseline, no cap | 254,456 | 4.592× |
+| **candidate (L1+L2+L3), no cap** | **206,824** | **3.733×** |
+| baseline, cap 16 MiB | 126,688 | 2.287× |
+| baseline, cap 4 MiB | 125,664 | 2.268× |
+| baseline, cap 8 MiB | 125,704 | 2.269× |
+| **candidate, cap 16 MiB** | **125,752** | **2.269×** |
+| **candidate, cap 4 MiB** | **125,688** | **2.269×** |
+| **candidate, cap 8 MiB** | **125,640** | **2.268×** |
+
+**This is the cleanest statement of the programme's remaining blocker.** Without a cap, the C4
+levers cut the portfolio peak by 47,632 KiB (254,456 → 206,824). **With a cap, they cut it by
+nothing at all** (125,704 → 125,640) — because at a cap the peak is no longer on the BWT path.
+
+Per-file (candidate arm, no cap): `dickens` 66,656 → 54,148 KiB, `mr` 65,120 → 53,028 KiB,
+`webster` 254,456 → ~206,824 KiB (all BWT-routed — the levers work), while **`mozilla`
+125,708 → 125,768 KiB (Brotli-routed — the levers do not touch it at all)**.
+
+**The one line that must change is `src/anvil.cpp:4583`**, where
+`ratio_backend_decode` returns the Brotli backend's whole-file vector
+(`brotli_lw_decode_exact`) instead of writing into the `DecodeSink`. The arithmetic is
+unambiguous: removing `mozilla`'s 50,020 KiB output buffer leaves ≈75,700 KiB = 1.37 × `xz -9e`
+→ **G5 PASS**, and the portfolio peak then falls to `webster`'s capped-and-levered value
+(53,156 KiB at the 8 MiB cap, per arm F) = 0.96 × `xz -9e` → a very large G5 margin.
+
+**Expected programme outcome once that line is fixed** (all from measured same-job data, no
+speculation): with the 2 MiB cap (byte-feasible, 108,998 B of surplus) the cap-only arm measured
+ANVIL/Brotli = 2.2104, and L1+L2+L3 are worth ≈1.27× on the candidate's decode (arm F 3.7229 s vs
+W3's cap-only 4.7287 s at the same 8 MiB cap) ⇒ ≈1.74 against the 2.0 threshold ⇒ **G4 PASS**;
+G2 PASS (bytes below `xz -9e`); G3 PASS; G5/G6 PASS with the Brotli streaming fix. **That is the
+`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` condition, and the coordinator is ruling the cap ladder
+between 1 and 2 MiB with the frozen arbiter to find the byte-feasible point.**
+
+---
+
 
 W4 implemented three **decode-only** levers at exactly **zero wire cost** — the encoder, the wire
 format, the mode-17 envelope and the `0xFF` sub-block frame are untouched:
