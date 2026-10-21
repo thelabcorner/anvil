@@ -146,6 +146,20 @@ router keeps `mozilla` on the Brotli route at every cap (its split-BWT payload, 
 8 MiB cap, always exceeds its Brotli payload of 13,806,173 B). Brotli's *internal* ring buffer
 (the history window) is not removable by this lever; it stays.
 
+**Does the streaming decoder in this build accept the large window (lgwin up to 30)? — YES, and
+it is provable from the code rather than assumed.** The pre-existing helper
+`brotli_lw_decode_exact()` is **not** a one-shot API: it already calls
+`BrotliDecoderDecompressStream(state, &available_in, &next_in, &available_out, &next_out,
+&total_out)` on a `BrotliDecoderState` created with
+`BrotliDecoderSetParameter(s, BROTLI_DECODER_PARAM_LARGE_WINDOW, 1)`; it merely hands the decoder
+the *whole* output buffer at once. The large-window capability is a property of the **decoder
+instance** (that parameter), not of the size of the output buffer, so `brotli_lw_decode_stream()`
+— which creates the state identically and sets the identical parameter, and only differs in
+handing the decoder a 256 KiB window at a time — accepts exactly the same window range. The
+frozen baseline decodes lgwin-30 payloads byte-exactly through that same streaming entry point
+(Silesia round-trips, §3), which is the empirical proof that the pinned build's streaming decoder
+carries the large window. **No window is silently degraded, and no window lever was needed.**
+
 *CRC correctness (the coordinator's specific question)*: the block CRC-32 covers the **original**
 block bytes. The sub-block bytes **are** the original block bytes, in order (the `0xFF` frame's
 per-sub-block decoded lengths partition the block in order), and they are handed to the sink in
@@ -363,9 +377,29 @@ the measured heap reduction equals `n + c` to the byte. The coordinator's attrib
 libsais array at ~63 % of the peak, the BWT string and the output buffer at ~16 % each) is
 **confirmed**.
 
-### 5.6 The L3 arm (streaming) — measured
+### 5.6 The L3 arms — measured
 
-*(filled from run `39674862702`; see §7)*
+*(filled from runs `39674862702` (L1+L2+L3) and `39678336260` (L1+L2+L3 + streaming Brotli); see §7)*
+
+### 5.7 The merged-arm arbiter arms (coordinator's measurement, cited for the programme)
+
+**MEASURED by the coordinator** on the merged arm `ec2238e0c73bff9fe434b30149f72e06af4a5ef7`
+(workflow `.github/workflows/anvil-i20-gate-closure.yml`, job `gate-closure (silesia)`, corpus
+silesia; artifacts `anvil-i20-gate-closure-silesia-39674648000` and
+`anvil-i20-gate-closure-silesia-39674653288`):
+
+| arm | `--candidate-extra-args` | ANVIL bytes | lead vs `xz` | ANVIL peak RSS | vs `xz` | ANVIL/`xz` decode (CI95) | ANVIL/Brotli decode (CI95) | ruling |
+|---|---|---:|---:|---:|---:|---|---|---|
+| E | `--bwt-subblock 4194304` | 47,941,299 | 514,705 B | 126,808 KiB | 2.2842× FAIL | 1.2798 [1.2606, 1.2802] PASS | 4.2816 [4.2603, 4.3873] FAIL | `FRONT-GAP_COST` |
+| F | `--bwt-subblock 8388608` | 47,365,274 | 1,090,730 B | 127,720 KiB | 2.3049× FAIL | 1.2529 [1.2524, 1.2539] PASS | 4.5611 [4.5000, 4.7867] FAIL | `FRONT-GAP_COST` |
+
+Arm F's per-file RSS table shows `webster` at **53,156 KiB** (against the 109,440 KiB that W3
+measured for the same 8 MiB cap *without* the C4 levers — a 55 MiB reduction) and the portfolio
+decode at **3.7229 s** against W3's cap-only **4.7287 s** at the same cap (run `39663273951`,
+artifact `anvil-i20-subblock-silesia-39663273951`) — i.e. **L1+L2+L3 are ≈1.27× faster on top of
+the cap's ≈1.14×, ≈1.45× in total**. The portfolio peak did not move, because it is `mozilla`
+(127,720 KiB, Brotli-routed) — the term that the streaming-Brotli lever of §2/L3 removes.
+
 
 ---
 
