@@ -62,13 +62,13 @@ permissions:
 
 jobs:
   gate-closure:
-    if: inputs.corpus == 'both' || matrix.corpus == inputs.corpus
     strategy:
       fail-fast: false
       matrix:
         corpus:
           - silesia
           - enwik8
+    if: inputs.corpus == 'both' || matrix.corpus == inputs.corpus
 
     runs-on: ubuntu-24.04
     timeout-minutes: 180
