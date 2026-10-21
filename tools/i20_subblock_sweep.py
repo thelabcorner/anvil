@@ -521,6 +521,15 @@ def prepare(args: argparse.Namespace) -> None:
             "xz": {k: v["xz"]["bytes"] for k, v in ref_meta.items()},
             "brotli": {k: v["brotli"]["bytes"] for k, v in ref_meta.items()},
         },
+        # Physical on-disk path of every payload. A cap larger than a file
+        # produces the identical unsplit payload, so several keys share one
+        # physical file; this map records where each payload actually lives.
+        "payload_paths": {
+            "anvil_brotli": {k: v["path"] for k, v in brotli_meta.items()},
+            "anvil_bwt": {f"{name}@{cap}": v["path"] for (name, cap), v in bwt_meta.items()},
+            "xz": {k: v["xz"]["path"] for k, v in ref_meta.items()},
+            "brotli": {k: v["brotli"]["path"] for k, v in ref_meta.items()},
+        },
     }
     (out / "prepare.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -651,10 +660,14 @@ def verify(args: argparse.Namespace) -> None:
     # repetitions (the timed arms decode these exact files).
     payload_check: dict[str, Any] = {}
     rehashed: dict[str, dict[str, str]] = {}
+    paths = prep.get("payload_paths", {})
     for group, entries in prep["payload_sha256"].items():
         mismatches: list[str] = []
+        group_paths = paths.get(group, {})
         for key, digest in entries.items():
-            if group == "anvil_brotli":
+            if key in group_paths:
+                path = Path(group_paths[key])
+            elif group == "anvil_brotli":
                 path = out / "packed" / "anvil-brotli" / f"{key}.anv"
             elif group == "anvil_bwt":
                 name, cap = key.split("@")
@@ -663,6 +676,10 @@ def verify(args: argparse.Namespace) -> None:
                 path = out / "packed" / "xz" / f"{key}.xz"
             else:
                 path = out / "packed" / "brotli" / f"{key}.br"
+            if not path.is_file():
+                all_ok = False
+                mismatches.append(key)
+                continue
             got = sha256(path)
             rehashed.setdefault(group, {})[key] = got
             if got != digest:
