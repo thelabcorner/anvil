@@ -1,0 +1,213 @@
+name: ANVIL I11 D1 cap-speed sweep
+
+# I11 candidate D1 - "BWT-path decode speed vs sub-block cap, with ROUTING HELD
+# CONSTANT".  Preregistered in docs/I11-PARETO-DOMINANCE-PREREG-2026-10-22.md
+# section 5.
+#
+# The I20 sub-block-cap sweeps could not answer the cache-locality question
+# because changing the cap also changes the router's backend choice, so the
+# portfolio speed-up was confounded with routing.  This workflow measures a
+# SINGLE file at caps {1,2,4,8,16,32,64,128} MiB with the backend and every
+# other encoder setting held constant, so that ONLY the LF-array working set
+# changes, and it RECORDS THE ROUTE AT EVERY CAP so that a route change is
+# visible (the prereg kill condition: any cap sweep that changes the route is
+# void).
+#
+# Arms:
+#   bwt-forced    --ratio-backend=bwt          (route held constant by construction)
+#   auto-i20      --ratio-backend=auto --ratio-bwt-min-gain-pct 3  (I20 profile)
+#   auto-default  --ratio-backend=auto         (plain default profile)
+#
+# Same-job paired/interleaved timing through the frozen tools/paired_bench.py
+# with the frozen prereg parameters, CPU affinity 0, every raw repetition
+# retained, and a mandatory A/A null whose CI must span 1.0.
+#
+# Manual dispatch only.  The candidate source is the dispatched ref itself.
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: Canonical corpus
+        required: true
+        default: 'silesia'
+        type: choice
+        options:
+          - 'silesia'
+      files:
+        description: 'Comma-separated corpus files to measure (always-BWT files)'
+        required: true
+        default: 'mr,x-ray'
+      caps_mib:
+        description: 'Comma-separated --bwt-subblock caps in MiB (must include 128)'
+        required: true
+        default: '1,2,4,8,16,32,64,128'
+      arms:
+        description: 'Comma-separated arms to measure'
+        required: true
+        default: 'bwt-forced,auto-i20,auto-default'
+      reps:
+        description: Paired decode repetitions per cap
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  group: anvil-i11-cap-speed-${{ inputs.corpus }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cap-speed:
+    name: cap-speed (${{ inputs.corpus }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/cap-speed-${{ inputs.corpus }}
+
+    steps:
+      - name: Checkout candidate source and measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils time python3
+
+      - name: Fingerprint runner, source and arm
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "job=cap-speed (${{ inputs.corpus }})"
+            echo "workflow=${GITHUB_WORKFLOW}"
+            echo "workflow_file=.github/workflows/anvil-i11-cap-speed.yml"
+            echo "workflow_sha256=$(sha256sum source/.github/workflows/anvil-i11-cap-speed.yml | cut -d' ' -f1)"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "commit_sha=$(git -C source rev-parse HEAD)"
+            echo "source_src_anvil_blob=$(git -C source rev-parse HEAD:src/anvil.cpp)"
+            echo "source_src_anvil_sha256=$(sha256sum source/src/anvil.cpp | cut -d' ' -f1)"
+            echo "tool_sha256=$(sha256sum source/tools/i11_cap_speed.py | cut -d' ' -f1)"
+            echo "driver_sha256=$(sha256sum source/tools/paired_bench.py | cut -d' ' -f1)"
+            echo "corpus_fetcher_sha256=$(sha256sum source/tools/gha_fetch_corpus.py | cut -d' ' -f1)"
+            echo "corpus=${{ inputs.corpus }}"
+            echo "files=${{ inputs.files }}"
+            echo "caps_mib=${{ inputs.caps_mib }}"
+            echo "arms=${{ inputs.arms }}"
+            echo "reps=${{ inputs.reps }}"
+            echo "runner_image=ubuntu-24.04"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            python3 --version
+            /usr/bin/time --version 2>&1 | head -n 1
+          } | tee "$OUT_DIR/provenance.txt"
+          echo "candidate_ref=${GITHUB_REF_NAME}" > "$OUT_DIR/candidate-ref.txt"
+          echo "--parse=ratio --ratio-context=off --ratio-lines=off --bwt-aux=on --bwt-subblock=<cap>" \
+            > "$OUT_DIR/candidate-extra-args.txt"
+
+      - name: Build candidate from the dispatched ref
+        run: |
+          cmake -S source -B source/build-cap -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build source/build-cap --parallel 4 --target anvil
+          sha256sum source/build-cap/anvil | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical corpus (pinned size + MD5)
+        env:
+          D1_CORPUS: ${{ inputs.corpus }}
+          D1_FILES: ${{ inputs.files }}
+        run: |
+          python3 source/tools/gha_fetch_corpus.py \
+            "${D1_CORPUS}" \
+            --out "$CORPUS_ROOT"
+          {
+            echo "corpus_root=${CORPUS_ROOT}"
+            for f in ${D1_FILES}; do
+              p="${CORPUS_ROOT}/${D1_CORPUS}/${f}"
+              echo "corpus_file_${f}_bytes=$(stat -c %s "$p")"
+              echo "corpus_file_${f}_sha256=$(sha256sum "$p" | cut -d' ' -f1)"
+            done
+          } | tee -a "$OUT_DIR/provenance.txt"
+
+      - name: Prepare payloads, routes and round trips
+        run: |
+          python3 source/tools/i11_cap_speed.py prepare \
+            --corpus "${{ inputs.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --anvil source/build-cap/anvil \
+            --caps-mib "${{ inputs.caps_mib }}" \
+            --files "${{ inputs.files }}" \
+            --arms "${{ inputs.arms }}" \
+            --out "$OUT_DIR"
+
+      - name: Measure per-process peak decode RSS for every (arm, file, cap)
+        run: |
+          python3 source/tools/i11_cap_speed.py rss \
+            --out "$OUT_DIR" \
+            --anvil source/build-cap/anvil \
+            --reps 3
+
+      - name: Same-job paired/interleaved decode timing (frozen prereg parameters)
+        run: |
+          python3 source/tools/i11_cap_speed.py timing \
+            --out "$OUT_DIR" \
+            --anvil source/build-cap/anvil \
+            --driver source/tools/paired_bench.py \
+            --reps "${{ inputs.reps }}" \
+            --warmups 2 \
+            --seed 41246 \
+            --bootstrap 20000 \
+            --epsilon 0.02 \
+            --max-cv 0.15 \
+            --cpu 0 \
+            --ambient-reps 5 \
+            --ambient-iterations 250000 \
+            --ambient-max-cv 0.10
+
+      - name: Verify round trips and payload identity after the timed pass
+        if: ${{ always() }}
+        run: |
+          python3 source/tools/i11_cap_speed.py verify \
+            --out "$OUT_DIR" \
+            --anvil source/build-cap/anvil
+
+      - name: Summarize the cap curve, the fit and the preregistered verdict
+        if: ${{ always() }}
+        run: |
+          python3 source/tools/i11_cap_speed.py summarize \
+            --out "$OUT_DIR"
+          cat "$OUT_DIR/d1-cap-speed.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload compact raw evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i11-cap-speed-${{ inputs.corpus }}-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/*.json
+            ${{ env.OUT_DIR }}/*.csv
+            ${{ env.OUT_DIR }}/*.md
+            ${{ env.OUT_DIR }}/*.txt
+            ${{ env.OUT_DIR }}/timing/
+          if-no-files-found: error
+          retention-days: 30
