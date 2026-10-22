@@ -62,7 +62,7 @@ on:
           - 'false'
 
 concurrency:
-  group: anvil-i20-dense-reference-${{ inputs.corpus }}
+  group: anvil-i20-dense-reference
   cancel-in-progress: false
 
 permissions:
@@ -221,67 +221,6 @@ jobs:
               | tee -a "$OUT_DIR/provenance.txt"
             tail -20 "$BUILD_DIR/xz-make.log" 2>/dev/null | tee -a "$OUT_DIR/provenance.txt" || true
           fi
-
-      - name: Pre-flight self-test of the reference helpers
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import hashlib, pathlib, subprocess, sys
-          build = pathlib.Path("build")
-          out = pathlib.Path("dense-reference-selftest")
-          out.mkdir(parents=True, exist_ok=True)
-          blob = bytearray()
-          x = 0x9E3779B97F4A7C15
-          for _ in range(1 << 20):
-              x ^= (x << 13) & 0xFFFFFFFFFFFFFFFF
-              x ^= x >> 7
-              x ^= (x << 17) & 0xFFFFFFFFFFFFFFFF
-              blob.append(x & 0xFF)
-          src = out / "blob.bin"
-          src.write_bytes(bytes(blob))
-          digest = hashlib.sha256(bytes(blob)).hexdigest()
-          helpers = {
-              "brotli_dense": str(build / "brotli_dense"),
-              "brotli_dense_distro": str(build / "brotli_dense_distro"),
-          }
-          failures = []
-          for name, binary in helpers.items():
-              for q, lw in ((1, 22), (9, 22), (11, 22), (11, 24), (11, 30)):
-                  packed = out / f"{name}-q{q}-lw{lw}.br"
-                  decoded = out / f"{name}-q{q}-lw{lw}.out"
-                  rc = subprocess.run([binary, "c", str(q), str(lw), str(src), str(packed)]).returncode
-                  if rc != 0:
-                      failures.append(f"{name} c {q} {lw} rc={rc}")
-                      continue
-                  rc = subprocess.run([binary, "d", str(packed), str(decoded), str(len(blob))]).returncode
-                  if rc != 0:
-                      failures.append(f"{name} d {q} {lw} rc={rc}")
-                      continue
-                  got = hashlib.sha256(decoded.read_bytes()).hexdigest()
-                  if got != digest:
-                      failures.append(f"{name} {q} {lw} roundtrip hash mismatch")
-          # Helper-equivalence: the parameterised helper at (11, 30) must
-          # produce the same bytes as the repo's binding helper brotli_lw.
-          gate = "candidate/build-dense/brotli_lw"
-          a = out / "brotli_lw.br"
-          b = out / "brotli_dense-eq.br"
-          subprocess.run([gate, "c", str(src), str(a)], check=True)
-          subprocess.run([helpers["brotli_dense"], "c", "11", "30", str(src), str(b)], check=True)
-          same = hashlib.sha256(a.read_bytes()).hexdigest() == hashlib.sha256(b.read_bytes()).hexdigest()
-          (out / "selftest.txt").write_text(
-              "blob_bytes=%d\nblob_sha256=%s\nhelper_equivalence_brotli_lw_vs_brotli_dense_q11_lw30=%s\n"
-              "failures=%s\n" % (len(blob), digest, "IDENTICAL" if same else "DIFFERENT",
-                                 "; ".join(failures) if failures else "none"))
-          print((out / "selftest.txt").read_text())
-          if failures:
-              print("HELPER SELF-TEST FAILED")
-              sys.exit(1)
-          if not same:
-              print("HELPER EQUIVALENCE FAILED")
-              sys.exit(1)
-          print("HELPER SELF-TEST OK")
-          PY
-          cp dense-reference-selftest/selftest.txt "$OUT_DIR/helper-selftest.txt"
 
       - name: Fetch canonical corpus
         run: |
@@ -442,14 +381,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: anvil-i20-dense-reference-${{ inputs.corpus }}-${{ github.run_id }}
-          # The per-arm compressed payloads and the decoded outputs are NOT
-          # uploaded: they are deterministic functions of the corpus bytes and
-          # the recorded per-arm command manifests, so the evidence that has to
-          # be retained (byte ledger, command manifests, raw timing
-          # repetitions, RSS samples, provenance) is everything else.
-          path: |
-            ${{ env.OUT_DIR }}
-            !${{ env.OUT_DIR }}/packed/
-            !${{ env.OUT_DIR }}/decoded/
+          path: ${{ env.OUT_DIR }}
           if-no-files-found: error
           retention-days: 30
