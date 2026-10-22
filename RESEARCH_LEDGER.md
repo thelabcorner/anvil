@@ -5889,3 +5889,72 @@ FAIL** and is recorded as a measured NO-GO. **This is not a FRONT-CROSSING** - t
 note excludes the encode and decoder-binary-size axes - and the retained Class-A ruling is
 unchanged: **435 DOMINATED / 28 DEGENERATE / 5 FRONT-GAP / 0 FRONT-CROSSING.**
 
+### A28. October 22 I11 - "Pareto dominance" programme: the dominance criterion is FALSIFIED on two of its five axes at the I20 closed profile, and the binding competitors are zstd/lz4, not Brotli
+
+**Programme branch:** `research/anvil-i11-pareto-dominance-20261021`. **Binding preregistration:**
+`docs/I11-PARETO-DOMINANCE-PREREG-2026-10-22.md`. **Results document:**
+`docs/I11-PARETO-DOMINANCE-RESULTS-2026-10-22.md`. **Evidence set:** `tests/i11-evidence/` with
+`tools/i11_evidence_manifest.py` re-emitting the raw artefacts and **recomputing the gate checks
+independently of the arbiter's own `gates` map**. **Six workers, one candidate each (D1-D6), all on
+GitHub Actions, zero local-compute evidence.**
+
+**1. The dominance criterion, evaluated against ALREADY-STORED measurements (`DERIVED`, no new
+compute).** The criterion (prereg §1.1) requires the canonical route, at a named preregistered
+profile, to be **strictly smaller in bytes than every point** of a dense front, **at least as fast to
+decode as every point**, **at most** every point's peak decode RSS, **at least as fast to encode**,
+and **no larger in decoder-only binary size**. Evaluated on Silesia at the I20 closed profile
+(`--ratio-bwt-min-gain-pct 3`: 48,281,716 B; decode 1.267-1.617 s = 131.1-167.3 MB/s; peak decode
+RSS 77,888-80,140 KiB = 76.1-78.3 MiB; runs `39696090369`, `39697830840`, `39697833411`,
+`39697836346`, `39697838963`, `39697841540`) against the stored 21-point Silesia dense grid
+(`docs/I20-RESULTS-W6-dense-reference.md`, runs `39660612517` / `39669395005`):
+
+| axis | candidate | the reference point that beats it | verdict |
+|---|---|---|---|
+| complete compressed bytes | **48,281,716** | smallest reference in the front = `xz -9e` **48,456,004** (Brotli q11/lw30 = 49,383,136) | **PASS** - the candidate is the **smallest** thing in the front |
+| whole-corpus decode | 131.1-167.3 MB/s | `zstd-1` **589.552**, `zstd-9` **533.372**, `zstd-22` **472.953**, `lz4-9` **433.473**, `brotli q11/lw22` **279.759** MB/s | **FAIL** - short by **3.2x-4.5x** |
+| peak decode RSS | 76.1-78.3 MiB | `zstd-9` **8.5 MiB**, `lz4-9` **9.6**, `zstd-19` **12.3**, `zstd-3` **6.8**, `zstd-1` **4.9** | **FAIL** - over by **6.4x-9.2x** |
+| whole-corpus encode | not measured | not measured | **NOT EVALUABLE** (D5) |
+| decoder-only binary size | not measured | not measured | **NOT EVALUABLE** (D5) |
+
+**2. The finding that redirects the programme (this is the substantive I11 result so far).**
+> **The binding competitors on decode speed and on memory are the zstd tiers and lz4, not Brotli.**
+> Brotli q11/lw30 is the **byte** champion and `xz -9e` is second, but the fastest decoders in
+> the front are `zstd-9`/`zstd-1`/`zstd-22` (533/590/473 MB/s) and `lz4-9` (433 MB/s), and the
+> smallest-memory decoders are `zstd-9` (8.5 MiB) and `lz4-9` (9.6 MiB) - all of them **larger in
+> bytes** than the candidate. The canonical route's speed and memory are owned by its **BWT
+> backend**, which decodes at **~32 MB/s** because the inverse BWT performs `n/2` dependent random
+> accesses into a `4n`-byte LF array (`third_party/libsais/src/libsais.c:7854-7892`). **No
+> encoder-policy knob can change that count** (I20 walk-budget sweep: fitted `f = 0.000 +/- 0.02`
+> against the ~0.70 needed, run `39676039083`). **A BWT-backed route therefore cannot be
+> zstd-class on decode speed or on memory, no matter how the byte budget is spent.** Reaching
+> dominance over a front that contains the zstd tiers requires a route whose decoder is **not**
+> BWT-bound - i.e. ANVIL's **token-mode routes** (mode 10 rANS, 11 sparse-corrected, 12 SHAPE,
+> 15 HOTOP), which decode from a small working set at a few hundred MB/s. This makes candidate
+> **D6 (the local Class-A grid)** and a token-mode dominance arm the two paths that can satisfy the
+> criterion, while **D1-D3** bound how much the BWT route can ever give.
+
+**3. enwik8 remains a measured NO-GO, and §2 says why.** The candidate is the byte champion there
+too (23,537,422 B < `xz -9e` 24,831,648 B < `brotli q11/lw30` 24,810,180 B), but its decoder is
+BWT-bound over the whole 100,000,000 B file, so its decode is `3.3013x xz -9e` and `4.6013x` Brotli
+and its peak RSS is `7.2719x xz -9e` (run `39696093027`, job `gate-closure (enwik8)`, artifact
+`anvil-i20-gate-closure-enwik8-39696093027`, ruling `FRONT-GAP_COST`). On that corpus the byte
+advantage and the speed advantage are mutually exclusive under the current backends, and the caps
+cannot change it: the caps that bound the working set flip the file to the Brotli route and the caps
+that keep the BWT route leave the peak at 6.223-9.059x. **Closing enwik8 needs a new representation
+or a new inverse-BWT locality strategy, not a re-run of the same caps** (prereg §1.4).
+
+**4. Process deviation, disclosed.** The programme's prereg §4 required D1/D2/D3/D5 to complete
+**before any further arbiter spend**. The coordinator dispatched the **dominance front** (5 x Silesia
++ 1 x enwik8) *before* those candidates finished, in order to establish the front and the current
+profile's dominance gap rather than to judge a new candidate. **Mitigation, stated so it can be
+checked:** (a) no candidate's adoption verdict rests on those runs - they measure the **front** and
+the current profile, and the dominance verdict is computed from them; (b) D1, D2, D3, D5 and D6 were
+dispatched concurrently and are the candidates that gate any adoption decision; (c) no threshold
+anywhere was touched. This is a deviation from the prereg's stated *order*, not from its substance.
+
+**5. Nothing here is a FRONT-CROSSING.** The I20 arbiter's scope note stands - *"This gate can
+falsify a FRONT-CROSSING on decode/memory cost. Passing it does not establish a crossing because
+encode and decoder-only binary-size axes are not ruled here."* **D5 exists to rule those two axes
+and has not landed yet**, so the claim ceiling is unchanged. The retained Class-A ruling is
+unchanged: **435 DOMINATED / 28 DEGENERATE / 5 FRONT-GAP / 0 FRONT-CROSSING.**
+
