@@ -1,0 +1,22 @@
+{
+  "command_manifests": {
+    "anvil-aux": "/home/runner/work/anvil/anvil/gate-closure-silesia/anvil-aux-commands.json",
+    "brotli": "/home/runner/work/anvil/anvil/gate-closure-silesia/brotli-commands.json",
+    "xz": "/home/runner/work/anvil/anvil/gate-closure-silesia/xz-commands.json"
+  },
+  "compressed_bytes": {
+    "anvil-aux": 46593971,
+    "brotli": 49383136,
+    "xz": 48456004
+  },
+  "corpus": "silesia",
+  "file_count": 12,
+  "roundtrip": "OK",
+  "schema": 1,
+  "scripts": {
+    "anvil-aux": "/home/runner/work/anvil/anvil/gate-closure-silesia/decode-anvil-aux.sh",
+    "brotli": "/home/runner/work/anvil/anvil/gate-closure-silesia/decode-brotli.sh",
+    "xz": "/home/runner/work/anvil/anvil/gate-closure-silesia/decode-xz.sh"
+  },
+  "source_bytes": 211938580
+}

@@ -1,0 +1,1 @@
+--ratio-bwt-min-gain-pct 1

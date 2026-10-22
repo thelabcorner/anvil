@@ -1,0 +1,2 @@
+2afb7b9b03da3a42f8f1fe8dbc8c44d28c25fe52bac4e4eae037ec1a8c77221c  candidate/build-ref/anvil
+9d6a4a6e517a91cb1a2413465a24dadb5a972036c74b91afa6d3a7eff177991c  candidate/build-ref/brotli_lw

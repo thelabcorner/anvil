@@ -1,0 +1,794 @@
+name: ANVIL I11 arbiter axes (encode + decoder-only binary size)
+
+# Candidate D5 (ANVIL Iteration 11 - "Pareto Dominance").
+#
+# The frozen arbiter tools/reference_cost_gate.py says in its own scope_note
+# that passing it "does not establish a crossing because encode and
+# decoder-only binary-size axes are not ruled here".  This workflow measures
+# those two axes on the canonical corpus with the SAME tools, the SAME paired
+# protocol and the SAME correctness discipline, and rules them with the
+# extended arbiter.
+#
+# Jobs
+#   encode-axis        matrix over the front points: one same-job paired
+#                      whole-corpus ENCODE series per reference point, with a
+#                      mandatory A/A null, the byte-exact round-trip gate, and
+#                      the per-cell ruling.
+#   encode-null-whole  one whole-corpus A/A null for the encode axis.
+#   gate               the frozen 3-arm reference-cost gate (the live base
+#                      ruling), the decoder-only binary-size axis, and the
+#                      regression proof over the stored I20 artefacts.
+#   assemble           merges the cells, re-runs the extended summarize and
+#                      uploads the single combined evidence artefact.
+#
+# Everything is measured on the hosted runner.  There is no local-compute
+# evidence anywhere in this programme.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: 'Git ref to build as the ANVIL candidate'
+        required: true
+        default: 'research/anvil-i11-d5-arbiter-axes'
+      candidate_extra_args:
+        description: 'Extra ANVIL encoder-policy flags for the candidate arm'
+        required: false
+        default: '--ratio-bwt-min-gain-pct 3'
+      cells:
+        description: 'JSON array of cell names (front point names, or "calib")'
+        required: true
+        default: '["brotli-q1-w22","brotli-q4-w22","brotli-q6-w22","brotli-q9-w22","brotli-q11-w22","brotli-q11-w24","brotli-q11-w30","zstd-1","zstd-3","zstd-9","zstd-19","zstd-22","xz-6","xz-9","xz-9e","lz4-1","lz4-9"]'
+      reps:
+        description: Paired repetitions (the frozen protocol value is 9)
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+      expect_candidate_total:
+        description: 'Expected Silesia candidate total bytes (0 = do not assert)'
+        required: true
+        default: '48281716'
+      label:
+        description: 'Concurrency label (distinct per dispatch)'
+        required: true
+        default: 'd5'
+      run_whole_null:
+        description: 'Also run the whole-corpus A/A null for the encode axis'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: anvil-i11-arbiter-axes-${{ inputs.label }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  BROTLI_PINNED_COMMIT: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
+  # cell -> the front point(s) the cell measures.  "calib" measures the
+  # candidate's single whole-corpus encode time (a wall-clock calibration).
+  CELL_POINTS: '{"calib":"lz4-1","brotli-q1-w22":"brotli-q1-w22","brotli-q4-w22":"brotli-q4-w22","brotli-q6-w22":"brotli-q6-w22","brotli-q9-w22":"brotli-q9-w22","brotli-q11-w22":"brotli-q11-w22","brotli-q11-w24":"brotli-q11-w24","brotli-q11-w30":"brotli-q11-w30","zstd-1":"zstd-1","zstd-3":"zstd-3","zstd-9":"zstd-9","zstd-19":"zstd-19","zstd-22":"zstd-22","xz-6":"xz-6","xz-9":"xz-9","xz-9e":"xz-9e","lz4-1":"lz4-1","lz4-9":"lz4-9"}'
+
+jobs:
+  # ---------------------------------------------------------------------
+  # One same-job paired whole-corpus ENCODE series per front point.
+  # ---------------------------------------------------------------------
+  encode-axis:
+    name: 'encode axis (${{ matrix.cell }})'
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ${{ fromJSON(inputs.cells) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/axes-${{ matrix.cell }}
+      BUILD_DIR: ${{ github.workspace }}/build
+      CELL: ${{ matrix.cell }}
+      CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      CANDIDATE_EXTRA_ARGS: ${{ inputs.candidate_extra_args }}
+    steps:
+      - name: Checkout measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          path: candidate
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils zstd lz4 time python3 build-essential \
+            autoconf automake libtool pkg-config curl ca-certificates git
+
+      - name: Fingerprint runner, source and producers
+        run: |
+          mkdir -p "$OUT_DIR" "$BUILD_DIR"
+          POINTS=$(python3 -c "import json,os;print(json.loads(os.environ['CELL_POINTS']).get(os.environ['CELL'],''))")
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "cell=${CELL}"
+            echo "cell_points=${POINTS}"
+            echo "candidate_ref=${CANDIDATE_REF}"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "candidate_src_sha256=$(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "tooling_ref_gate_sha256=$(sha256sum tooling/tools/reference_cost_gate.py | cut -d' ' -f1)"
+            echo "candidate_extra_args=[${CANDIDATE_EXTRA_ARGS}]"
+            echo "reps=${{ inputs.reps }}"
+            echo "brotli_pinned_commit=${BROTLI_PINNED_COMMIT}"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            zstd --version
+            lz4 --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+          } | tee "$OUT_DIR/provenance.txt"
+          echo "POINTS=${POINTS}" >> "$GITHUB_ENV"
+
+      - name: Build candidate and the repo Brotli binding helper
+        run: |
+          cmake -S candidate -B candidate/build-axes -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-axes --parallel 4 --target anvil brotli_lw
+          sha256sum candidate/build-axes/anvil candidate/build-axes/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Build the parameterised Brotli helper against the pinned producer
+        run: |
+          set +e
+          git clone --quiet https://github.com/google/brotli.git "$BUILD_DIR/brotli-src"
+          git -C "$BUILD_DIR/brotli-src" checkout --quiet "${BROTLI_PINNED_COMMIT}"
+          PINNED_HEAD=$(git -C "$BUILD_DIR/brotli-src" rev-parse HEAD 2>/dev/null)
+          if [ "$PINNED_HEAD" = "${BROTLI_PINNED_COMMIT}" ]; then
+            cmake -S "$BUILD_DIR/brotli-src" -B "$BUILD_DIR/brotli-src/build" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+              -DBROTLI_DISABLE_TESTS=ON \
+              -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18
+            cmake --build "$BUILD_DIR/brotli-src/build" --parallel 4
+            clang++-18 -O3 -DNDEBUG -std=c++17 \
+              -I "$BUILD_DIR/brotli-src/c/include" \
+              tooling/prototypes/i20-dense-reference/brotli_dense.cpp \
+              -o "$BUILD_DIR/brotli_dense" \
+              "$BUILD_DIR/brotli-src/build/libbrotlienc.a" \
+              "$BUILD_DIR/brotli-src/build/libbrotlidec.a" \
+              "$BUILD_DIR/brotli-src/build/libbrotlicommon.a"
+            echo "brotli_pinned_build=OK" | tee -a "$OUT_DIR/provenance.txt"
+          else
+            echo "brotli_pinned_build=UNAVAILABLE (disclosed substitution: distribution libbrotli-dev)" \
+              | tee -a "$OUT_DIR/provenance.txt"
+            clang++-18 -O3 -DNDEBUG -std=c++17 \
+              tooling/prototypes/i20-dense-reference/brotli_dense.cpp \
+              -o "$BUILD_DIR/brotli_dense" \
+              -lbrotlienc -lbrotlidec -lbrotlicommon
+          fi
+          set -e
+          test -x "$BUILD_DIR/brotli_dense"
+          sha256sum "$BUILD_DIR/brotli_dense" | tee -a "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py silesia --out "$CORPUS_ROOT"
+
+      - name: Build the front payloads and verify every round trip
+        run: |
+          POINTS=$(python3 -c "import json,os;print(json.loads(os.environ['CELL_POINTS']).get(os.environ['CELL'],''))")
+          EXPECT=()
+          if [ "${{ inputs.expect_candidate_total }}" != "0" ]; then
+            EXPECT=(--expected-candidate-total "${{ inputs.expect_candidate_total }}")
+          fi
+          python3 tooling/tools/reference_cost_gate.py prepare-front \
+            --corpus silesia \
+            --root "$CORPUS_ROOT" \
+            --anvil candidate/build-axes/anvil \
+            --brotli-dense "$BUILD_DIR/brotli_dense" \
+            --xz "$(command -v xz)" \
+            --zstd "$(command -v zstd)" \
+            --lz4 "$(command -v lz4)" \
+            --out "$OUT_DIR" \
+            --points "$POINTS" \
+            --candidate-extra-args "$CANDIDATE_EXTRA_ARGS" \
+            "${EXPECT[@]}"
+
+      - name: Calibrate the whole-corpus encode wall time
+        if: ${{ matrix.cell == 'calib' }}
+        run: |
+          {
+            echo "candidate_whole_corpus_encode:"
+            /usr/bin/time -f "  candidate_encode_seconds=%e" bash "$OUT_DIR/encode-anvil-aux.sh"
+            echo "reference_whole_corpus_encode:"
+            /usr/bin/time -f "  reference_encode_seconds=%e" bash "$OUT_DIR/encode-lz4-1.sh"
+          } 2>&1 | tee "$OUT_DIR/calibration.txt"
+
+      - name: Paired/interleaved whole-corpus encode timing (frozen protocol)
+        if: ${{ matrix.cell != 'calib' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          reps = os.environ["REPS"]
+          front = json.loads((out / "front-summary.json").read_text(encoding="utf-8"))
+          observed = front["observed_files"]
+          points = [p for p in os.environ["POINTS"].split(",") if p]
+          candidate = ["bash", str(out / "encode-anvil-aux.sh")]
+
+          for name in points:
+              control = ["bash", str(out / f"encode-{name}.sh")]
+              cmd = [
+                  sys.executable, str(driver),
+                  "--control-json", json.dumps(control),
+                  "--candidate-json", json.dumps(candidate),
+                  "--reps", reps,
+                  "--warmups", "2",
+                  "--seed", "41246",
+                  "--bootstrap", "20000",
+                  "--epsilon", "0.02",
+                  "--max-cv", "0.15",
+                  "--cpu", "0",
+                  "--ambient-reps", "5",
+                  "--ambient-iterations", "250000",
+                  "--ambient-max-cv", "0.10",
+                  "--control-observe", observed[name],
+                  "--candidate-observe", observed["anvil-aux"],
+                  "--out", str(out / f"paired-encode-{name}.csv"),
+                  "--summary", str(out / f"paired-encode-{name}.json"),
+                  "--stdout-dir", str(out / f"stdout-encode-{name}"),
+              ]
+              print("RUN", name, flush=True)
+              subprocess.run(cmd, check=True)
+          PY
+        env:
+          REPS: ${{ inputs.reps }}
+
+      - name: A/A null for the encode axis
+        if: ${{ matrix.cell != 'calib' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          front = json.loads((out / "front-summary.json").read_text(encoding="utf-8"))
+          null_script = ["bash", str(out / front["null_scripts"]["reduced"])]
+          observe = front["null_scripts"]["reduced_observed"]
+          cmd = [
+              sys.executable, str(driver),
+              "--control-json", json.dumps(null_script),
+              "--candidate-json", json.dumps(null_script),
+              "--reps", os.environ["REPS"],
+              "--warmups", "2",
+              "--seed", "41246",
+              "--bootstrap", "20000",
+              "--epsilon", "0.02",
+              "--max-cv", "0.15",
+              "--cpu", "0",
+              "--ambient-reps", "5",
+              "--ambient-iterations", "250000",
+              "--ambient-max-cv", "0.10",
+              "--control-observe", observe,
+              "--candidate-observe", observe,
+              "--out", str(out / "paired-encode-null.csv"),
+              "--summary", str(out / "paired-encode-null.json"),
+              "--stdout-dir", str(out / "stdout-encode-null"),
+          ]
+          print("RUN null", flush=True)
+          subprocess.run(cmd, check=True)
+          PY
+        env:
+          REPS: ${{ inputs.reps }}
+
+      - name: Rule the encode axis for this cell
+        if: ${{ matrix.cell != 'calib' }}
+        run: |
+          ARGS=()
+          for p in ${POINTS//,/ }; do
+            ARGS+=(--paired "${p}=$OUT_DIR/paired-encode-${p}.json")
+          done
+          NULL_BYTES=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['null_scripts']['reduced_bytes'])" "$OUT_DIR/front-summary.json")
+          python3 tooling/tools/reference_cost_gate.py encode-axis \
+            --front "$OUT_DIR/front-summary.json" \
+            "${ARGS[@]}" \
+            --null-pair "$OUT_DIR/paired-encode-null.json" \
+            --null-workload "reduced A/A null: the 3 smallest Silesia files (${NULL_BYTES} B) encoded by the candidate encode script vs the same script, same frozen paired protocol" \
+            --cell "$CELL" \
+            --out "$OUT_DIR/encode-cell.json"
+
+      - name: Upload the cell evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i11-arbiter-axes-cell-${{ matrix.cell }}-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/*.json
+            ${{ env.OUT_DIR }}/*.csv
+            ${{ env.OUT_DIR }}/*.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------
+  # One whole-corpus A/A null for the encode axis (protocol check at the
+  # full corpus scale; independent of the per-cell reduced nulls).
+  # ---------------------------------------------------------------------
+  encode-null-whole:
+    name: 'encode axis A/A null (whole corpus)'
+    if: ${{ inputs.run_whole_null == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/encode-null-whole
+      CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      CANDIDATE_EXTRA_ARGS: ${{ inputs.candidate_extra_args }}
+    steps:
+      - name: Checkout measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          path: candidate
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils zstd lz4 time python3 build-essential
+      - name: Build candidate
+        run: |
+          mkdir -p "$OUT_DIR"
+          cmake -S candidate -B candidate/build-axes -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-axes --parallel 4 --target anvil brotli_lw
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "candidate_src_sha256=$(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "candidate_extra_args=[${CANDIDATE_EXTRA_ARGS}]"
+            uname -a
+            lscpu
+          } | tee "$OUT_DIR/provenance.txt"
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py silesia --out "$CORPUS_ROOT"
+      - name: Build the candidate payloads
+        run: |
+          python3 tooling/tools/reference_cost_gate.py prepare-front \
+            --corpus silesia \
+            --root "$CORPUS_ROOT" \
+            --anvil candidate/build-axes/anvil \
+            --brotli-dense "$(command -v true)" \
+            --xz "$(command -v xz)" \
+            --zstd "$(command -v zstd)" \
+            --lz4 "$(command -v lz4)" \
+            --out "$OUT_DIR" \
+            --points "" \
+            --candidate-extra-args "$CANDIDATE_EXTRA_ARGS"
+      - name: Whole-corpus A/A null (frozen paired protocol)
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          front = json.loads((out / "front-summary.json").read_text(encoding="utf-8"))
+          script = ["bash", str(out / "encode-anvil-aux.sh")]
+          observe = front["null_scripts"]["whole_corpus_observed"]
+          cmd = [
+              sys.executable, str(driver),
+              "--control-json", json.dumps(script),
+              "--candidate-json", json.dumps(script),
+              "--reps", os.environ["REPS"],
+              "--warmups", "2",
+              "--seed", "41246",
+              "--bootstrap", "20000",
+              "--epsilon", "0.02",
+              "--max-cv", "0.15",
+              "--cpu", "0",
+              "--ambient-reps", "5",
+              "--ambient-iterations", "250000",
+              "--ambient-max-cv", "0.10",
+              "--control-observe", observe,
+              "--candidate-observe", observe,
+              "--out", str(out / "paired-encode-null.csv"),
+              "--summary", str(out / "paired-encode-null.json"),
+              "--stdout-dir", str(out / "stdout-encode-null"),
+          ]
+          print("RUN whole-corpus null", flush=True)
+          subprocess.run(cmd, check=True)
+          PY
+        env:
+          REPS: ${{ inputs.reps }}
+      - name: Upload the whole-corpus null evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i11-arbiter-axes-null-whole-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/*.json
+            ${{ env.OUT_DIR }}/*.csv
+            ${{ env.OUT_DIR }}/*.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------
+  # The frozen 3-arm gate (live base ruling) + the decoder-only
+  # binary-size axis + the regression proof.
+  # ---------------------------------------------------------------------
+  gate:
+    name: 'gate + decoder-size axis + regression proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/gate
+      BUILD_DIR: ${{ github.workspace }}/build
+      CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      CANDIDATE_EXTRA_ARGS: ${{ inputs.candidate_extra_args }}
+    steps:
+      - name: Checkout measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          path: candidate
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils zstd lz4 time python3 build-essential \
+            autoconf automake libtool pkg-config curl ca-certificates git
+      - name: Fingerprint runner, source and producers
+        run: |
+          mkdir -p "$OUT_DIR" "$BUILD_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "candidate_ref=${CANDIDATE_REF}"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "candidate_src_sha256=$(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "tooling_ref_gate_sha256=$(sha256sum tooling/tools/reference_cost_gate.py | cut -d' ' -f1)"
+            echo "tooling_replay_sha256=$(sha256sum tooling/tools/i11_replay_reference_gate.py | cut -d' ' -f1)"
+            echo "candidate_extra_args=[${CANDIDATE_EXTRA_ARGS}]"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            zstd --version
+            lz4 --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+            dpkg-query -W -f='zstd-dev=${Version}\n' libzstd-dev
+            dpkg-query -W -f='lzma-dev=${Version}\n' liblzma-dev
+            dpkg-query -W -f='lz4-dev=${Version}\n' liblz4-dev
+          } | tee "$OUT_DIR/provenance.txt"
+      - name: Build candidate and the repo Brotli binding helper
+        run: |
+          cmake -S candidate -B candidate/build-gate -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-gate --parallel 4 --target anvil brotli_lw
+          sha256sum candidate/build-gate/anvil candidate/build-gate/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+      - name: Build the pinned Brotli decoder-only archive (refinement, fail-safe)
+        run: |
+          set +e
+          git clone --quiet https://github.com/google/brotli.git "$BUILD_DIR/brotli-src"
+          git -C "$BUILD_DIR/brotli-src" checkout --quiet "${BROTLI_PINNED_COMMIT}"
+          PINNED_HEAD=$(git -C "$BUILD_DIR/brotli-src" rev-parse HEAD 2>/dev/null)
+          if [ "$PINNED_HEAD" = "${BROTLI_PINNED_COMMIT}" ]; then
+            cmake -S "$BUILD_DIR/brotli-src" -B "$BUILD_DIR/brotli-src/build" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+              -DBROTLI_DISABLE_TESTS=ON \
+              -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18
+            cmake --build "$BUILD_DIR/brotli-src/build" --parallel 4
+            echo "brotli_pinned_build=OK" | tee -a "$OUT_DIR/provenance.txt"
+            sha256sum "$BUILD_DIR/brotli-src/build/libbrotlidec.a" \
+              2>/dev/null | tee -a "$OUT_DIR/binary-sha256.txt"
+          else
+            echo "brotli_pinned_build=UNAVAILABLE" | tee -a "$OUT_DIR/provenance.txt"
+          fi
+          set -e
+
+      # ---- the decoder-only binary-size axis ----
+      - name: Measure the decoder-providing artifacts
+        run: |
+          python3 - <<'PY'
+          import glob
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          build = pathlib.Path(os.environ["BUILD_DIR"])
+          libdirs = ["/usr/lib/x86_64-linux-gnu", "/lib/x86_64-linux-gnu",
+                     "/usr/lib64", "/usr/lib"]
+
+          def pick(*patterns):
+              for d in libdirs:
+                  for pat in patterns:
+                      hits = sorted(glob.glob(os.path.join(d, pat)))
+                      if hits:
+                          return os.path.realpath(hits[-1])
+              return ""
+
+          def pkg(name):
+              p = subprocess.run(["dpkg-query", "-W", "-f=${Version}", name],
+                                 capture_output=True, text=True)
+              return p.stdout.strip() if p.returncode == 0 else ""
+
+          brotli_a = build / "brotli-src/build/libbrotlidec.a"
+          manifest = {
+              "candidate": {
+                  "name": "anvil-aux",
+                  "path": str(pathlib.Path("candidate/build-gate/anvil").resolve()),
+                  "version": "candidate binary (anvil)",
+              },
+              "producers": {
+                  "brotli": {
+                      "path": pick("libbrotlidec.so.*", "libbrotlidec.so"),
+                      "version": "libbrotli-dev " + pkg("libbrotli-dev"),
+                  },
+                  "zstd": {
+                      "path": pick("libzstd.so.*", "libzstd.so"),
+                      "version": "libzstd-dev " + pkg("libzstd-dev"),
+                  },
+                  "xz": {
+                      "path": pick("liblzma.so.*", "liblzma.so"),
+                      "version": "liblzma-dev " + pkg("liblzma-dev"),
+                  },
+                  "lz4": {
+                      "path": pick("liblz4.so.*", "liblz4.so"),
+                      "version": "liblz4-dev " + pkg("liblz4-dev"),
+                  },
+              },
+              "decoder_only_refined": {
+                  "brotli": {
+                      "path": str(brotli_a),
+                      "note": ("pinned upstream google/brotli "
+                               f"${'ed738e842d2fbdf2d6459e39267a633c4a9b2f5d'} static "
+                               "decoder-only archive (upstream ships the decoder "
+                               "separately from the encoder)"),
+                  },
+              },
+          }
+          (out / "decoder-artifacts.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY
+      - name: Rule the decoder-only binary-size axis
+        run: |
+          python3 tooling/tools/reference_cost_gate.py decoder-bytes \
+            --manifest "$OUT_DIR/decoder-artifacts.json" \
+            --out "$OUT_DIR/decoder-bytes.json"
+
+      # ---- the frozen 3-arm gate (live base ruling) ----
+      - name: Prepare exact payloads and correctness gate
+        run: |
+          EXPECT=()
+          if [ "${{ inputs.expect_candidate_total }}" != "0" ]; then
+            EXPECT=(--expected-candidate-total "${{ inputs.expect_candidate_total }}")
+          fi
+          python3 tooling/tools/reference_cost_gate.py prepare \
+            --corpus silesia \
+            --root "$CORPUS_ROOT" \
+            --anvil candidate/build-gate/anvil \
+            --brotli candidate/build-gate/brotli_lw \
+            --out "$OUT_DIR" \
+            --candidate-extra-args "$CANDIDATE_EXTRA_ARGS" \
+            "${EXPECT[@]}"
+      - name: Paired/interleaved decode timing
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          reps = "${{ inputs.reps }}"
+          candidate = ["bash", str(out / "decode-anvil-aux.sh")]
+          comparisons = {
+              "xz": ["bash", str(out / "decode-xz.sh")],
+              "brotli": ["bash", str(out / "decode-brotli.sh")],
+              "null": candidate,
+          }
+          for name, control in comparisons.items():
+              cmd = [
+                  sys.executable, str(driver),
+                  "--control-json", json.dumps(control),
+                  "--candidate-json", json.dumps(candidate),
+                  "--reps", reps,
+                  "--warmups", "2",
+                  "--seed", "41246",
+                  "--bootstrap", "20000",
+                  "--epsilon", "0.02",
+                  "--max-cv", "0.15",
+                  "--cpu", "0",
+                  "--ambient-reps", "5",
+                  "--ambient-iterations", "250000",
+                  "--ambient-max-cv", "0.10",
+                  "--out", str(out / f"paired-{name}.csv"),
+                  "--summary", str(out / f"paired-{name}.json"),
+                  "--stdout-dir", str(out / f"stdout-{name}"),
+              ]
+              print("RUN", name, flush=True)
+              subprocess.run(cmd, check=True)
+          PY
+      - name: Measure per-process decode peak RSS
+        run: |
+          python3 tooling/tools/reference_cost_gate.py rss \
+            --manifest "$OUT_DIR/anvil-aux-commands.json" \
+            --manifest "$OUT_DIR/brotli-commands.json" \
+            --manifest "$OUT_DIR/xz-commands.json" \
+            --out "$OUT_DIR"
+      - name: Rule the frozen reference-cost gate (legacy ruling, unchanged)
+        run: |
+          python3 tooling/tools/reference_cost_gate.py summarize \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --xz-pair "$OUT_DIR/paired-xz.json" \
+            --brotli-pair "$OUT_DIR/paired-brotli.json" \
+            --null-pair "$OUT_DIR/paired-null.json" \
+            --out "$OUT_DIR/ruling-legacy.json"
+
+      # ---- the regression proof over the stored I20 artefacts ----
+      - name: Regression proof over the stored I20 artefacts
+        run: |
+          python3 tooling/tools/i11_replay_reference_gate.py \
+            tooling/tests/i20-evidence \
+            --out-dir "$OUT_DIR/regression" \
+            --out "$OUT_DIR/regression-proof.json" \
+            --md "$OUT_DIR/regression-proof.md"
+
+      - name: Upload the gate evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i11-arbiter-axes-gate-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/*.json
+            ${{ env.OUT_DIR }}/*.csv
+            ${{ env.OUT_DIR }}/*.txt
+            ${{ env.OUT_DIR }}/regression/*.json
+            ${{ env.OUT_DIR }}/regression/*.md
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------
+  # Merge the cells and emit the single extended ruling.
+  # ---------------------------------------------------------------------
+  assemble:
+    name: 'assemble the extended ruling'
+    needs: [gate, encode-axis]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      OUT_DIR: ${{ github.workspace }}/assembled
+      RUN_ID: ${{ github.run_id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+      - name: Download the gate and cell artefacts
+        run: |
+          mkdir -p "$OUT_DIR/cells" "$OUT_DIR/gate"
+          gh run download "$RUN_ID" \
+            --name "anvil-i11-arbiter-axes-gate-$RUN_ID" \
+            --dir "$OUT_DIR/gate" || true
+          for f in $(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+                      --jq '.artifacts[].name' | grep 'arbiter-axes-cell' || true); do
+            gh run download "$RUN_ID" --name "$f" --dir "$OUT_DIR/cells" || true
+          done
+          find "$OUT_DIR" -name '*.json' -o -name '*.csv' -o -name '*.txt' \
+            -o -name '*.md' | sort
+      - name: Merge the encode-axis cells
+        run: |
+          set +e
+          ARGS=()
+          for f in $(find "$OUT_DIR/cells" -name 'encode-cell.json' | sort); do
+            ARGS+=(--cell "$f")
+          done
+          echo "cells: ${#ARGS[@]} arguments"
+          if [ "${#ARGS[@]}" -gt 0 ]; then
+            python3 tooling/tools/reference_cost_gate.py encode-merge \
+              "${ARGS[@]}" --out "$OUT_DIR/encode.json"
+          else
+            echo "NO CELL RULINGS FOUND"
+          fi
+          set -e
+      - name: Rule the extended arbiter (base ruling + the two new axes)
+        run: |
+          ENC=()
+          if [ -f "$OUT_DIR/encode.json" ]; then
+            ENC=(--encode "$OUT_DIR/encode.json")
+          fi
+          python3 tooling/tools/reference_cost_gate.py summarize \
+            --prepare "$OUT_DIR/gate/prepare-summary.json" \
+            --rss "$OUT_DIR/gate/rss.json" \
+            --xz-pair "$OUT_DIR/gate/paired-xz.json" \
+            --brotli-pair "$OUT_DIR/gate/paired-brotli.json" \
+            --null-pair "$OUT_DIR/gate/paired-null.json" \
+            "${ENC[@]}" \
+            --decoder-bytes "$OUT_DIR/gate/decoder-bytes.json" \
+            --out "$OUT_DIR/ruling.json"
+          cat "$OUT_DIR/ruling.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the assembled evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i11-arbiter-axes-silesia-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/ruling.json
+            ${{ env.OUT_DIR }}/ruling.md
+            ${{ env.OUT_DIR }}/encode.json
+            ${{ env.OUT_DIR }}/gate/decoder-bytes.json
+            ${{ env.OUT_DIR }}/gate/decoder-artifacts.json
+            ${{ env.OUT_DIR }}/gate/ruling-legacy.json
+            ${{ env.OUT_DIR }}/gate/prepare-summary.json
+            ${{ env.OUT_DIR }}/gate/rss.json
+            ${{ env.OUT_DIR }}/gate/bytes.csv
+            ${{ env.OUT_DIR }}/gate/provenance.txt
+            ${{ env.OUT_DIR }}/gate/regression/*
+            ${{ env.OUT_DIR }}/cells/**/*.json
+            ${{ env.OUT_DIR }}/cells/**/*.csv
+          if-no-files-found: error
+          retention-days: 30

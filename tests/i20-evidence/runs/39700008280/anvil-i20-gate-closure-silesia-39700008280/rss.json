@@ -1,0 +1,190 @@
+{
+  "max_rss_kib": {
+    "anvil-aux": 206564,
+    "brotli": 125120,
+    "xz": 52212
+  },
+  "samples": [
+    {
+      "arm": "anvil-aux",
+      "index": 0,
+      "max_rss_kib": 53892
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 1,
+      "max_rss_kib": 75840
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 2,
+      "max_rss_kib": 52784
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 3,
+      "max_rss_kib": 38380
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 4,
+      "max_rss_kib": 12980
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 5,
+      "max_rss_kib": 53556
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 6,
+      "max_rss_kib": 36688
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 7,
+      "max_rss_kib": 40728
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 8,
+      "max_rss_kib": 15824
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 9,
+      "max_rss_kib": 206564
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 10,
+      "max_rss_kib": 45404
+    },
+    {
+      "arm": "anvil-aux",
+      "index": 11,
+      "max_rss_kib": 10040
+    },
+    {
+      "arm": "brotli",
+      "index": 0,
+      "max_rss_kib": 26288
+    },
+    {
+      "arm": "brotli",
+      "index": 1,
+      "max_rss_kib": 125120
+    },
+    {
+      "arm": "brotli",
+      "index": 2,
+      "max_rss_kib": 25904
+    },
+    {
+      "arm": "brotli",
+      "index": 3,
+      "max_rss_kib": 70424
+    },
+    {
+      "arm": "brotli",
+      "index": 4,
+      "max_rss_kib": 18352
+    },
+    {
+      "arm": "brotli",
+      "index": 5,
+      "max_rss_kib": 26032
+    },
+    {
+      "arm": "brotli",
+      "index": 6,
+      "max_rss_kib": 17672
+    },
+    {
+      "arm": "brotli",
+      "index": 7,
+      "max_rss_kib": 61152
+    },
+    {
+      "arm": "brotli",
+      "index": 8,
+      "max_rss_kib": 22132
+    },
+    {
+      "arm": "brotli",
+      "index": 9,
+      "max_rss_kib": 117808
+    },
+    {
+      "arm": "brotli",
+      "index": 10,
+      "max_rss_kib": 24880
+    },
+    {
+      "arm": "brotli",
+      "index": 11,
+      "max_rss_kib": 14508
+    },
+    {
+      "arm": "xz",
+      "index": 0,
+      "max_rss_kib": 12212
+    },
+    {
+      "arm": "xz",
+      "index": 1,
+      "max_rss_kib": 52212
+    },
+    {
+      "arm": "xz",
+      "index": 2,
+      "max_rss_kib": 11860
+    },
+    {
+      "arm": "xz",
+      "index": 3,
+      "max_rss_kib": 34932
+    },
+    {
+      "arm": "xz",
+      "index": 4,
+      "max_rss_kib": 8136
+    },
+    {
+      "arm": "xz",
+      "index": 5,
+      "max_rss_kib": 12020
+    },
+    {
+      "arm": "xz",
+      "index": 6,
+      "max_rss_kib": 8628
+    },
+    {
+      "arm": "xz",
+      "index": 7,
+      "max_rss_kib": 23272
+    },
+    {
+      "arm": "xz",
+      "index": 8,
+      "max_rss_kib": 9204
+    },
+    {
+      "arm": "xz",
+      "index": 9,
+      "max_rss_kib": 42600
+    },
+    {
+      "arm": "xz",
+      "index": 10,
+      "max_rss_kib": 10484
+    },
+    {
+      "arm": "xz",
+      "index": 11,
+      "max_rss_kib": 7404
+    }
+  ],
+  "schema": 1
+}

@@ -1,0 +1,51 @@
+{
+  "bytes_beat_brotli": true,
+  "bytes_beat_xz": true,
+  "compressed_bytes": {
+    "anvil-aux": 48281716,
+    "brotli": 49383136,
+    "xz": 48456004
+  },
+  "corpus": "silesia",
+  "decode": {
+    "brotli": {
+      "anvil_mbps": 119.86351432380697,
+      "candidate_s": 1.768165910999869,
+      "ci_hi": 1.6578475042432168,
+      "ci_lo": 1.6539322722090783,
+      "control_s": 1.0674510970000028,
+      "ratio": 1.6568282037953959,
+      "ref_mbps": 198.54640703975915
+    },
+    "xz": {
+      "anvil_mbps": 119.87249639219927,
+      "candidate_s": 1.7680334220001441,
+      "ci_hi": 0.5858538615611156,
+      "ci_lo": 0.5852781840096624,
+      "control_s": 3.019532632999926,
+      "ratio": 0.5855508533499255,
+      "ref_mbps": 70.18920003836408
+    }
+  },
+  "gates": {
+    "decode_within_2x_brotli": true,
+    "decode_within_2x_xz": true,
+    "memory_within_2x_brotli": true,
+    "memory_within_2x_xz": true,
+    "null_ci_spans_one": false,
+    "timing_valid": false
+  },
+  "memory_ratio": {
+    "brotli": 0.6229419099076058,
+    "xz": 1.492760284991956
+  },
+  "rss_kib": {
+    "anvil-aux": 77940,
+    "brotli": 125116,
+    "xz": 52212
+  },
+  "ruling": "TIMING_BLOCKED",
+  "schema": 1,
+  "scope_note": "This gate can falsify a FRONT-CROSSING on decode/memory cost. Passing it does not establish a crossing because encode and decoder-only binary-size axes are not ruled here.",
+  "source_bytes": 211938580
+}
