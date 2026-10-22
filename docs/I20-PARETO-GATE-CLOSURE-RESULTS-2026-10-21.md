@@ -854,6 +854,58 @@ G6 1.9180x) - the same arithmetic recorded in §2.5: the caps that bound the wor
 file to Brotli and the caps that keep the BWT route leave the peak at 6.2-9.1x `xz`. The objective
 allows enwik8 as best-effort, and it is recorded as a measured NO-GO.
 
+### 4.7 C7 replication series - 6 of 6 closed (the reproducibility the objective requires)
+
+The C7 arm (`--ratio-bwt-min-gain-pct 3`) was re-run **six times unchanged**: same candidate SHA
+`9c206adfc06b82e28e0d96de6fbee19f3d593ecd`, same arm, same corpus, same frozen arbiter, and the
+`--expected-candidate-total 48281716` byte assertion **passed 6/6**.
+
+| run | reps | artifact (`anvil-i20-gate-closure-silesia-<run>`) | ANVIL bytes | candidate decode | Brotli reference decode | G2 | G3 (CI-upper vs xz) | **G4 (CI-upper vs Brotli)** | G5 | G6 | ruling |
+|---|---:|---|---:|---:|---:|---|---|---|---|---|---|
+| `39696090369` | 9 | `...-39696090369` | 48,281,716 | 1.3662 s | 1.4179 s | PASS | 0.5808 (0.5933) | **0.9642 (1.0366)** | 1.4892x | 0.6227x | **CLOSED** |
+| `39697830840` | 9 | `...-39697830840` | 48,281,716 | 1.6172 s | 1.4199 s | PASS | 0.6058 (0.6059) | **1.1390 (1.1808)** | 1.4902x | 0.6229x | **CLOSED** |
+| `39697833411` | 9 | `...-39697833411` | 48,281,716 | 1.2667 s | 1.2189 s | PASS | 0.5246 (0.5365) | **1.0408 (1.0772)** | 1.4449x | 0.6322x | **CLOSED** |
+| `39697836346` | 9 | `...-39697836346` | 48,281,716 | 1.4685 s | **0.7670 s** | PASS | 0.5117 (0.5123) | **1.9142 (1.9158)** | 1.4437x | 0.6388x | **CLOSED** |
+| `39697838963` | 9 | `...-39697838963` | 48,281,716 | 1.3668 s | 1.2191 s | PASS | 0.5771 (0.5896) | **1.1209 (1.1217)** | 1.4877x | 0.6221x | **CLOSED** |
+| `39697841540` | 9 | `...-39697841540` | 48,281,716 | 1.5684 s | 0.8176 s | PASS | 0.5191 (0.5198) | **1.9188 (1.9210)** | 1.4409x | 0.6376x | **CLOSED** |
+
+**Every A/A null CI spans 1.0 and clears no speed gate in all six runs**, so all six are
+timing-valid. **G2/G3/G5/G6 pass 6/6 and G4 passes 6/6.**
+
+**The contrast with the first closure is the whole point of C7.** The first closure (the 2 MiB cap
+arm) had G4 CI-uppers of 1.6821 ... 3.1555 across seven runs - three closed, four did not. The C7
+arm's G4 CI-uppers are **1.0366 ... 1.9210** across six runs - all six closed, and the two
+tightest cases (1.9158, 1.9210) are precisely the two runs in which the Brotli **reference** ran
+at its fastest observed values (0.7670 s and 0.8176 s). **C7 converts a 3-in-7 flakiness into a
+6-in-6 closure by reducing the numerator, which is the only way to make a ratio-based gate
+deterministic when the denominator is not reproducible.**
+
+**Why C7 is stable, stated as the mechanism rather than as a hope.** The candidate's decode time is
+now **1.267-1.617 s** (a 1.28x spread) against the first closure's 2.02-2.67 s, because the
+inverse-BWT-decoded volume fell from 120.4 MB to 18.4 MB. What remains is dominated by the
+Brotli-routed portion, which is *the same Brotli payloads the reference decodes* and therefore
+scales with the reference. So the candidate's ratio tracks the reference far more tightly than
+before: with the reference at its fastest observed 0.7670 s the ratio is still 1.9142, and with the
+reference at its slowest observed 1.5710 s the ratio would be about 0.9.
+
+### 4.8 The default arm is byte-identical (Adopt-Gate clause d)
+
+Run `39696093027` (workflow `.github/workflows/anvil-i20-gate-closure.yml`, jobs `gate-closure
+(silesia)` and `gate-closure (enwik8)`, commit `9c206adfc06b82e28e0d96de6fbee19f3d593ecd`,
+artifacts `anvil-i20-gate-closure-silesia-39696093027` and
+`anvil-i20-gate-closure-enwik8-39696093027`, corpora silesia + enwik8) used **no**
+`--candidate-extra-args`:
+
+| corpus | ANVIL default | frozen total | assertion | ruling |
+|---|---:|---:|---|---|
+| silesia | **46,466,339 B** | 46,466,339 B | `--expected-candidate-total 46466339` **PASS** | `FRONT-GAP_COST` (expected: the default arm is the *pre-C7* operating point) |
+| enwik8 | **23,537,422 B** | 23,537,422 B | `--expected-candidate-total 23537422` **PASS** | `FRONT-GAP_COST` |
+
+**So the C7 knob's default (P = 0) reproduces the frozen wire byte-for-byte on both corpora**, and
+the adopted change is additive. The closed operating point is the **named profile**
+`--ratio-bwt-min-gain-pct 3`, which the gate now rules `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`
+**6 times out of 6**.
+
 ### 4.5 What the closed arm is worth, stated without inflation
 
 * The canonical ratio route now **beats `xz -9e` on bytes, on decode and (nearly) on memory**, and

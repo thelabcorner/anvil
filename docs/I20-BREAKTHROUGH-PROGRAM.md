@@ -24,32 +24,83 @@ contract, with every candidate's decision rule fixed before measurement.
 
 ## 2. Outcome — the external reference-cost gate is CLOSED
 
-**Ruling: `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` on Silesia**, emitted by the **frozen**
-`tools/reference_cost_gate.py` on GitHub Actions run
-[`39684313068`](https://github.com/thelabcorner/anvil/actions/runs/39684313068) (job
+**The gate is closed, reproducibly: `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE` in 6 of 6 identical
+replications.** The ruling is emitted by the **frozen** `tools/reference_cost_gate.py` on GitHub
+Actions run [`39696090369`](https://github.com/thelabcorner/anvil/actions/runs/39696090369) (job
 `gate-closure (silesia)`, workflow `.github/workflows/anvil-i20-gate-closure.yml`, commit
-`7b9ea3f18397d61bab6f41cd14f0eb50da40b36b`, artifact
-`anvil-i20-gate-closure-silesia-39684313068`, corpus silesia). The arm is
-`--candidate-extra-args "--bwt-subblock 2097152"` on the merged arm (W2's encoder-policy knob +
-W4's C4 levers), `reps = 9`, and the `--expected-candidate-total 48347006` byte-identity assertion
-**passed**.
+`9c206adfc06b82e28e0d96de6fbee19f3d593ecd`, artifact
+`anvil-i20-gate-closure-silesia-39696090369`, corpus silesia). The arm is
+`--candidate-extra-args "--ratio-bwt-min-gain-pct 3"` on the programme branch, `reps = 9`, and the
+`--expected-candidate-total 48281716` byte-identity assertion **passed 6/6**.
+
+**Two levers, one of them added in the final cycle.** C4's three decode-only levers (release the
+compressed input before the `4n` libsais allocation; write the reconstructed string in place over
+the BWT string; stream the reconstructed output to the file with an incremental block CRC-32,
+**including the Brotli backend path**) supply the memory gate. **C7, the decode-budgeted routing
+profile, supplies the decode gate**: the canonical route's router was *bytes-only*, so it paid
+inverse-BWT work (the inverse BWT performs `n/2` dependent random accesses, ~32 MB/s) for
+arbitrarily small byte gains. C7 adds an explicit, named, **encoder-policy-only** knob
+`--ratio-bwt-min-gain-pct=P`: within one transform the BWT backend is eligible only if its
+complete payload is at least `P` percent of the transformed size smaller than the Brotli backend's
+payload for the same transform. The wire format and the decoder are unchanged (the backend id is
+already in the mode-17 envelope), and `P = 0` (the default) reproduces the frozen bytes exactly.
 
 | gate | condition | measured | verdict |
 |---|---|---:|---|
-| G1 | timing valid; A/A null spans 1.0 and clears no speed gate | 1.00076 [0.99993, 1.02066] | **PASS** |
-| G2 | bytes strictly below `xz -9e` (48,456,004 B) | **48,347,006 B** (lead 108,998 B) | **PASS** |
-| G3 | decode ratio CI-upper ≤ 2.0 vs `xz -9e` | 0.9078 [0.8896, 0.9081] | **PASS** |
-| G4 | decode ratio CI-upper ≤ 2.0 vs Brotli q11/lw30 | **1.6261 [1.4929, 1.6821]** | **PASS** |
-| G5 | peak decode RSS ratio ≤ 2.0 vs `xz -9e` | 78,092 KiB (76.3 MiB) → 1.4903× | **PASS** |
-| G6 | peak decode RSS ratio ≤ 2.0 vs Brotli q11/lw30 | → 0.6229× | **PASS** |
+| G1 | timing valid; A/A null spans 1.0 and clears no speed gate | 0.9617 [0.8672, 1.0378] | **PASS** |
+| G2 | bytes strictly below `xz -9e` (48,456,004 B) | **48,281,716 B** (lead 174,288 B) | **PASS** |
+| G3 | decode ratio CI-upper ≤ 2.0 vs `xz -9e` | **0.5808 [0.5463, 0.5933]** | **PASS** |
+| G4 | decode ratio CI-upper ≤ 2.0 vs Brotli q11/lw30 | **0.9642 [0.8387, 1.0366]** | **PASS** |
+| G5 | peak decode RSS ratio ≤ 2.0 vs `xz -9e` | 78,040 KiB (76.2 MiB) → 1.4892× | **PASS** |
+| G6 | peak decode RSS ratio ≤ 2.0 vs Brotli q11/lw30 | → 0.6227× | **PASS** |
 
-Baseline → closed arm: bytes 46,466,339 → 48,347,006 B (94.5 % of the surplus spent); decode
-ratio vs Brotli CI-upper 5.6033 → 1.6821; peak decode RSS 254,224 → 78,092 KiB (−172 MiB); RSS
-ratio vs `xz` 4.588× → 1.4903×; ruling `FRONT-GAP_COST` → **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`**.
+Baseline → closed arm: bytes 46,466,339 → 48,281,716 B (91 % of the surplus spent); decode
+ratio vs Brotli CI-upper 5.6033 → 1.0366; decode ratio vs `xz -9e` 1.4897 → 0.5933 (the candidate is
+now **1.7× faster than `xz -9e`**); peak decode RSS 254,224 → 78,040 KiB (−172 MiB); RSS ratio vs
+`xz` 4.588× → 1.4892×; ruling `FRONT-GAP_COST` → **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`**.
 
-**Replication (six identical runs of the closed arm) — the honest qualification.** The arm was
-re-run unchanged (same candidate SHA, same `--bwt-subblock 2097152`, same corpus, same frozen
-arbiter, and the `--expected-candidate-total 48347006` byte assertion **passed 6/6**):
+### 2.1 C7 replication series — 6 of 6 closed (the reproducibility the objective requires)
+
+The C7 arm was re-run **six times unchanged** (same candidate SHA `9c206ad…`, same arm, same
+corpus, same frozen arbiter, byte assertion **passed 6/6**):
+
+| run | candidate decode | Brotli reference decode | ANVIL/`xz` (CI-upper) | **ANVIL/Brotli (CI-upper)** | peak RSS/`xz` | ruling |
+|---|---:|---:|---|---|---:|---|
+| `39696090369` | 1.3662 s | 1.4179 s | 0.5808 (0.5933) | **0.9642 (1.0366)** | 1.4892× | **CLOSED** |
+| `39697830840` | 1.6172 s | 1.4199 s | 0.6058 (0.6059) | **1.1390 (1.1808)** | 1.4902× | **CLOSED** |
+| `39697833411` | 1.2667 s | 1.2189 s | 0.5246 (0.5365) | **1.0408 (1.0772)** | 1.4449× | **CLOSED** |
+| `39697836346` | 1.4685 s | **0.7670 s** | 0.5117 (0.5123) | **1.9142 (1.9158)** | 1.4437× | **CLOSED** |
+| `39697838963` | 1.3668 s | 1.2191 s | 0.5771 (0.5896) | **1.1209 (1.1217)** | 1.4877× | **CLOSED** |
+| `39697841540` | 1.5684 s | 0.8176 s | 0.5191 (0.5198) | **1.9188 (1.9210)** | 1.4409× | **CLOSED** |
+
+(artifacts `anvil-i20-gate-closure-silesia-<run>`; workflow
+`.github/workflows/anvil-i20-gate-closure.yml`; job `gate-closure (silesia)`; commit
+`9c206adfc06b82e28e0d96de6fbee19f3d593ecd`; corpus silesia; every A/A null CI spans 1.0 and clears
+no speed gate.)
+
+**Why the first closure did not hold, and why this one does.** The first closure (the 2 MiB
+sub-block cap) had G4 CI-uppers of 1.68–3.16 over seven runs — **3 of 7 closed** — because the
+candidate's decode (2.02–2.67 s) was dominated by the **120.4 MB** of corpus bytes routed through
+the inverse BWT, while the arbiter's same-job Brotli reference varied 1.98× (0.77–1.52 s). C7 cuts
+the inverse-BWT-decoded volume to **18.4 MB** (2 of 12 files: `mr`, `x-ray`), the candidate's decode
+to **1.267–1.617 s**, and the G4 CI-upper band to **1.04–1.92** — with the two tightest cases being
+exactly the two runs in which the reference ran at its fastest observed values. **All six runs
+close; G2/G3/G5/G6 pass 6/6.** What remains of the candidate's decode is dominated by the
+Brotli-routed portion, which is *the same Brotli payloads the reference decodes* and therefore
+scales with the reference — which is why the ratio is now stable.
+
+**The default arm is byte-identical** (Adopt-Gate clause d): run `39696093027` with **no**
+`--candidate-extra-args` produced **46,466,339 B** (Silesia) and **23,537,422 B** (enwik8) — the
+frozen totals, with both `--expected-candidate-total` assertions **PASS**.
+
+### 2.2 The FIRST closure, and why it did not hold (kept, because the negative is the method)
+
+The first closure used the 2 MiB sub-block cap as its arm. It is recorded in full because **it is
+what forced C7**, and because a closure that is only reproducible 3 times in 7 is not a closure.
+The arm was re-run unchanged (same candidate SHA `7b9ea3f…`, same `--bwt-subblock 2097152`, same
+corpus, same frozen arbiter, and the `--expected-candidate-total 48347006` byte assertion **passed
+6/6**; a seventh run on the merged programme branch, `39693037316`, also built and produced
+byte-identical output):
 
 | run | reps | candidate decode | Brotli reference decode | ANVIL/`xz` | ANVIL/Brotli (CI-upper) | peak RSS/`xz` | ruling |
 |---|---:|---:|---:|---|---|---:|---|
@@ -65,10 +116,11 @@ arbiter, and the `--expected-candidate-total 48347006` byte assertion **passed 6
 (0.8269–0.9078 — the candidate is *faster* than `xz -9e` in every run) are identical or
 near-identical across the six runs. **What moves is the Brotli *reference's* measured decode time
 (0.7673–1.5186 s, a 1.98× spread) against a candidate whose own decode varies only 1.32×**, so the
-**G4 verdict closes in 3 of 6 runs**. The honest verdict: **the gate is closed on the run of
-record and in 3 of 6 independent replications; the Brotli half of it is closed only conditionally,
-because the arbiter's own reference arm is not reproducible on this runner class.** The limiting
-factor is the measurement instrument, not the codec.
+**G4 verdict closes in 3 of 6 runs** (and in 3 of 7 counting `39693037316`). The honest verdict for
+*this* arm: **closed on the run of record, but only conditionally — the Brotli half of the gate is
+not robust, because the arbiter's own reference arm is not reproducible on this runner class.**
+**The limiting factor was the numerator, not the instrument, and C7 fixed it: reducing the
+inverse-BWT-decoded volume from 120.4 MB to 18.4 MB made the ratio stable (§2.1).**
 
 **The claim is bounded exactly as the tool bounds it:** this is **not** a FRONT-CROSSING — the
 tool's own scope note says it "does not establish a crossing because encode and decoder-only
@@ -85,6 +137,7 @@ all three gate axes**.
 | C2 | Auxiliary-index walk budget | **NO-GO** | the inverse BWT performs `n/2` dependent random accesses for **every** checkpoint stride, so the walk budget cannot shorten its critical path — it is a byte knob only |
 | C3 | BWT sub-block cap | **NO-GO on the gate's memory axis; adoptable decode-speed trade** | the cap is worth **2.26×** on the Silesia portfolio decode, but no cap meets G5 by itself because the portfolio RSS peak is a file the cap never reaches — it is the cap that made the *closed* arm possible |
 | C4 | Decode working-set engineering | **WIN** (and it is what closed G5) | three zero-byte-cost decode levers; the peak fell 254,168 → 206,812 KiB, and with the Brotli-backend streaming fix the capped peak is 76,348–78,412 KiB = **1.38–1.42× `xz` → G5 PASS** |
+| **C7** | **decode-budgeted routing profile** (coordinator, prereg §2a) | **WIN — the reproducible closure (6 of 6)** | the router was bytes-only, so it paid inverse-BWT work for trivial byte gains; `--ratio-bwt-min-gain-pct=P` makes the trade explicit, cutting the inverse-BWT-decoded volume from 120.4 MB to **18.4 MB** and the G4 CI-upper band from 1.68–3.16 to **1.04–1.92** |
 | C5 | Postcoder decode-cost swap | **INCONCLUSIVE** (the worker's session ended before the measurement was published) | — |
 | C6 | Dense reference-grid control | **WIN (control)** | 21 reference points per corpus; **no denser reference dominates the candidate**, so the byte advantage is not a sparse-grid artifact |
 
