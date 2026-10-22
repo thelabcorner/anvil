@@ -936,18 +936,19 @@ small, clean curve. All rows: workflow `.github/workflows/anvil-i20-gate-closure
 | P | files on the BWT backend | ANVIL bytes | lead vs `xz -9e` | G3 (CI-upper vs xz) | **G4 (CI-upper vs Brotli)** | G5 | ruling | run |
 |---:|---|---:|---:|---|---|---:|---|---|
 | 0 (default) | 7 (120.4 MB) | 46,466,339 | 1,989,665 B | 1.8761 (1.9071) | 3.5013 (3.5396) | 4.87x | `FRONT-GAP_COST` | `39663273951` (W3's cap-only series) |
-| 1 | 6 | 46,593,971 | 1,862,033 B | — | — | — | see run | `39700008280` |
+| 1 | 6 | 46,593,971 | 1,862,033 B | 0.8445 (0.8472) | 3.9624 (4.0979) | **FAIL** (2.5x) | `FRONT-GAP_COST` | `39700008280` |
 | 2.5 | 3 (25.1 MB: `mr`, `x-ray`, `reymont`) | **48,096,796** | **359,208 B** | 0.6751 (0.6756) | **1.2177 (1.3126)** | 1.4992x | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** | `39700010922` |
 | 3 | 2 (18.4 MB: `mr`, `x-ray`) | **48,281,716** | **174,288 B** | 0.5808 (0.5933) | **0.9642 (1.0366)** | 1.4892x | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** (6 of 6) | `39696090369` + 5 replications |
 | 4 | 2 (identical routing to P = 3) | 48,281,716 | 174,288 B | 0.5856 (0.5859) | 1.6568 (1.6578) | 1.4928x | **`TIMING_BLOCKED`** | `39700013469` |
 
 **Two findings worth stating precisely.**
 
-1. **The closure is not knife-edge in `P`.** Two distinct operating points (`P = 2.5` and
-   `P = 3`) close the gate independently, with different byte margins (359,208 B and 174,288 B) and
-   different BWT volumes (25.1 MB and 18.4 MB). `P = 4` selects the same routing as `P = 3`
-   (identical 48,281,716 B), which confirms the routing is a **step function** of `P` and that the
-   chosen point is not balanced on a knife edge.
+1. **The closure is not knife-edge in `P`, and the curve is monotone in the right place.** `P = 0`
+   and `P = 1` both fail (G4 3.50 and 3.96; G5 4.87x and 2.5x) because too much of the corpus is
+   still routed through the inverse BWT; `P = 2.5` and `P = 3` both close it, with different byte
+   margins (359,208 B and 174,288 B) and different BWT volumes (25.1 MB and 18.4 MB); `P = 4`
+   selects the same routing as `P = 3` (identical 48,281,716 B), which confirms the routing is a
+   **step function** of `P` and that the chosen point is not balanced on a knife edge.
 
 2. **One run is `TIMING_BLOCKED`, and that is the arbiter behaving correctly.** In run
    `39700013469` the candidate's own numbers were good (G3 0.5856, G4 1.6568, G5 1.4928×), but the
