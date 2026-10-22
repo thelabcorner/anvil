@@ -782,6 +782,78 @@ estimate spanning 1.6261–3.0902.
   explicit ambient check, or a reference repeated within the same job) would make the G4 verdict
   decidable.**
 
+### 4.6 C7 - the decode-budgeted routing profile: the closure that holds with margin
+
+**Why C7 exists.** §4.4 showed the first closure was not reproducible: the candidate's decode time
+(2.02-2.67 s) is dominated by the **volume of corpus bytes routed through the inverse BWT**
+(120.4 MB at the 2 MiB cap, ~32 MB/s), while the arbiter's same-job Brotli reference varies 1.98x
+(0.77-1.52 s) - so the G4 ratio lands inside the 2.0x threshold unpredictably (3 of 7 runs closed).
+C7 (preregistered in `docs/I20-PARETO-GATE-CLOSURE-PREREG-2026-10-21.md` §2a **before** any C7
+measurement) attacks the numerator directly.
+
+**Mechanism.** `--ratio-bwt-min-gain-pct=P`: within one transform, the BWT backend is eligible
+only if its complete payload is at least `P` percent of the transformed size smaller than the
+Brotli backend's payload for the same transform. `P = 0` (the default) reproduces the previous
+"smallest payload wins" selection **byte-for-byte**. It is an **encoder policy only**: the wire
+format and the decoder are unchanged, because the backend id is already carried in the mode-17
+envelope.
+
+**The closed arm - run `39696090369`.**
+
+| field | value |
+|---|---|
+| **run_url** | `https://github.com/thelabcorner/anvil/actions/runs/39696090369` |
+| **job** | `gate-closure (silesia)` |
+| **workflow** | `.github/workflows/anvil-i20-gate-closure.yml` |
+| **commit_sha** | `9c206adfc06b82e28e0d96de6fbee19f3d593ecd` (branch `research/anvil-i20-pareto-gate-closure-20261021`) |
+| **artifact** | `anvil-i20-gate-closure-silesia-39696090369` |
+| **corpus** | silesia |
+| **arm** | `--candidate-extra-args "--ratio-bwt-min-gain-pct 3"` |
+| **arbiter** | the **frozen** `tools/reference_cost_gate.py` |
+
+| gate | condition | measured | verdict |
+|---|---|---:|---|
+| G1 | timing valid; A/A null spans 1.0 and clears no speed gate | null **0.9617 [0.8672, 1.0378]** | **PASS** |
+| G2 | bytes strictly below `xz -9e` (48,456,004 B) | **48,281,716 B** (lead **174,288 B**) | **PASS** |
+| G3 | decode ratio CI-upper <= 2.0 vs `xz -9e` | **0.5808 [0.5463, 0.5933]** | **PASS** |
+| G4 | decode ratio CI-upper <= 2.0 vs Brotli q11/lw30 | **0.9642 [0.8387, 1.0366]** | **PASS** |
+| G5 | peak decode RSS ratio <= 2.0 vs `xz -9e` | **78,040 KiB (76.2 MiB) -> 1.4892x** | **PASS** |
+| G6 | peak decode RSS ratio <= 2.0 vs Brotli q11/lw30 | **-> 0.6227x** | **PASS** |
+| - | **arbiter ruling** | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** | **GATE CLOSED** |
+
+**What changed, quantitatively:**
+
+| quantity | first closure (2 MiB cap) | C7 arm (`--ratio-bwt-min-gain-pct 3`) |
+|---|---:|---:|
+| total compressed bytes | 48,347,006 (lead 108,998 B) | 48,281,716 (lead **174,288 B**) - *both smaller and further below `xz`* |
+| files routed through the inverse BWT | 5 of 12 (45.4 MB) | **2 of 12 (18.4 MB: `mr`, `x-ray`)** |
+| candidate portfolio decode | 2.02-2.67 s | **1.3170 s** |
+| ANVIL/`xz` decode ratio (CI-upper) | 0.83-0.91 | **0.5808 (0.5933)** - the candidate is now **1.7x faster than `xz -9e`** |
+| ANVIL/Brotli decode ratio (CI-upper) | 1.6261 ... 3.0911 (3 of 7 runs <= 2.0) | **0.9642 (1.0366)** - a **48 % margin** below the 2.0 threshold |
+| peak decode RSS | 77,888-80,036 KiB | 78,040 KiB (unchanged, as designed) |
+
+**The robustness argument, stated as a margin rather than as a promise.** The C7 arm's G4 CI-upper is
+**1.0366** against the 2.0 threshold. The Brotli reference's measured decode time on this runner
+class was observed between **0.767 s and 1.519 s**; the C7 arm's own reference in the run of record
+was 1.418 s. Even if the reference had run at its fastest observed value while the candidate's
+absolute decode stayed at 1.317 s, the ratio would be 1.72 - still inside the threshold; and if the
+candidate's Brotli-routed portion scales with the reference (it is the same Brotli payloads, so it
+does), the ratio would be about 1.1. **The first closure had no such margin** (its CI-upper was
+1.6821 in the best run and 3.1555 in the worst).
+
+**The default arm is unchanged (Adopt-Gate clause d).** Run `39696093027` (workflow
+`.github/workflows/anvil-i20-gate-closure.yml`, job `gate-closure (enwik8)`, commit
+`9c206adfc06b82e28e0d96de6fbee19f3d593ecd`, artifact
+`anvil-i20-gate-closure-enwik8-39696093027`, corpus enwik8) used **no** `--candidate-extra-args`
+and the `--expected-candidate-total 23537422` assertion **passed**: the default arm still produces
+**23,537,422 B** on enwik8, i.e. the new knob's default is byte-identical to the frozen default.
+(That run's Silesia job carries the same assertion at 46,466,339 B.)
+
+**enwik8 remains FAIL and structurally so** (run `39696093027`: G3 3.1502, G4 4.3146, G5 7.2719x,
+G6 1.9180x) - the same arithmetic recorded in §2.5: the caps that bound the working set flip the
+file to Brotli and the caps that keep the BWT route leave the peak at 6.2-9.1x `xz`. The objective
+allows enwik8 as best-effort, and it is recorded as a measured NO-GO.
+
 ### 4.5 What the closed arm is worth, stated without inflation
 
 * The canonical ratio route now **beats `xz -9e` on bytes, on decode and (nearly) on memory**, and
