@@ -854,6 +854,26 @@ G6 1.9180x) - the same arithmetic recorded in §2.5: the caps that bound the wor
 file to Brotli and the caps that keep the BWT route leave the peak at 6.2-9.1x `xz`. The objective
 allows enwik8 as best-effort, and it is recorded as a measured NO-GO.
 
+### 4.6a The Adopt-Gate, discharged on the MERGED adopted tree
+
+The fuzz / registry path had been run on W2's and W4's branches separately, but not on the merged
+adopted tree (W2's knob + W4's levers + C7). It was run on the merged tree by dispatching W4's own
+workflow with `candidate_ref` = the programme branch:
+
+- **run_url:** `https://github.com/thelabcorner/anvil/actions/runs/39701113336`
+- **job:** `fuzz-registry` (plus `working-set (silesia)`)
+- **workflow:** `.github/workflows/anvil-i20-working-set.yml`
+- **commit_sha:** `9c206adfc06b82e28e0d96de6fbee19f3d593ecd` (the candidate actually built)
+- **artifact:** `anvil-i20-working-set-fuzz-39701113336`
+- **corpus:** silesia (and the `tests/corpus` fixtures)
+
+| Adopt-Gate clause | result |
+|---|---|
+| repo fuzz / registry path | **PASS** - `roundtrip_variants=1040 mutations=6240 deterministic_rev2=9 deterministic_bwt=24 aux_bwt=24 golden_bwt=4 forced_postcoders=20 registry_block_modes=14 registry_transforms=5 suite_modes=[0,1,2,3,5,6,8] suite_unforceable=[4,7]` |
+| in-place inverse BWT proof (merged tree) | **`cases=68 failures=0 bytes=49084`** |
+| `tests/corpus` fixture round-trips, `--bwt-aux=on` **and** `off` | every row `matches_source=True` |
+| byte identity vs the frozen default | **46,466,339 B** (aux on) / **46,466,995 B** (aux off) Silesia, **23,537,422 B** (aux on) enwik8 - the frozen totals |
+
 ### 4.7 C7 replication series - 6 of 6 closed (the reproducibility the objective requires)
 
 The C7 arm (`--ratio-bwt-min-gain-pct 3`) was re-run **six times unchanged**: same candidate SHA
