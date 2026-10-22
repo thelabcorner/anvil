@@ -63,7 +63,34 @@ SHAPE, mode 15 HOTOP), which decode from a small working set at a few hundred MB
 **This makes candidate D6 (the local Class-A grid) and a token-mode dominance arm the two paths
 that can actually satisfy the criterion, while D1–D3 bound how much the BWT route can ever give.**
 
-### 1.3 enwik8 — the same structure, one level worse
+### 1.3 What the encode axis is likely to show, and why it matters to the criterion
+
+`DERIVED` expectation, to be **measured** by candidate D5 (not asserted here). The canonical route
+encodes Silesia by routing 193.5 MB through **Brotli q11** (quality 11 is the slowest Brotli
+setting by construction) and 18.4 MB through the BWT. The front's fast encoders are `zstd-9`,
+`zstd-19`, `zstd-22` and `lz4-9`. **A q11-based max-ratio route is therefore expected to be
+roughly an order of magnitude slower to encode than the zstd tiers**, and the dominance
+criterion's encode axis ("at least as fast to encode as every reference point") is **structurally
+unlikely to be reachable for any max-ratio q11 route**, independent of any mechanism work.
+
+**This is the second strategic finding of I11, and it is the one that should shape the programme's
+next decision:**
+
+> **The dominance criterion, taken against a front that contains the zstd tiers on *all five*
+> axes, is not a gate that a max-ratio q11 route can pass** — it demands simultaneously the
+> smallest bytes (Brotli-class) and the fastest encode/decode and the smallest working set
+> (zstd/lz4-class). Those are different codec classes. The I20 closure is the **achievable**
+> frontier position for this route (bytes + decode + peak RSS against the route's own two
+> **binding** references, `xz -9e` and Brotli q11/lgwin30 — the references the repository's own
+> gate names), and it is closed and reproducible. A genuine "overarching dominance" claim, in the
+> strict sense of §1.1, would require either a **fast-mode profile** of ANVIL (a second codec
+> class) or a **restatement of the criterion's front** by the repository owner.
+
+**This is a statement about the criterion, not a relaxation of it.** No threshold has been changed,
+and the prereg's decision rules stand as written; the finding is reported so that the programme's
+spend goes to the axes that can still move.
+
+### 1.4 enwik8 — the same structure, one level worse
 
 The enwik8 dense grid (`docs/I20-RESULTS-W6-dense-reference.md`) has the same shape: the candidate
 (23,537,422 B) is the byte champion, below `xz -9e` (24,831,648 B) and `brotli q11/lw30`
