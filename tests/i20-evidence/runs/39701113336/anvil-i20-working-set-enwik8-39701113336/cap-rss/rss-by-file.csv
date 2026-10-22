@@ -1,0 +1,7 @@
+arm,corpus,file,index,max_rss_kib
+baseline-cap16777216,enwik8,enwik8,0,257712
+candidate-cap16777216,enwik8,enwik8,0,161640
+baseline-cap4194304,enwik8,enwik8,0,257748
+candidate-cap4194304,enwik8,enwik8,0,161504
+baseline-cap8388608,enwik8,enwik8,0,257712
+candidate-cap8388608,enwik8,enwik8,0,161504

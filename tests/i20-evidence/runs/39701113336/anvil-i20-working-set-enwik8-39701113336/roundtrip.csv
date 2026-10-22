@@ -1,0 +1,5 @@
+corpus,file,bwt_aux,arm,bytes,sha256,matches_source
+enwik8,enwik8,on,candidate,100000000,2b49720ec4d78c3c9fabaee6e4179a5e997302b3a70029f30f2d582218c024a8,True
+enwik8,enwik8,on,baseline,100000000,2b49720ec4d78c3c9fabaee6e4179a5e997302b3a70029f30f2d582218c024a8,True
+enwik8,enwik8,off,candidate,100000000,2b49720ec4d78c3c9fabaee6e4179a5e997302b3a70029f30f2d582218c024a8,True
+enwik8,enwik8,off,baseline,100000000,2b49720ec4d78c3c9fabaee6e4179a5e997302b3a70029f30f2d582218c024a8,True

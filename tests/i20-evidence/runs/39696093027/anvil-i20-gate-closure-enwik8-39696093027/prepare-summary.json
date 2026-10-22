@@ -1,0 +1,22 @@
+{
+  "command_manifests": {
+    "anvil-aux": "/home/runner/work/anvil/anvil/gate-closure-enwik8/anvil-aux-commands.json",
+    "brotli": "/home/runner/work/anvil/anvil/gate-closure-enwik8/brotli-commands.json",
+    "xz": "/home/runner/work/anvil/anvil/gate-closure-enwik8/xz-commands.json"
+  },
+  "compressed_bytes": {
+    "anvil-aux": 23537422,
+    "brotli": 24810180,
+    "xz": 24831648
+  },
+  "corpus": "enwik8",
+  "file_count": 1,
+  "roundtrip": "OK",
+  "schema": 1,
+  "scripts": {
+    "anvil-aux": "/home/runner/work/anvil/anvil/gate-closure-enwik8/decode-anvil-aux.sh",
+    "brotli": "/home/runner/work/anvil/anvil/gate-closure-enwik8/decode-brotli.sh",
+    "xz": "/home/runner/work/anvil/anvil/gate-closure-enwik8/decode-xz.sh"
+  },
+  "source_bytes": 100000000
+}

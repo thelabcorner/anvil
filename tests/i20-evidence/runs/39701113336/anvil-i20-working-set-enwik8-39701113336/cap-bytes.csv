@@ -1,0 +1,4 @@
+corpus,file,cap,input_bytes,compressed_bytes
+enwik8,enwik8,16777216,100000000,24810212
+enwik8,enwik8,8388608,100000000,24810212
+enwik8,enwik8,4194304,100000000,24810212

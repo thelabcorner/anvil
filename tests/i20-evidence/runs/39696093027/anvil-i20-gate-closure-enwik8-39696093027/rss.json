@@ -1,0 +1,25 @@
+{
+  "max_rss_kib": {
+    "anvil-aux": 492772,
+    "brotli": 256916,
+    "xz": 67764
+  },
+  "samples": [
+    {
+      "arm": "anvil-aux",
+      "index": 0,
+      "max_rss_kib": 492772
+    },
+    {
+      "arm": "brotli",
+      "index": 0,
+      "max_rss_kib": 256916
+    },
+    {
+      "arm": "xz",
+      "index": 0,
+      "max_rss_kib": 67764
+    }
+  ],
+  "schema": 1
+}

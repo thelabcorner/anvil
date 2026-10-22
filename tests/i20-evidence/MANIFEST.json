@@ -1,0 +1,1281 @@
+{
+  "gate_rules": {
+    "bytes_below_xz": "compressed_bytes['anvil-aux'] < compressed_bytes['xz']",
+    "decode_brotli_2x": "decode.brotli.ci_hi <= 2.0",
+    "decode_xz_2x": "decode.xz.ci_hi <= 2.0",
+    "memory_brotli_2x": "memory_ratio['brotli'] <= 2.0",
+    "memory_xz_2x": "memory_ratio['xz'] <= 2.0"
+  },
+  "runs": [
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39696090369",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "--ratio-bwt-min-gain-pct 3",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 48281716,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 155.13521800341175,
+          "candidate_s": 1.3661538799999562,
+          "ci_hi": 1.0366406803631234,
+          "ci_lo": 0.8386858969905162,
+          "control_s": 1.4179454380000607,
+          "ratio": 0.9642317026869407,
+          "ref_mbps": 149.46878372057003
+        },
+        "xz": {
+          "anvil_mbps": 160.92692122187114,
+          "candidate_s": 1.316986482999937,
+          "ci_hi": 0.5933286705237437,
+          "ci_lo": 0.5462552111138015,
+          "control_s": 2.2695927790000496,
+          "ratio": 0.5808437644703439,
+          "ref_mbps": 93.3817652052
+        }
+      },
+      "memory_ratio": {
+        "brotli": 0.6226860717477339,
+        "xz": 1.4891992977635296
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 1.3661538799999562,
+          "clears_speed_gate": false,
+          "control_median_s": 1.4179454380000607,
+          "paired_ratio_candidate_over_control": 0.9642317026869407,
+          "paired_ratio_ci95": [
+            0.8386858969905162,
+            1.0366406803631234
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 1.3166998379999768,
+          "clears_speed_gate": false,
+          "control_median_s": 1.3176846530000148,
+          "paired_ratio_candidate_over_control": 0.9617257122320744,
+          "paired_ratio_ci95": [
+            0.8672441798513681,
+            1.0378223942213425
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 1.316986482999937,
+          "clears_speed_gate": true,
+          "control_median_s": 2.2695927790000496,
+          "paired_ratio_candidate_over_control": 0.5808437644703439,
+          "paired_ratio_ci95": [
+            0.5462552111138015,
+            0.5933286705237437
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 48281716,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[--ratio-bwt-min-gain-pct 3]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-21T23:51:45Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 78040,
+        "brotli": 125328,
+        "xz": 52404
+      },
+      "ruling": "COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE",
+      "ruling_gates": {
+        "decode_within_2x_brotli": true,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": true,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": true,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": true
+      },
+      "ruling_json_sha256": "0635bed84d5ae70d31e0447ddb20c9d5b50e921fbc5721a1eedf58784db6d6b3",
+      "run_id": "39696090369"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-enwik8-39696093027",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 23537422,
+        "brotli": 24810180,
+        "xz": 24831648
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 28.389551389021737,
+          "candidate_s": 3.5224226909999743,
+          "ci_hi": 4.601334936848275,
+          "ci_lo": 4.307674852795019,
+          "control_s": 0.8164296709999235,
+          "ratio": 4.314556883614653,
+          "ref_mbps": 122.4845244508628
+        },
+        "xz": {
+          "anvil_mbps": 28.40128383186694,
+          "candidate_s": 3.5209675940000125,
+          "ci_hi": 3.3013268477674385,
+          "ci_lo": 3.014829982151243,
+          "control_s": 1.117681645999994,
+          "ratio": 3.1502357326891666,
+          "ref_mbps": 89.47091540590668
+        }
+      },
+      "memory_ratio": {
+        "brotli": 1.9180276821996294,
+        "xz": 7.271884776577534
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 3.5224226909999743,
+          "clears_speed_gate": false,
+          "control_median_s": 0.8164296709999235,
+          "paired_ratio_candidate_over_control": 4.314556883614653,
+          "paired_ratio_ci95": [
+            4.307674852795019,
+            4.601334936848275
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 3.572009065999964,
+          "clears_speed_gate": false,
+          "control_median_s": 3.5220639869999104,
+          "paired_ratio_candidate_over_control": 1.0002696973586631,
+          "paired_ratio_ci95": [
+            0.9995444071415376,
+            1.0145176101822213
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 3.5209675940000125,
+          "clears_speed_gate": false,
+          "control_median_s": 1.117681645999994,
+          "paired_ratio_candidate_over_control": 3.1502357326891666,
+          "paired_ratio_ci95": [
+            3.014829982151243,
+            3.3013268477674385
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 23537422,
+          "brotli": 24810180,
+          "xz": 24831648
+        },
+        "corpus": "enwik8",
+        "file_count": 1,
+        "roundtrip": "OK",
+        "source_bytes": 100000000
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-21T23:51:48Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 492772,
+        "brotli": 256916,
+        "xz": 67764
+      },
+      "ruling": "FRONT-GAP_COST",
+      "ruling_gates": {
+        "decode_within_2x_brotli": false,
+        "decode_within_2x_xz": false,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": false,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": false,
+        "decode_xz_2x": false,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": false
+      },
+      "ruling_json_sha256": "ecfa9e1bdff57843dad88ec9de2e1786e52462b4bd3c2b3adbb95b24bfcd0aa6",
+      "run_id": "39696093027"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39696093027",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 46466339,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 47.86913013066747,
+          "candidate_s": 4.427458352000031,
+          "ci_hi": 5.641157118662445,
+          "ci_lo": 5.364280381948719,
+          "control_s": 0.8170679479999308,
+          "ratio": 5.529730793513595,
+          "ref_mbps": 259.38917383651665
+        },
+        "xz": {
+          "anvil_mbps": 48.989664781534806,
+          "candidate_s": 4.3261896349999915,
+          "ci_hi": 1.4483989804926516,
+          "ci_lo": 1.4152022587112378,
+          "control_s": 3.022431792999896,
+          "ratio": 1.4315815228207343,
+          "ref_mbps": 70.12187354925938
+        }
+      },
+      "memory_ratio": {
+        "brotli": 1.6327833617801377,
+        "xz": 3.729550212981012
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 4.427458352000031,
+          "clears_speed_gate": false,
+          "control_median_s": 0.8170679479999308,
+          "paired_ratio_candidate_over_control": 5.529730793513595,
+          "paired_ratio_ci95": [
+            5.364280381948719,
+            5.641157118662445
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 4.477057951999996,
+          "clears_speed_gate": false,
+          "control_median_s": 4.426339864999818,
+          "paired_ratio_candidate_over_control": 0.999986648062241,
+          "paired_ratio_ci95": [
+            0.9885596997724231,
+            1.0118168421921192
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 4.3261896349999915,
+          "clears_speed_gate": false,
+          "control_median_s": 3.022431792999896,
+          "paired_ratio_candidate_over_control": 1.4315815228207343,
+          "paired_ratio_ci95": [
+            1.4152022587112378,
+            1.4483989804926516
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 46466339,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-21T23:51:50Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 206632,
+        "brotli": 126552,
+        "xz": 55404
+      },
+      "ruling": "FRONT-GAP_COST",
+      "ruling_gates": {
+        "decode_within_2x_brotli": false,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": false,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": false,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": false
+      },
+      "ruling_json_sha256": "794e88e4e1c26faafc481c43edcdd54a8a8a342db9a1ab5aecbc46a3c33894c1",
+      "run_id": "39696093027"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39697830840",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "--ratio-bwt-min-gain-pct 3",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 48281716,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 131.0507477522518,
+          "candidate_s": 1.6172252630001367,
+          "ci_hi": 1.180774846100068,
+          "ci_lo": 1.0989155485235353,
+          "control_s": 1.4198740329998145,
+          "ratio": 1.1389920693058748,
+          "ref_mbps": 149.2657623664195
+        },
+        "xz": {
+          "anvil_mbps": 131.05555196693948,
+          "candidate_s": 1.6171659789999921,
+          "ci_hi": 0.605861740175793,
+          "ci_lo": 0.5948253601945905,
+          "control_s": 2.6694848730001013,
+          "ratio": 0.6057904091340817,
+          "ref_mbps": 79.39306273791047
+        }
+      },
+      "memory_ratio": {
+        "brotli": 0.6229220509875243,
+        "xz": 1.4901915884283643
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 1.6172252630001367,
+          "clears_speed_gate": false,
+          "control_median_s": 1.4198740329998145,
+          "paired_ratio_candidate_over_control": 1.1389920693058748,
+          "paired_ratio_ci95": [
+            1.0989155485235353,
+            1.180774846100068
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 1.6169509650001146,
+          "clears_speed_gate": false,
+          "control_median_s": 1.6170030379998934,
+          "paired_ratio_candidate_over_control": 0.9999468604608411,
+          "paired_ratio_ci95": [
+            0.999747470925686,
+            1.0003046749056457
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 1.6171659789999921,
+          "clears_speed_gate": true,
+          "control_median_s": 2.6694848730001013,
+          "paired_ratio_candidate_over_control": 0.6057904091340817,
+          "paired_ratio_ci95": [
+            0.5948253601945905,
+            0.605861740175793
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 48281716,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[--ratio-bwt-min-gain-pct 3]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-22T00:08:36Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 78092,
+        "brotli": 125364,
+        "xz": 52404
+      },
+      "ruling": "COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE",
+      "ruling_gates": {
+        "decode_within_2x_brotli": true,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": true,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": true,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": true
+      },
+      "ruling_json_sha256": "0c0322d17e17718d62300de7a944bc85452a72b6b6ed1edf42397d4cfe8af9b8",
+      "run_id": "39697830840"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39697833411",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "--ratio-bwt-min-gain-pct 3",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 48281716,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 167.31111481155224,
+          "candidate_s": 1.2667334159999655,
+          "ci_hi": 1.077219517240569,
+          "ci_lo": 1.037466554036795,
+          "control_s": 1.2189253899999812,
+          "ratio": 1.0407554011927378,
+          "ref_mbps": 173.87329998926617
+        },
+        "xz": {
+          "anvil_mbps": 174.13877472891397,
+          "candidate_s": 1.2170671369999582,
+          "ci_hi": 0.5364764663863673,
+          "ci_lo": 0.5139899652376857,
+          "control_s": 2.269511857999987,
+          "ratio": 0.5246021737339681,
+          "ref_mbps": 93.38509479601106
+        }
+      },
+      "memory_ratio": {
+        "brotli": 0.6322183654149574,
+        "xz": 1.444901197172941
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 1.2667334159999655,
+          "clears_speed_gate": false,
+          "control_median_s": 1.2189253899999812,
+          "paired_ratio_candidate_over_control": 1.0407554011927378,
+          "paired_ratio_ci95": [
+            1.037466554036795,
+            1.077219517240569
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 1.1678850060000059,
+          "clears_speed_gate": false,
+          "control_median_s": 1.1667495180000742,
+          "paired_ratio_candidate_over_control": 1.000498585781277,
+          "paired_ratio_ci95": [
+            0.9596749619623339,
+            1.0428208690345915
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 1.2170671369999582,
+          "clears_speed_gate": true,
+          "control_median_s": 2.269511857999987,
+          "paired_ratio_candidate_over_control": 0.5246021737339681,
+          "paired_ratio_ci95": [
+            0.5139899652376857,
+            0.5364764663863673
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 48281716,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[--ratio-bwt-min-gain-pct 3]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-22T00:08:32Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 80140,
+        "brotli": 126760,
+        "xz": 55464
+      },
+      "ruling": "COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE",
+      "ruling_gates": {
+        "decode_within_2x_brotli": true,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": true,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": true,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": true
+      },
+      "ruling_json_sha256": "518d36fde22a7841722598822662b97e617f0e6ee9051e4e9eec38d66cc71bd8",
+      "run_id": "39697833411"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39697836346",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "--ratio-bwt-min-gain-pct 3",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 48281716,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 144.32662240278202,
+          "candidate_s": 1.4684649060000083,
+          "ci_hi": 1.9157526641147058,
+          "ci_lo": 1.9137285084621536,
+          "control_s": 0.7670001039998624,
+          "ratio": 1.9142191702323639,
+          "ref_mbps": 276.3214488430343
+        },
+        "xz": {
+          "anvil_mbps": 144.31280184917642,
+          "candidate_s": 1.4686055380000198,
+          "ci_hi": 0.5122702686853929,
+          "ci_lo": 0.5105731068877054,
+          "control_s": 2.8695841349999682,
+          "ratio": 0.5117040321034159,
+          "ref_mbps": 73.85689703780103
+        }
+      },
+      "memory_ratio": {
+        "brotli": 0.6387735547748323,
+        "xz": 1.4437305998700642
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 1.4684649060000083,
+          "clears_speed_gate": false,
+          "control_median_s": 0.7670001039998624,
+          "paired_ratio_candidate_over_control": 1.9142191702323639,
+          "paired_ratio_ci95": [
+            1.9137285084621536,
+            1.9157526641147058
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 1.4698966589999145,
+          "clears_speed_gate": false,
+          "control_median_s": 1.4695065230000637,
+          "paired_ratio_candidate_over_control": 1.0000838986394507,
+          "paired_ratio_ci95": [
+            0.9678294243030225,
+            1.0013024162378699
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 1.4686055380000198,
+          "clears_speed_gate": true,
+          "control_median_s": 2.8695841349999682,
+          "paired_ratio_candidate_over_control": 0.5117040321034159,
+          "paired_ratio_ci95": [
+            0.5105731068877054,
+            0.5122702686853929
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 48281716,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[--ratio-bwt-min-gain-pct 3]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-22T00:08:35Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 80000,
+        "brotli": 125240,
+        "xz": 55412
+      },
+      "ruling": "COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE",
+      "ruling_gates": {
+        "decode_within_2x_brotli": true,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": true,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": true,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": true
+      },
+      "ruling_json_sha256": "92793dbc79b9a6143ede303d45aea6fc9759c6c53b2837d8b872fa1770a0e1f4",
+      "run_id": "39697836346"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39697838963",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "--ratio-bwt-min-gain-pct 3",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 48281716,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 155.05796028057793,
+          "candidate_s": 1.3668345669999553,
+          "ci_hi": 1.1217174555894682,
+          "ci_lo": 1.077637073570611,
+          "control_s": 1.2190841489999684,
+          "ratio": 1.1209284469515128,
+          "ref_mbps": 173.85065680154742
+        },
+        "xz": {
+          "anvil_mbps": 155.06705259808322,
+          "candidate_s": 1.3667544229999748,
+          "ci_hi": 0.589585326599447,
+          "ci_lo": 0.5560226494469346,
+          "control_s": 2.368391781000014,
+          "ratio": 0.5770868812044427,
+          "ref_mbps": 89.48628419513958
+        }
+      },
+      "memory_ratio": {
+        "brotli": 0.6220598091469058,
+        "xz": 1.487749026791848
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 1.3668345669999553,
+          "clears_speed_gate": false,
+          "control_median_s": 1.2190841489999684,
+          "paired_ratio_candidate_over_control": 1.1209284469515128,
+          "paired_ratio_ci95": [
+            1.077637073570611,
+            1.1217174555894682
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 1.3182360710000012,
+          "clears_speed_gate": false,
+          "control_median_s": 1.3671195489999945,
+          "paired_ratio_candidate_over_control": 0.9996367276660603,
+          "paired_ratio_ci95": [
+            0.9629963260806197,
+            1.0008686274298781
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 1.3667544229999748,
+          "clears_speed_gate": true,
+          "control_median_s": 2.368391781000014,
+          "paired_ratio_candidate_over_control": 0.5770868812044427,
+          "paired_ratio_ci95": [
+            0.5560226494469346,
+            0.589585326599447
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 48281716,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[--ratio-bwt-min-gain-pct 3]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-22T00:08:40Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 77964,
+        "brotli": 125332,
+        "xz": 52404
+      },
+      "ruling": "COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE",
+      "ruling_gates": {
+        "decode_within_2x_brotli": true,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": true,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": true,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": true
+      },
+      "ruling_json_sha256": "dfd3c1a217416e115f68c9445fea1e98aad39fbcf225e9828f79397a3fc78ab2",
+      "run_id": "39697838963"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39697841540",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "--ratio-bwt-min-gain-pct 3",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 48281716,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 135.1345063983497,
+          "candidate_s": 1.5683527890000732,
+          "ci_hi": 1.9209686417833116,
+          "ci_lo": 1.9155856688727246,
+          "control_s": 0.8176071919999686,
+          "ratio": 1.9188002074157517,
+          "ref_mbps": 259.2180965061865
+        },
+        "xz": {
+          "anvil_mbps": 135.10694165063325,
+          "candidate_s": 1.5686727669999527,
+          "ci_hi": 0.5197707825160445,
+          "ci_lo": 0.5188534706501331,
+          "control_s": 3.0221311049999713,
+          "ratio": 0.5190617853754455,
+          "ref_mbps": 70.12885034979381
+        }
+      },
+      "memory_ratio": {
+        "brotli": 0.6376353358244706,
+        "xz": 1.4408920323325636
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 1.5683527890000732,
+          "clears_speed_gate": false,
+          "control_median_s": 0.8176071919999686,
+          "paired_ratio_candidate_over_control": 1.9188002074157517,
+          "paired_ratio_ci95": [
+            1.9155856688727246,
+            1.9209686417833116
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 1.569411145999993,
+          "clears_speed_gate": false,
+          "control_median_s": 1.5698245529999895,
+          "paired_ratio_candidate_over_control": 0.9994382518745988,
+          "paired_ratio_ci95": [
+            0.9693723819738681,
+            1.0000750797069777
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 1.5686727669999527,
+          "clears_speed_gate": true,
+          "control_median_s": 3.0221311049999713,
+          "paired_ratio_candidate_over_control": 0.5190617853754455,
+          "paired_ratio_ci95": [
+            0.5188534706501331,
+            0.5197707825160445
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 48281716,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[--ratio-bwt-min-gain-pct 3]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd",
+        "utc": "2026-10-22T00:08:40Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "9c206adfc06b82e28e0d96de6fbee19f3d593ecd"
+      },
+      "rss_kib": {
+        "anvil-aux": 79860,
+        "brotli": 125244,
+        "xz": 55424
+      },
+      "ruling": "COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE",
+      "ruling_gates": {
+        "decode_within_2x_brotli": true,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": true,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": true,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": true
+      },
+      "ruling_json_sha256": "1c0c282cf0e24d756d7bb82ac500d60eeaf968c20eaa73012633f136e5b9db79",
+      "run_id": "39697841540"
+    },
+    {
+      "artifact_dir": "anvil-i20-gate-closure-silesia-39700010922",
+      "artifact_files": [
+        "anvil-aux-commands.json",
+        "binary-sha256.txt",
+        "brotli-commands.json",
+        "bytes.csv",
+        "candidate-extra-args.txt",
+        "candidate-ref.txt",
+        "decode-anvil-aux.sh",
+        "decode-brotli.sh",
+        "decode-xz.sh",
+        "paired-brotli.csv",
+        "paired-brotli.json",
+        "paired-null.csv",
+        "paired-null.json",
+        "paired-xz.csv",
+        "paired-xz.json",
+        "prepare-summary.json",
+        "provenance.txt",
+        "rss.csv",
+        "rss.json",
+        "ruling.json",
+        "ruling.md",
+        "xz-commands.json"
+      ],
+      "candidate_extra_args": "--ratio-bwt-min-gain-pct 2.5",
+      "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+      "compressed_bytes": {
+        "anvil-aux": 48096796,
+        "brotli": 49383136,
+        "xz": 48456004
+      },
+      "decode": {
+        "brotli": {
+          "anvil_mbps": 127.06518430073389,
+          "candidate_s": 1.6679516199999398,
+          "ci_hi": 1.31255791760933,
+          "ci_lo": 0.9955425535028479,
+          "control_s": 1.3696408970000675,
+          "ratio": 1.2176934842212517,
+          "ref_mbps": 154.74025378784344
+        },
+        "xz": {
+          "anvil_mbps": 127.07274191986477,
+          "candidate_s": 1.667852418999928,
+          "ci_hi": 0.6756163903684881,
+          "ci_lo": 0.6541828969999852,
+          "control_s": 2.4706574690000025,
+          "ratio": 0.6751222449606257,
+          "ref_mbps": 85.78225944277983
+        }
+      },
+      "memory_ratio": {
+        "brotli": 0.6231773076800358,
+        "xz": 1.499155664722137
+      },
+      "paired_series": {
+        "brotli": {
+          "candidate_median_s": 1.6679516199999398,
+          "clears_speed_gate": false,
+          "control_median_s": 1.3696408970000675,
+          "paired_ratio_candidate_over_control": 1.2176934842212517,
+          "paired_ratio_ci95": [
+            0.9955425535028479,
+            1.31255791760933
+          ],
+          "timing_valid": true
+        },
+        "null": {
+          "candidate_median_s": 1.6691410109999651,
+          "clears_speed_gate": false,
+          "control_median_s": 1.6681738289998975,
+          "paired_ratio_candidate_over_control": 1.0006234046570464,
+          "paired_ratio_ci95": [
+            0.9998507616509441,
+            1.0299544316853633
+          ],
+          "timing_valid": true
+        },
+        "xz": {
+          "candidate_median_s": 1.667852418999928,
+          "clears_speed_gate": true,
+          "control_median_s": 2.4706574690000025,
+          "paired_ratio_candidate_over_control": 0.6751222449606257,
+          "paired_ratio_ci95": [
+            0.6541828969999852,
+            0.6756163903684881
+          ],
+          "timing_valid": true
+        }
+      },
+      "prepare_summary": {
+        "compressed_bytes": {
+          "anvil-aux": 48096796,
+          "brotli": 49383136,
+          "xz": 48456004
+        },
+        "corpus": "silesia",
+        "file_count": 12,
+        "roundtrip": "OK",
+        "source_bytes": 211938580
+      },
+      "provenance": {
+        "brotli-dev": "1.1.0-2build2",
+        "candidate_extra_args": "[--ratio-bwt-min-gain-pct 2.5]",
+        "candidate_ref": "research/anvil-i20-pareto-gate-closure-20261021",
+        "candidate_sha": "4c52a5bc193b1e3b76e4c682c399b965d937a2e0",
+        "candidate_src_sha256": "3a3355fe2fc1d9e3a57168a21af7dac243f785c8bbd7096f8a8a58e6df1893ac",
+        "reps": "9",
+        "tooling_ref_gate_sha256": "d591e11b6e1887f28ddb4d63588d8c4e74f46b758e2d46c4d46899552325d42b",
+        "tooling_sha": "4c52a5bc193b1e3b76e4c682c399b965d937a2e0",
+        "utc": "2026-10-22T00:30:01Z",
+        "workflow_ref": "refs/heads/research/anvil-i20-pareto-gate-closure-20261021",
+        "workflow_sha": "4c52a5bc193b1e3b76e4c682c399b965d937a2e0"
+      },
+      "rss_kib": {
+        "anvil-aux": 78124,
+        "brotli": 125364,
+        "xz": 52112
+      },
+      "ruling": "COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE",
+      "ruling_gates": {
+        "decode_within_2x_brotli": true,
+        "decode_within_2x_xz": true,
+        "memory_within_2x_brotli": true,
+        "memory_within_2x_xz": true,
+        "null_ci_spans_one": true,
+        "timing_valid": true
+      },
+      "ruling_gates_recomputed_here": {
+        "a_a_null_ci_spans_one": true,
+        "bytes_below_xz": true,
+        "decode_brotli_2x": true,
+        "decode_xz_2x": true,
+        "memory_brotli_2x": true,
+        "memory_xz_2x": true
+      },
+      "ruling_json_sha256": "a64803a7fb82bcad285929dfc4c2b5f66cfc97df3ab3d919a2fc695873bc3b0e",
+      "run_id": "39700010922"
+    }
+  ],
+  "schema": 1
+}
