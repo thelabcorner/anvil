@@ -926,7 +926,39 @@ the adopted change is additive. The closed operating point is the **named profil
 `--ratio-bwt-min-gain-pct 3`, which the gate now rules `COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`
 **6 times out of 6**.
 
-### 4.5 What the closed arm is worth, stated without inflation
+### 4.9 The C7 operating-point curve, and one honestly-blocked run
+
+The knob `P` is the programme's byte-versus-decode-work dial, and the Silesia corpus gives a
+small, clean curve. All rows: workflow `.github/workflows/anvil-i20-gate-closure.yml`, job
+`gate-closure (silesia)`, commit `9c206adfc06b82e28e0d96de6fbee19f3d593ecd`, corpus silesia,
+`reps = 9`; artifacts `anvil-i20-gate-closure-silesia-<run>`.
+
+| P | files on the BWT backend | ANVIL bytes | lead vs `xz -9e` | G3 (CI-upper vs xz) | **G4 (CI-upper vs Brotli)** | G5 | ruling | run |
+|---:|---|---:|---:|---|---|---:|---|---|
+| 0 (default) | 7 (120.4 MB) | 46,466,339 | 1,989,665 B | 1.8761 (1.9071) | 3.5013 (3.5396) | 4.87x | `FRONT-GAP_COST` | `39663273951` (W3's cap-only series) |
+| 1 | 6 | 46,593,971 | 1,862,033 B | — | — | — | see run | `39700008280` |
+| 2.5 | 3 (25.1 MB: `mr`, `x-ray`, `reymont`) | **48,096,796** | **359,208 B** | 0.6751 (0.6756) | **1.2177 (1.3126)** | 1.4992x | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** | `39700010922` |
+| 3 | 2 (18.4 MB: `mr`, `x-ray`) | **48,281,716** | **174,288 B** | 0.5808 (0.5933) | **0.9642 (1.0366)** | 1.4892x | **`COST_GAP_CLOSED_PENDING_ENCODE_DECSIZE`** (6 of 6) | `39696090369` + 5 replications |
+| 4 | 2 (identical routing to P = 3) | 48,281,716 | 174,288 B | 0.5856 (0.5859) | 1.6568 (1.6578) | 1.4928x | **`TIMING_BLOCKED`** | `39700013469` |
+
+**Two findings worth stating precisely.**
+
+1. **The closure is not knife-edge in `P`.** Two distinct operating points (`P = 2.5` and
+   `P = 3`) close the gate independently, with different byte margins (359,208 B and 174,288 B) and
+   different BWT volumes (25.1 MB and 18.4 MB). `P = 4` selects the same routing as `P = 3`
+   (identical 48,281,716 B), which confirms the routing is a **step function** of `P` and that the
+   chosen point is not balanced on a knife edge.
+
+2. **One run is `TIMING_BLOCKED`, and that is the arbiter behaving correctly.** In run
+   `39700013469` the candidate's own numbers were good (G3 0.5856, G4 1.6568, G5 1.4928×), but the
+   **A/A null CI was [0.99953, 0.99997] — it does not span 1.0** — so the frozen arbiter refused to
+   rule and emitted `TIMING_BLOCKED` instead of a verdict. Per the arbiter's own rule a blocked
+   series is *never* reinterpreted as a failure, and it is not counted as a closure either. **That
+   run is recorded as blocked, not as a pass and not as a failure of the candidate.** The six-run
+   closure series (§4.7) all had null CIs spanning 1.0.
+
+---
+
 
 * The canonical ratio route now **beats `xz -9e` on bytes, on decode and (nearly) on memory**, and
   **beats Brotli q11/lw30 on bytes by 1,036,130 B and on peak RSS by ~37 %**, at a decode cost of
