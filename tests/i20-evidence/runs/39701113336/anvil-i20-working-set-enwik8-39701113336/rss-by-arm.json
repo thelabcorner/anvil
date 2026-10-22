@@ -1,0 +1,7 @@
+{
+  "max_rss_kib": {
+    "baseline/enwik8": 613316,
+    "candidate/enwik8": 492620
+  },
+  "schema": 1
+}

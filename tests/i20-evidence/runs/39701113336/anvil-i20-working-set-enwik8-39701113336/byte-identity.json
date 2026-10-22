@@ -1,0 +1,15 @@
+{
+  "totals": {
+    "aux-off": {
+      "expected": 23534368,
+      "got": 23534368,
+      "match": true
+    },
+    "aux-on": {
+      "expected": 23537422,
+      "got": 23537422,
+      "match": true
+    }
+  },
+  "utc": "2026-10-22T00:47:19.780158+00:00"
+}

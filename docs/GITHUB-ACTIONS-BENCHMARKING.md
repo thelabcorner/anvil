@@ -1,5 +1,7 @@
 # ANVIL — GitHub Actions Research Benchmark Protocol
 
+> **I19 applicability note (2026-10-07):** [I19 Phase-0/0b](I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md) is provenance and numeric-**projection** preparation; Actions `success` is **not** Tier A/B/C codec efficacy or a sealed heldout. The exposed UCI ZIP cannot be certified blinded. Typed output hashes are insufficient to reconstruct parent DLY/JSON. See [claim register](RESEARCH-EVIDENCE-INDEX-2026-10-07.md) and [synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md).
+
 **Status:** active operational companion for remote experimentation  
 **Reason:** ANVIL benchmark/fuzz/anatomy workloads must not consume the developer workstation or homelab unless that policy is explicitly changed.
 

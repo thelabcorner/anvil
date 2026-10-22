@@ -1,5 +1,7 @@
 # ANVIL v0.1 Experimental Format
 
+> **Scope note (2026-10-07):** This document describes the main ANVIL `ANV0` experimental CLI/wire lineage. I17's `AVH1` and I18's `AVH2` numerical portfolio are **separate prototype formats** on research branches, **not additional `ANV0` revisions or guaranteed modes in `src/anvil.cpp`**. For their measured identities and complete-wire comparisons, use [I17–I18 adjudication](docs/I17-I18-SOURCE-ATTESTED-EXPERIMENT-ADJUDICATION-2026-10-07.md), [I18 closeout](docs/I18-BUDGET-GATED-FUSION-RESULTS-2026-10-07.md), and [current synthesis](docs/ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md). No stable cross-prototype decoder compatibility is implied.
+
 This is an unstable research format. It is intentionally versioned to allow the bitstream to change whenever measurements justify it.
 
 ## File header
@@ -226,6 +228,19 @@ The encoder's current sampling policy targets approximately 1024 independent
 LF walks by choosing the smallest power-of-two `r >= ceil(n/1024)`, with a
 minimum of 2. That choice is encoder policy, not a redefinition of the v2 wire
 contract.
+
+**Encoder policy knob (not wire-visible).** `--bwt-aux-walks=N` selects the
+walk budget `W` used by that policy: the encoder picks the smallest
+power-of-two `r` with `r * W >= n` (minimum 2, and never `r > transformed_size`),
+so `auxiliary_count = 1 + floor((transformed_size-1)/r) <= W` and the index
+array costs `4 * auxiliary_count` bytes. `N` must satisfy
+`1 <= N <= 1048576`; values outside that range are rejected with an explicit
+error before any payload is produced. The default `N = 1024` is the frozen
+policy and reproduces the frozen bytes exactly. Because the chosen `r` is
+transmitted in the payload and the decoder's validation rules above place no
+constraint on the checkpoint count other than the ones already listed, this
+knob changes **no wire semantics**: every `r` it can select is a value the
+v2 contract already permits.
 
 Decode memory bound: the decoder allocates at most `transformed_size` output
 bytes plus an `int32` work array of size `transformed_size + 1`, the bounded

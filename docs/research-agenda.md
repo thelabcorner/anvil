@@ -1,5 +1,7 @@
 # ANVIL — Novelty-Gated Research Agenda (v2)
 
+> **October 7 reading guide:** This is a historical novelty queue and explicitly not a current mandate to rebuild TCOPY or rejected sparse/shape mechanisms. The current research has advanced through I16–I18 synthetic numerical and fast-portfolio discovery, followed by I19 provenance/typed-source preparation with **no efficacy**. Consult the [current research synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md), [evidence register](RESEARCH-EVIDENCE-INDEX-2026-10-07.md), and [I19 work-oracle design](I19-PHASE1-DECODER-CHEAP-RECONSTRUCTION-ORACLE-DRAFT-2026-10-07.md). This original agenda's novelty gate remains useful; conditional selection, delta, zigzag and tiled packing alone do **not** qualify as novel mechanisms.
+
 > **Historical agenda / superseded ranking.** Keep this file as mechanism provenance, but do not use its ranking table as the current queue. Later I8/I9 evidence closed several items listed here. The synthesized post-I9 research direction and binding do-not-reburn constraints are in `docs/FRONTIER-RESET-2026-09-23.md`, `docs/I10-BREAKTHROUGH-PROGRAM.md`, `docs/anvil-i9-findings.md`, and `docs/audit-2026-09-07/06-do-not-reburn.md`.
 
 Owner: `research` lane. This document is the gatekeeper artifact for every

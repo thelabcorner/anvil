@@ -1,4 +1,6 @@
 # PROJECT ANVIL — COMPREHENSIVE STATE, FRONTIER AND RESEARCH HANDOFF
+
+> **Later October 7 evidence supersedes the time-of-inspection publication status below:** Q1a-XRUN [37694740386](https://github.com/thelabcorner/anvil/actions/runs/37694740386) independently cleared **R2 Gate A** (but **not Gate B**). [I18 corrected run 37703141058](https://github.com/thelabcorner/anvil/actions/runs/37703141058) produced synthetic numerical discovery; [I19 source attestation](I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md) then verified four raw source bodies and four typed projections, **without any I19 codec efficacy benchmark**. The handoff's `PUBLICATION REQUIRED` discussion is a historical observation, not the live Gate A status. See [current evidence register](RESEARCH-EVIDENCE-INDEX-2026-10-07.md) and [research synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md); historical Class-A still **0 complete crossings**.
 **Audit date:** 2026-10-07 (America/Chicago)  
 **Classification:** Single-agent, read-only research reconciliation plus new documentation. **No delegates or swarm members contacted, spawned, awakened or resumed.**  
 **Local source:** C:/Users/slooshied/Documents/ANVIL (OXP documents root: /documents/ANVIL)  

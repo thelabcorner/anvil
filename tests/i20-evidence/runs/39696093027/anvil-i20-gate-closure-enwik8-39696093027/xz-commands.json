@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "arm": "xz",
+  "commands": [
+    [
+      "/usr/bin/xz",
+      "-d",
+      "-k",
+      "-f",
+      "/home/runner/work/anvil/anvil/gate-closure-enwik8/packed/xz/enwik8.xz"
+    ]
+  ],
+  "outputs": [
+    "/home/runner/work/anvil/anvil/gate-closure-enwik8/packed/xz/enwik8"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema": "anvil.i19.source-byte-lock.v1",
+  "status": "SOURCE_BYTES_FROZEN_EFFICACY_NOT_AUTHORIZED",
+  "origin_run_id": 37704571734,
+  "origin_commit": "c7e423e24ab94e1156f1245c1a4a06397ef15a70",
+  "origin_artifact_id": 11519365364,
+  "origin_artifact_sha256": "6cc52833320758c5b09d8bc7376a5ab8e1785828db847966a921e3f462939f8c",
+  "sources": [
+    {
+      "id": "noaa_kmci_daily",
+      "split": "discovery",
+      "sha256": "860de07f2beb77d1a0c293c9b5985d1ff40f2c051550250a81812896366e4329",
+      "source_bytes": 3839940
+    },
+    {
+      "id": "usgs_potomac_daily",
+      "split": "validation",
+      "sha256": "58a5ded558dcd68f9ca3199bbda8fe73a01717d57a954c34cc8a595aa6807cc7",
+      "source_bytes": 297561
+    },
+    {
+      "id": "nasa_power_t2m_daily",
+      "split": "validation",
+      "sha256": "8cba63a1b19fa9e914a5895285b29d55dd0b562d26e3163598d68c64a933009d",
+      "source_bytes": 67388
+    },
+    {
+      "id": "uci_household_electricity",
+      "split": "heldout",
+      "sha256": "9f84b46ade8a2d8e1286ec4b2b6c2987a45a755c59f263be3b3b3d10dfbda3ff",
+      "source_bytes": 20640916
+    }
+  ],
+  "rights_review_status": "PENDING",
+  "heldout_unsealed": true,
+  "efficacy_authorized": false,
+  "notes": "Exact Phase0 captured HTTP entity bodies; byte hashes immutable within this commit; semantic validity/rights/heldout sealing pending."
+}

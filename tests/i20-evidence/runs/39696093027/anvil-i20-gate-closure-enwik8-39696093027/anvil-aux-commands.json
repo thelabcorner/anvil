@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "arm": "anvil-aux",
+  "commands": [
+    [
+      "/home/runner/work/anvil/anvil/candidate/build-gate/anvil",
+      "d",
+      "/home/runner/work/anvil/anvil/gate-closure-enwik8/packed/anvil-aux/enwik8.anv",
+      "/home/runner/work/anvil/anvil/gate-closure-enwik8/decoded/anvil-aux/enwik8",
+      "--quiet"
+    ]
+  ],
+  "outputs": [
+    "/home/runner/work/anvil/anvil/gate-closure-enwik8/decoded/anvil-aux/enwik8"
+  ]
+}

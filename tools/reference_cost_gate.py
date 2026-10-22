@@ -107,6 +107,9 @@ def prepare(args: argparse.Namespace) -> None:
         raise RuntimeError("missing ANVIL, brotli_lw, or xz")
 
     files = canonical_files(args.corpus, root)
+    # I20: one shlex-quoted string, split here, so that a value beginning with
+    # '--' is not mistaken for an argparse option terminator.
+    candidate_extra_args = shlex.split(args.candidate_extra_args or "")
     pack_root = out / "packed"
     dec_root = out / "decoded"
     for arm in ("anvil-aux", "brotli", "xz"):
@@ -131,11 +134,16 @@ def prepare(args: argparse.Namespace) -> None:
         digest = sha256(src)
 
         cand = pack_root / "anvil-aux" / f"{name}.anv"
+        # I20 addition (coordinator-owned, additive, default-preserving):
+        # --candidate-extra-args appends encoder-policy flags to the ANVIL arm
+        # so a candidate arm can be ruled by this same frozen arbiter. With the
+        # default (empty) the command is byte-identical to the pre-I20 form.
         run([
             str(anvil), "c", str(src), str(cand),
             "--parse=ratio", "--ratio-backend=auto",
             "--ratio-context=off", "--ratio-lines=off",
             "--bwt-aux=on", "--quiet",
+            *candidate_extra_args,
         ])
         cand_out = dec_root / "anvil-aux" / name
         cand_cmd = [str(anvil), "d", str(cand), str(cand_out), "--quiet"]
@@ -430,6 +438,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--brotli", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--expected-candidate-total", type=int)
+    p.add_argument(
+        "--candidate-extra-args",
+        default="",
+        help=(
+            "Space-separated (shlex-quoted) extra ANVIL encoder-policy flags "
+            "appended to the candidate arm, e.g. "
+            "'--bwt-aux-walks 16384 --bwt-subblock 4194304'. Empty by default, "
+            "which reproduces the pre-I20 command byte for byte. A single "
+            "string is used rather than nargs='*' because argparse would "
+            "otherwise treat a leading '--flag' as an option terminator."
+        ),
+    )
     p.set_defaults(func=prepare)
 
     p = sub.add_parser("rss")

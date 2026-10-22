@@ -1,0 +1,71 @@
+{
+  "schema": "anvil.i19.acquisition-proposal.v1",
+  "frozen_selection": true,
+  "design_ref": "docs/I19-REAL-NUMERIC-WORK-BUDGET-EXPERIMENT-DESIGN-2026-10-07.md",
+  "sources": [
+    {
+      "id": "noaa_kmci_daily",
+      "origin_id": "noaa-ncei",
+      "dataset_family_id": "ghcn-daily",
+      "split": "discovery",
+      "publisher": "NOAA NCEI",
+      "url": "https://www.ncei.noaa.gov/pub/data/ghcn/daily/all/USW00003947.dly",
+      "release": "station USW00003947; archived historical records; snapshot exact HTTP body",
+      "license": "US NOAA station data; review any upstream restrictions before redistribution",
+      "license_url": "https://www.ncei.noaa.gov/pub/data/ghcn/daily/readme.txt",
+      "max_bytes": 15000000,
+      "format": "ghcnd-dly",
+      "representation": "raw-bytes",
+      "preprocess": "identity on downloaded raw HTTP response",
+      "original_source_reconstructible": true
+    },
+    {
+      "id": "usgs_potomac_daily",
+      "origin_id": "usgs-waterdata",
+      "dataset_family_id": "usgs-potomac-01646500",
+      "split": "validation",
+      "publisher": "US Geological Survey",
+      "url": "https://waterservices.usgs.gov/nwis/dv/?format=json&sites=01646500&startDT=2000-01-01&endDT=2010-12-31&parameterCd=00060&siteStatus=all",
+      "release": "legacy WaterServices fixed historical 2000-2010 query (retirement 2027); snapshot exact HTTP body",
+      "license": "U.S. Government USGS water data; source terms review pending",
+      "license_url": "https://waterdata.usgs.gov/blog/api-waterservices-decom",
+      "max_bytes": 20000000,
+      "format": "usgs-waterml-json",
+      "representation": "raw-bytes",
+      "preprocess": "identity on downloaded raw HTTP response",
+      "original_source_reconstructible": true
+    },
+    {
+      "id": "nasa_power_t2m_daily",
+      "origin_id": "nasa-power",
+      "dataset_family_id": "nasa-power-meteorology",
+      "split": "validation",
+      "publisher": "NASA POWER",
+      "url": "https://power.larc.nasa.gov/api/temporal/daily/point?parameters=T2M&community=RE&longitude=-90.2&latitude=38.6&start=20000101&end=20101231&format=JSON",
+      "release": "NASA POWER fixed point T2M 2000-2010 query; API data version in returned body",
+      "license": "NASA POWER usage and attribution review pending; modeled/reanalysis source",
+      "license_url": "https://power.larc.nasa.gov/docs/services/api/temporal/daily/",
+      "max_bytes": 20000000,
+      "format": "nasa-power-json",
+      "representation": "raw-bytes",
+      "preprocess": "identity on downloaded raw HTTP response",
+      "original_source_reconstructible": true
+    },
+    {
+      "id": "uci_household_electricity",
+      "origin_id": "uci-household-electricity",
+      "dataset_family_id": "uci-dataset-235",
+      "split": "heldout",
+      "publisher": "UCI Machine Learning Repository / Georges Hebrail and Alice Berard",
+      "url": "https://archive.ics.uci.edu/static/public/235/individual+household+electric+power+consumption.zip",
+      "release": "dataset 235; fixed research collection 2006-2010; ZIP snapshot exact HTTP body",
+      "license": "CC BY 4.0; attribution required; usage rights verification pending",
+      "license_url": "https://archive.ics.uci.edu/dataset/235/individual+household+electric+power+consumption",
+      "max_bytes": 40000000,
+      "format": "zip",
+      "representation": "raw-bytes",
+      "preprocess": "identity on downloaded ZIP bytes; no heldout decoding before frozen gate",
+      "original_source_reconstructible": true
+    }
+  ]
+}

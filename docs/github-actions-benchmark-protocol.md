@@ -1,5 +1,7 @@
 # ANVIL GitHub Actions Benchmark Protocol
 
+> **October 7, 2026 methods supplement:** This protocol is normative **for timing**, but efficacy also requires source admission: original-byte and release provenance, data rights, independent discovery/validation lineages, genuinely unexposed heldout custody, typed-vs-source semantics, and appropriate typed comparators. A source-acquisition/parser workflow cannot itself authorize efficacy or a frontier claim. See [I19 evidence](I19-PHASE0-SOURCE-ATTESTATION-CLOSEOUT-2026-10-07.md), [evidence index](RESEARCH-EVIDENCE-INDEX-2026-10-07.md) and [synthesis](ANVIL-RESEARCH-SYNTHESIS-AND-OPEN-QUESTIONS-2026-10-07.md).
+
 Status: normative statistical protocol for the GitHub Actions benchmark vehicle. The sanitized public repository and manual workflow were activated on 2026-09-23 at `https://github.com/thelabcorner/anvil`. The first remote smoke workflow now builds, fuzzes, and runs entirely on GitHub-hosted compute; this document remains the promotion gate for timing claims.
 
 ## 1. Purpose

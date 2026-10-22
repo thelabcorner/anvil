@@ -1,0 +1,11 @@
+{
+  "max_rss_kib": {
+    "baseline-cap16777216/enwik8": 257712,
+    "baseline-cap4194304/enwik8": 257748,
+    "baseline-cap8388608/enwik8": 257712,
+    "candidate-cap16777216/enwik8": 161640,
+    "candidate-cap4194304/enwik8": 161504,
+    "candidate-cap8388608/enwik8": 161504
+  },
+  "schema": 1
+}

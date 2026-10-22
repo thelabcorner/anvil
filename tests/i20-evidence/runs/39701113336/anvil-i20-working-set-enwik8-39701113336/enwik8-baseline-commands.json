@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "arm": "baseline",
+  "corpus": "enwik8",
+  "files": [
+    "enwik8"
+  ],
+  "commands": [
+    [
+      "/home/runner/work/anvil/anvil/baseline/build-w4/anvil",
+      "d",
+      "/home/runner/work/anvil/anvil/i20-w4-enwik8/packed/aux-on/enwik8.anv",
+      "/home/runner/work/anvil/anvil/i20-w4-enwik8/decoded-baseline/enwik8",
+      "--quiet"
+    ]
+  ],
+  "outputs": [
+    "/home/runner/work/anvil/anvil/i20-w4-enwik8/decoded-baseline/enwik8"
+  ]
+}
