@@ -1,0 +1,391 @@
+name: ANVIL I11 dominance front (dense reference grid + named profile)
+
+# Control measurement for I20 candidate C6 (prereg §5.1 C6, repo control NQ-6).
+#
+# It measures a DENSE reference grid (Brotli quality/window tiers, xz levels,
+# zstd tiers incl. long mode, lz4) in the SAME job as the candidate arm and
+# asks the one pre-registered question: does a denser reference configuration
+# dominate the canonical ANVIL ratio arm on (bytes AND decode throughput) or
+# on (bytes AND peak RSS)?
+#
+# It does NOT emit a frontier token and it does NOT replace the frozen arbiter
+# tools/reference_cost_gate.py.  The ruling token for the I20 program still
+# comes from that tool alone.
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: Corpus to measure
+        required: true
+        default: silesia
+        type: choice
+        options:
+          - silesia
+          - enwik8
+      candidate_ref:
+        description: 'Git ref to build as the ANVIL candidate arm'
+        required: true
+        default: 'research/anvil-i20-w6-dense-reference'
+      candidate_extra_args:
+        description: 'Space-separated extra ANVIL encoder flags for the candidate arm (empty = frozen baseline arm)'
+        required: false
+        default: ''
+      survey_reps:
+        description: Survey decode repetitions per arm (ranking-grade)
+        required: true
+        default: '5'
+        type: choice
+        options:
+          - '3'
+          - '5'
+          - '7'
+      paired_reps:
+        description: Paired decode repetitions for the gate-deciding pairs
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+      expect_candidate_total:
+        description: 'Expected candidate portfolio bytes (0 = do not assert)'
+        required: true
+        default: '48281716'
+      label:
+        description: 'Concurrency label (distinct per replication so the series is not queued/replaced)'
+        required: true
+        default: 'rep0'
+      assert_frozen_candidate_blob:
+        description: 'Assert candidate src/anvil.cpp blob == frozen I10-1A blob'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: anvil-i11-dominance-front-${{ inputs.label }}-${{ inputs.corpus }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dense-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/dense-reference-${{ inputs.corpus }}
+      BUILD_DIR: ${{ github.workspace }}/build
+      BROTLI_PINNED_COMMIT: ed738e842d2fbdf2d6459e39267a633c4a9b2f5d
+      XZ_PINNED_VERSION: 5.4.5
+      FROZEN_CANDIDATE_BLOB: 755df76ae53795aea040f4c99784d1effb43b3ab
+
+    steps:
+      - name: Checkout measurement tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          path: candidate
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils zstd lz4 time python3 build-essential \
+            autoconf automake libtool pkg-config curl ca-certificates git gettext
+
+      - name: Fingerprint runner, source and producers
+        run: |
+          mkdir -p "$OUT_DIR" "$BUILD_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "candidate_ref=${{ inputs.candidate_ref }}"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "candidate_src_blob=$(git -C candidate rev-parse HEAD:src/anvil.cpp)"
+            echo "candidate_src_sha256=$(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)"
+            echo "candidate_extra_args=[${{ inputs.candidate_extra_args }}]"
+            echo "survey_reps=${{ inputs.survey_reps }}"
+            echo "paired_reps=${{ inputs.paired_reps }}"
+            echo "expected_candidate_total=${{ inputs.expect_candidate_total }}"
+            echo "brotli_pinned_commit=${BROTLI_PINNED_COMMIT}"
+            echo "xz_pinned_version=${XZ_PINNED_VERSION}"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            zstd --version
+            lz4 --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+          } | tee "$OUT_DIR/provenance.txt"
+          if [ "${{ inputs.assert_frozen_candidate_blob }}" = "true" ]; then
+            ACTUAL=$(git -C candidate rev-parse HEAD:src/anvil.cpp)
+            if [ "$ACTUAL" != "${FROZEN_CANDIDATE_BLOB}" ]; then
+              echo "FROZEN CANDIDATE BLOB MISMATCH: $ACTUAL != ${FROZEN_CANDIDATE_BLOB}"
+              exit 1
+            fi
+            echo "frozen_candidate_blob=OK ${FROZEN_CANDIDATE_BLOB}"
+          fi
+          printf '%s\n' "${{ inputs.candidate_extra_args }}" > "$OUT_DIR/candidate-extra-args.txt"
+          printf '%s\n' "${{ inputs.candidate_ref }}" > "$OUT_DIR/candidate-ref.txt"
+
+      - name: Build ANVIL candidate and the repo Brotli binding helper
+        run: |
+          cmake -S candidate -B candidate/build-dense -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build candidate/build-dense --parallel 4 --target anvil brotli_lw
+          sha256sum candidate/build-dense/anvil candidate/build-dense/brotli_lw \
+            | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Build the parameterised Brotli helper against the distribution library
+        run: |
+          clang++-18 -O3 -DNDEBUG -std=c++17 \
+            tooling/prototypes/i20-dense-reference/brotli_dense.cpp \
+            -o "$BUILD_DIR/brotli_dense_distro" \
+            -lbrotlienc -lbrotlidec -lbrotlicommon
+          sha256sum "$BUILD_DIR/brotli_dense_distro" | tee -a "$OUT_DIR/binary-sha256.txt"
+
+      - name: Build pinned upstream Brotli and the parameterised helper against it
+        run: |
+          set +e
+          git clone --quiet https://github.com/google/brotli.git "$BUILD_DIR/brotli-src"
+          git -C "$BUILD_DIR/brotli-src" checkout --quiet "${BROTLI_PINNED_COMMIT}"
+          PINNED_HEAD=$(git -C "$BUILD_DIR/brotli-src" rev-parse HEAD)
+          echo "brotli_pinned_head=$PINNED_HEAD" | tee -a "$OUT_DIR/provenance.txt"
+          if [ "$PINNED_HEAD" != "${BROTLI_PINNED_COMMIT}" ]; then
+            echo "PINNED BROTLI COMMIT MISMATCH"
+            exit 1
+          fi
+          cmake -S "$BUILD_DIR/brotli-src" -B "$BUILD_DIR/brotli-src/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBROTLI_DISABLE_TESTS=ON \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18
+          cmake --build "$BUILD_DIR/brotli-src/build" --parallel 4
+          clang++-18 -O3 -DNDEBUG -std=c++17 \
+            -I "$BUILD_DIR/brotli-src/c/include" \
+            tooling/prototypes/i20-dense-reference/brotli_dense.cpp \
+            -o "$BUILD_DIR/brotli_dense_pinned" \
+            "$BUILD_DIR/brotli-src/build/libbrotlienc.a" \
+            "$BUILD_DIR/brotli-src/build/libbrotlidec.a" \
+            "$BUILD_DIR/brotli-src/build/libbrotlicommon.a"
+          set -e
+          if [ -x "$BUILD_DIR/brotli_dense_pinned" ]; then
+            echo "brotli_pinned_build=OK" | tee -a "$OUT_DIR/provenance.txt"
+            sha256sum "$BUILD_DIR/brotli_dense_pinned" | tee -a "$OUT_DIR/binary-sha256.txt"
+            cp "$BUILD_DIR/brotli_dense_pinned" "$BUILD_DIR/brotli_dense"
+          else
+            echo "brotli_pinned_build=UNAVAILABLE (disclosed substitution: distribution libbrotli-dev)" \
+              | tee -a "$OUT_DIR/provenance.txt"
+            cp "$BUILD_DIR/brotli_dense_distro" "$BUILD_DIR/brotli_dense"
+          fi
+
+      - name: Build pinned xz source release (producer-version control)
+        run: |
+          set +e
+          cd "$BUILD_DIR"
+          curl -fsSL -o "xz-${XZ_PINNED_VERSION}.tar.gz" \
+            "https://tukaani.org/xz/xz-${XZ_PINNED_VERSION}.tar.gz"
+          if [ ! -s "xz-${XZ_PINNED_VERSION}.tar.gz" ]; then
+            curl -fsSL -o "xz-${XZ_PINNED_VERSION}.tar.gz" \
+              "https://github.com/tukaani-project/xz/releases/download/v${XZ_PINNED_VERSION}/xz-${XZ_PINNED_VERSION}.tar.gz"
+          fi
+          sha256sum "xz-${XZ_PINNED_VERSION}.tar.gz" | tee -a "$OUT_DIR/provenance.txt"
+          tar xf "xz-${XZ_PINNED_VERSION}.tar.gz"
+          cd "xz-${XZ_PINNED_VERSION}"
+          ./configure --prefix="$BUILD_DIR/xz-install" --disable-nls > "$BUILD_DIR/xz-configure.log" 2>&1
+          make -j4 > "$BUILD_DIR/xz-make.log" 2>&1
+          make install > "$BUILD_DIR/xz-install.log" 2>&1
+          set -e
+          if [ -x "$BUILD_DIR/xz-install/bin/xz" ]; then
+            echo "xz_pinned_build=OK" | tee -a "$OUT_DIR/provenance.txt"
+            "$BUILD_DIR/xz-install/bin/xz" --version | tee -a "$OUT_DIR/provenance.txt"
+            sha256sum "$BUILD_DIR/xz-install/bin/xz" | tee -a "$OUT_DIR/binary-sha256.txt"
+          else
+            echo "xz_pinned_build=UNAVAILABLE (disclosed gap: no xz 5.4.5 producer control)" \
+              | tee -a "$OUT_DIR/provenance.txt"
+            tail -20 "$BUILD_DIR/xz-make.log" 2>/dev/null | tee -a "$OUT_DIR/provenance.txt" || true
+          fi
+
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py \
+            "${{ inputs.corpus }}" \
+            --out "$CORPUS_ROOT"
+
+      - name: Build all dense reference payloads and the candidate arm
+        run: |
+          set -euo pipefail
+          BROTLI_DISTRO_VERSION=$(dpkg-query -W -f='${Version}' libbrotli-dev)
+          PINNED_STATUS=$(grep -c 'brotli_pinned_build=OK' "$OUT_DIR/provenance.txt" || true)
+          if [ "$PINNED_STATUS" -ge 1 ]; then
+            BROTLI_PINNED_PRODUCER="google/brotli ${BROTLI_PINNED_COMMIT} (pinned upstream build, static)"
+          else
+            BROTLI_PINNED_PRODUCER="libbrotli-dev ${BROTLI_DISTRO_VERSION} (pinned upstream build UNAVAILABLE -- disclosed substitution)"
+          fi
+          XZ_DISTRO_VERSION=$(xz --version | head -1)
+          ZSTD_VERSION=$(zstd --version | head -1)
+          LZ4_VERSION=$(lz4 --version | head -1)
+          XZ_PINNED_PRODUCER=""
+          XZ_PINNED_ARG=()
+          if [ -x "$BUILD_DIR/xz-install/bin/xz" ]; then
+            XZ_PINNED_PRODUCER="xz ${XZ_PINNED_VERSION} (pinned source build of the baseline run's producer version)"
+            XZ_PINNED_ARG=(--xz-pinned "$BUILD_DIR/xz-install/bin/xz")
+          fi
+          EXTRA=()
+          if [ -n "${{ inputs.candidate_extra_args }}" ]; then
+            EXTRA=(--candidate-extra-args "${{ inputs.candidate_extra_args }}")
+          fi
+          EXPECT=()
+          if [ "${{ inputs.expect_candidate_total }}" != "0" ]; then
+            EXPECT=(--expected-candidate-total "${{ inputs.expect_candidate_total }}")
+          fi
+          python3 tooling/tools/i20_dense_reference.py prepare \
+            --corpus "${{ inputs.corpus }}" \
+            --root "$CORPUS_ROOT" \
+            --out "$OUT_DIR" \
+            --anvil candidate/build-dense/anvil \
+            --brotli-lw candidate/build-dense/brotli_lw \
+            --brotli-dense "$BUILD_DIR/brotli_dense" \
+            --brotli-dense-distro "$BUILD_DIR/brotli_dense_distro" \
+            --xz "$(command -v xz)" \
+            --zstd "$(command -v zstd)" \
+            --lz4 "$(command -v lz4)" \
+            "${XZ_PINNED_ARG[@]}" \
+            --anvil-producer "candidate $(git -C candidate rev-parse HEAD); src/anvil.cpp sha256 $(sha256sum candidate/src/anvil.cpp | cut -d' ' -f1)" \
+            --brotli-gate-producer "repo tools/brotli_lw.cpp + libbrotli-dev ${BROTLI_DISTRO_VERSION}" \
+            --brotli-pinned-producer "$BROTLI_PINNED_PRODUCER" \
+            --brotli-distro-producer "libbrotli-dev ${BROTLI_DISTRO_VERSION}" \
+            --xz-producer "${XZ_DISTRO_VERSION}" \
+            --xz-pinned-producer "$XZ_PINNED_PRODUCER" \
+            --zstd-producer "${ZSTD_VERSION}" \
+            --lz4-producer "${LZ4_VERSION}" \
+            "${EXTRA[@]}" \
+            "${EXPECT[@]}"
+
+      - name: Measure per-process decode peak RSS for every arm
+        run: |
+          python3 tooling/tools/i20_dense_reference.py rss \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --out "$OUT_DIR"
+
+      - name: Survey decode throughput for every arm (ranking-grade, same job)
+        run: |
+          python3 tooling/tools/i20_dense_reference.py survey \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --out "$OUT_DIR" \
+            --reps "${{ inputs.survey_reps }}" \
+            --warmups 1 \
+            --cpu 0
+
+      - name: Plan the gate-deciding paired comparisons
+        run: |
+          python3 tooling/tools/i20_dense_reference.py plan-paired \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --survey "$OUT_DIR/survey-timing.json" \
+            --rss "$OUT_DIR/rss.json" \
+            --out "$OUT_DIR/paired-plan.json"
+
+      - name: Paired/interleaved decode timing (protocol of record)
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          plan = json.loads((out / "paired-plan.json").read_text(encoding="utf-8"))
+          driver = pathlib.Path("tooling/tools/paired_bench.py")
+          reps = "${{ inputs.paired_reps }}"
+
+          for pair in plan["pairs"]:
+              control = ["bash", str(out / pair["control_script"])]
+              candidate = ["bash", str(out / pair["candidate_script"])]
+              cmd = [
+                  sys.executable, str(driver),
+                  "--control-json", json.dumps(control),
+                  "--candidate-json", json.dumps(candidate),
+                  "--reps", reps,
+                  "--warmups", "2",
+                  "--seed", "41246",
+                  "--bootstrap", "20000",
+                  "--epsilon", "0.02",
+                  "--max-cv", "0.15",
+                  "--cpu", "0",
+                  "--ambient-reps", "5",
+                  "--ambient-iterations", "250000",
+                  "--ambient-max-cv", "0.10",
+                  "--out", str(out / ("paired-" + pair["name"] + ".csv")),
+                  "--summary", str(out / ("paired-" + pair["name"] + ".json")),
+                  "--stdout-dir", str(out / ("stdout-" + pair["name"])),
+              ]
+              print("RUN", pair["name"], pair["kind"], flush=True)
+              subprocess.run(cmd, check=True)
+          PY
+
+      - name: Canonical recompute discipline (two independent invocations)
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          plan = json.loads((out / "paired-plan.json").read_text(encoding="utf-8"))
+          base = [
+              sys.executable, "tooling/tools/i20_dense_reference.py", "summarize",
+              "--prepare", str(out / "prepare-summary.json"),
+              "--survey", str(out / "survey-timing.json"),
+              "--rss", str(out / "rss.json"),
+          ]
+          for pair in plan["pairs"]:
+              base += ["--paired", pair["name"] + "=" +
+                       str(out / ("paired-" + pair["name"] + ".json"))]
+
+          first = list(base) + ["--out", str(out / "non-dominance.json")]
+          second = list(base) + ["--out", str(out / "non-dominance-rerun.json")]
+          subprocess.run(first, check=True)
+          subprocess.run(second, check=True)
+          PY
+          sha256sum "$OUT_DIR/non-dominance.json" "$OUT_DIR/non-dominance-rerun.json" \
+            | tee "$OUT_DIR/canonical-recompute.txt"
+          if cmp -s "$OUT_DIR/non-dominance.json" "$OUT_DIR/non-dominance-rerun.json"; then
+            echo "CANONICAL_RECOMPUTE_IDENTICAL" | tee -a "$OUT_DIR/canonical-recompute.txt"
+          else
+            echo "CANONICAL_RECOMPUTE_DIFFERENT" | tee -a "$OUT_DIR/canonical-recompute.txt"
+            exit 1
+          fi
+          cat "$OUT_DIR/dense-front.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the dense reference-grid evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i20-dense-reference-${{ inputs.corpus }}-${{ github.run_id }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
+
