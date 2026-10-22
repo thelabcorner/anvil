@@ -1,0 +1,201 @@
+name: ANVIL I11 D2 postcoder share (same-job differential)
+
+# I11 candidate D2 (preregistration docs/I11-PARETO-DOMINANCE-PREREG-2026-10-22.md,
+# §5, candidate D2): measure the postcoder's share of BWT-path decode by a
+# SAME-JOB DIFFERENTIAL measurement.  The I20 C1 attempt used
+# `valgrind --tool=callgrind` and failed four times on the hosted runner
+# (runs 39659153216, 39659202582, 39659854677, 39660334510); this workflow
+# measures the same thing without a profiler.
+#
+# Measured inside ONE job, for a fixed always-BWT file:
+#   (1) the postcoder stage alone  (MTF + zero-run RLE + adaptive arithmetic)
+#   (2) the inverse BWT alone, over that same BWT string
+#   (3) the end-to-end ANVIL decode of the same payload
+#   (4) the reference brotli_lw one-shot decode of the same bytes
+#   (5) ANVIL's streaming Brotli decode (256 KiB window) against (4)
+#
+# The stage times come from prototypes/i11-postcoder-share/stage_probe.cpp, a
+# standalone probe carrying VERBATIM COPIES of the repo's own postcoder code and
+# linking the vendored libsais inverse.  src/anvil.cpp is NOT modified.
+#
+# Manual dispatch only; all measurement happens here, on GitHub Actions.
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: Silesia files to measure (must be always-BWT routed)
+        required: true
+        default: 'mr,x-ray'
+        type: string
+      probe_reps:
+        description: In-process stage-probe repetitions (each round is an A/A pair)
+        required: true
+        default: '9'
+        type: choice
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+concurrency:
+  group: anvil-i11-postcoder-share
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  postcoder-share:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/i11-postcoder-share
+      BUILD_DIR: ${{ github.workspace }}/build
+
+    steps:
+      - name: Checkout this branch (the dispatch ref)
+        uses: actions/checkout@v4
+
+      - name: Install pinned dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build libbrotli-dev libzstd-dev \
+            xz-utils time python3 binutils
+
+      - name: Fingerprint runner and source
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_url=https://github.com/thelabcorner/anvil/actions/runs/${GITHUB_RUN_ID}"
+            echo "job=postcoder-share"
+            echo "workflow=.github/workflows/anvil-i11-postcoder-share.yml"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "commit_sha=$(git rev-parse HEAD)"
+            echo "candidate_ref=${GITHUB_REF_NAME}"
+            echo "corpus=silesia"
+            echo "files=${{ inputs.files }}"
+            echo "probe_reps=${{ inputs.probe_reps }}"
+            echo "anvil_cpp_blob=$(git rev-parse HEAD:src/anvil.cpp)"
+            echo "probe_blob=$(git rev-parse HEAD:prototypes/i11-postcoder-share/stage_probe.cpp)"
+            echo "tool_blob=$(git rev-parse HEAD:tools/i11_postcoder_share.py)"
+            echo "libsais_blob=$(git rev-parse HEAD:third_party/libsais/src/libsais.c)"
+            uname -a
+            lscpu
+            clang-18 --version
+            cmake --version
+            ninja --version
+            xz --version
+            dpkg-query -W -f='brotli-dev=${Version}\n' libbrotli-dev
+            python3 --version
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build ANVIL and the reference helper
+        run: |
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$BUILD_DIR" --parallel 4 --target anvil brotli_lw
+          sha256sum "$BUILD_DIR/anvil" "$BUILD_DIR/brotli_lw" | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Build the stage probe (verbatim copies + vendored libsais)
+        run: |
+          set -euo pipefail
+          clang-18 -O3 -DNDEBUG -I third_party/libsais/include \
+            -c third_party/libsais/src/libsais.c -o "$BUILD_DIR/libsais.o"
+          clang++-18 -std=c++20 -O3 -DNDEBUG -I third_party/libsais/include \
+            prototypes/i11-postcoder-share/stage_probe.cpp "$BUILD_DIR/libsais.o" \
+            -lbrotlidec -lbrotlicommon -o "$BUILD_DIR/stage_probe"
+          sha256sum "$BUILD_DIR/stage_probe" | tee -a "$OUT_DIR/binary-sha256.txt"
+          "$BUILD_DIR/stage_probe" 2>&1 | head -n 5 || true
+
+      - name: Fetch the canonical corpus (pinned size + MD5)
+        run: |
+          python3 tools/gha_fetch_corpus.py silesia --out "$CORPUS_ROOT"
+          {
+            for f in $(ls -1 "$CORPUS_ROOT/silesia" | sort); do
+              p="$CORPUS_ROOT/silesia/$f"
+              echo "$(sha256sum "$p" | cut -d' ' -f1)  $(stat -c %s "$p")  silesia/$f"
+            done
+          } | tee "$OUT_DIR/corpus-sha256.txt"
+
+      - name: Prepare the canonical arms and assert the BWT route
+        run: |
+          python3 tools/i11_postcoder_share.py prepare \
+            --corpus silesia \
+            --root "$CORPUS_ROOT" \
+            --anvil "$BUILD_DIR/anvil" \
+            --brotli "$BUILD_DIR/brotli_lw" \
+            --files "${{ inputs.files }}" \
+            --out "$OUT_DIR"
+
+      - name: Measure the stage decomposition and the paired series
+        run: |
+          python3 tools/i11_postcoder_share.py measure \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --anvil "$BUILD_DIR/anvil" \
+            --probe "$BUILD_DIR/stage_probe" \
+            --driver tools/paired_bench.py \
+            --probe-reps "${{ inputs.probe_reps }}" \
+            --probe-warmups 2 \
+            --out "$OUT_DIR"
+
+      - name: Summarize and evaluate the fixed decision rule
+        if: ${{ always() }}
+        run: |
+          python3 tools/i11_postcoder_share.py summarize \
+            --prepare "$OUT_DIR/prepare-summary.json" \
+            --measure "$OUT_DIR/measure.json" \
+            --out "$OUT_DIR"
+          {
+            echo "anvil_src_anvil.cpp"
+            echo "--parse=ratio --ratio-backend=auto --ratio-context=off --ratio-lines=off --bwt-aux=on"
+            echo "--ratio-bwt-min-gain-pct=3 --bwt-subblock=2097152"
+          } > "$OUT_DIR/candidate-extra-args.txt"
+          echo "research/anvil-i11-d2-postcoder-share" > "$OUT_DIR/candidate-ref.txt"
+          if [ -f "$OUT_DIR/postcoder-share.json" ]; then
+            {
+              echo "### I11 D2 - postcoder share of BWT-path decode"
+              echo
+              echo '```json'
+              jq '{verdict, postcoder_share_pct, postcoder_share_range_pct, streaming_window_material, per_measurement: [.per_measurement[] | {file, arm, postcoder_seconds, inverse_bwt_seconds, end_to_end_seconds, postcoder_share_vs_end_to_end, postcoder_share_vs_stage_sum, decision_rule_verdict}]}' "$OUT_DIR/postcoder-share.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Prune bulky intermediates
+        if: ${{ always() }}
+        run: |
+          rm -rf "$OUT_DIR/packed" "$OUT_DIR/decoded" "$OUT_DIR"/*.bin "$OUT_DIR"/probe-*.out || true
+          du -sh "$OUT_DIR" || true
+
+      - name: Upload the durable evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-i11-postcoder-share-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/postcoder-share.json
+            ${{ env.OUT_DIR }}/ruling.json
+            ${{ env.OUT_DIR }}/prepare-summary.json
+            ${{ env.OUT_DIR }}/measure.json
+            ${{ env.OUT_DIR }}/bytes.csv
+            ${{ env.OUT_DIR }}/stages-*.json
+            ${{ env.OUT_DIR }}/brotli-oneshot-*.json
+            ${{ env.OUT_DIR }}/brotli-stream-*.json
+            ${{ env.OUT_DIR }}/paired-*.json
+            ${{ env.OUT_DIR }}/paired-*.csv
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/candidate-ref.txt
+            ${{ env.OUT_DIR }}/candidate-extra-args.txt
+            ${{ env.OUT_DIR }}/corpus-sha256.txt
+            ${{ env.OUT_DIR }}/binary-sha256.txt
+          if-no-files-found: warn
+          retention-days: 30
