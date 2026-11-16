@@ -717,8 +717,7 @@ def front_point_commands(
             return ([str(binary), f"-{level}", "-c", str(src)], packed)
 
         def decode(packed: Path, decoded: Path, n: int):
-            return ([str(binary), "-d", "-k", "-f", str(packed)],
-                    packed.with_suffix(""))
+            return ([str(binary), "-d", "-c", str(packed)], decoded)
     elif family == "lz4":
         binary = args.lz4
 
@@ -727,8 +726,8 @@ def front_point_commands(
                      str(src), str(packed)], None)
 
         def decode(packed: Path, decoded: Path, n: int):
-            return ([str(binary), "-q", "-f", "-d", str(packed)],
-                    packed.with_suffix(""))
+            return ([str(binary), "-q", "-f", "-d", "-c", str(packed)],
+                    decoded)
     else:
         raise RuntimeError(f"unknown front family: {family}")
     return encode, decode
