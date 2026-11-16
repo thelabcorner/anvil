@@ -809,15 +809,23 @@ def prepare_front(args: argparse.Namespace) -> None:
                 "ratio": f"{packed.stat().st_size / src.stat().st_size:.9f}",
             })
         # Correctness before timing: every payload must round-trip byte-exactly.
+        # The stdout redirect is threaded explicitly: `-c`/stdout decoders
+        # (xz, lz4) emit the payload on stdout, while explicit-`-o` decoders
+        # (anvil, brotli_dense, zstd) write the file themselves and emit no
+        # stdout (all --quiet/-q, diagnostics to stderr) — redirecting their
+        # empty stdout to the same path is a no-op.
         for src, cmd, out_path in zip(files, decode_cmds, outputs):
-            run(cmd)
+            run(cmd, stdout_path=out_path)
             if not out_path.is_file():
                 raise RuntimeError(f"{name}: decoder produced no output for {src.name}")
             if (out_path.stat().st_size != src.stat().st_size
                     or sha256(out_path) != source_digest[src.name]):
                 raise RuntimeError(f"{name}: roundtrip mismatch for {src.name}")
         write_script_lines(out / f"encode-{name}.sh", encode_lines)
-        write_script(out / f"decode-{name}.sh", decode_cmds)
+        write_script_lines(
+            out / f"decode-{name}.sh",
+            [script_line(cmd, out) for cmd, out in zip(decode_cmds, outputs)],
+        )
         observed = pack_dir / f"{biggest.name}{ext}"
         return {
             "name": name,
