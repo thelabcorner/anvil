@@ -577,7 +577,7 @@ FRONT_POINTS: list[dict[str, Any]] = [
     {"name": "zstd-9", "family": "zstd", "config": "-9", "level": 9},
     {"name": "zstd-19", "family": "zstd", "config": "-19", "level": 19},
     {"name": "zstd-22", "family": "zstd",
-     "config": "-22 --ultra --long=27 --memory=1G", "level": 22,
+     "config": "-22 --ultra --long=27", "level": 22,
      "ultra": True, "long_window": True},
     {"name": "xz-6", "family": "xz", "config": "-6", "level": "6"},
     {"name": "xz-9", "family": "xz", "config": "-9", "level": "9"},
@@ -699,7 +699,11 @@ def front_point_commands(
                 argv.append("--ultra")
             argv.append(f"-{point['level']}")
             if long_window:
-                argv += ["--long=27", "--memory=1G"]
+                # NOTE: no `--memory=1G` — distribution zstd 1.5.7 rejects
+                # it on encode ("only numeric values with optional suffixes
+                # K/KB/KiB/M/MB/MiB are allowed"); `--long=27` alone selects
+                # the 128 MiB window. Decode keeps `--long=27` (accepted).
+                argv += ["--long=27"]
             argv += ["-o", str(packed), str(src)]
             return argv, None
 
