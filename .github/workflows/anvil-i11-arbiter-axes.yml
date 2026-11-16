@@ -617,6 +617,10 @@ jobs:
             --out "$OUT_DIR/decoder-bytes.json"
 
       # ---- the frozen 3-arm gate (live base ruling) ----
+      - name: Fetch canonical corpus
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py silesia --out "$CORPUS_ROOT"
+
       - name: Prepare exact payloads and correctness gate
         run: |
           EXPECT=()
