@@ -54,7 +54,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang-18 python3
-          clang-18 --version
+          clang++-18 --version
           python3 --version
 
       - name: Fingerprint runner, source, and vendored engine identity
@@ -75,7 +75,7 @@ jobs:
             sha256sum tooling/third_party/zlib/src/*.c tooling/third_party/zlib/include/*.h tooling/third_party/zlib/LICENSE | sort -k2
             uname -a
             lscpu
-            clang-18 --version
+            clang++-18 --version
             python3 --version
           } | tee "$OUT_DIR/provenance.txt"
           printf '%s\n' "$SLICE_REF" > "$OUT_DIR/slice-ref.txt"
@@ -99,7 +99,9 @@ jobs:
         run: |
           set -e
           mkdir -p "$OUT_DIR/build"
-          clang-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+          # NOTE: clang++-18 (not clang-18): the C++ driver links libstdc++.
+          # Using the C driver here fails the link (undefined operator new).
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
             -Itooling/third_party/zlib/include \
             tooling/tools/p41_replay_check.cpp \
             tooling/third_party/zlib/src/adler32.c \
