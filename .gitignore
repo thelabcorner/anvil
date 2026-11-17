@@ -24,10 +24,12 @@ ci-results/
 *.anv
 *.out
 
-# Third-party build products; pinned libsais source remains public
+# Third-party build products; pinned libsais + zlib sources remain public
 third_party/*
 !third_party/libsais/
 !third_party/libsais/**
+!third_party/zlib/
+!third_party/zlib/**
 
 # Editor/OS
 .vscode/
