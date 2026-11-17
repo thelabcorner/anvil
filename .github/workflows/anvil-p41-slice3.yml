@@ -126,6 +126,7 @@ jobs:
       - name: Native replay on mozilla (fail-closed STOP gate)
         run: |
           set -e
+          mkdir -p "$OUT_DIR/replay-native" "$OUT_DIR/replay-native-samba"
           "$OUT_DIR/build/p41_replay_check" \
             --census "$OUT_DIR/census-mozilla/census-mozilla.csv" \
             --src "$CORPUS_ROOT/silesia/mozilla" \

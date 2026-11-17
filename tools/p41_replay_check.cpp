@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -702,6 +703,16 @@ int main(int argc, char** argv) {
   std::string err;
   std::vector<std::string> header;
   std::vector<CsvRow> rows;
+  {
+    // Create the output dir (mirrors census.py os.makedirs(exist_ok=True)).
+    std::error_code ec;
+    std::filesystem::create_directories(outdir, ec);
+    if (ec) {
+      std::cerr << "cannot create out-dir " << outdir << ": " << ec.message()
+                << "\n";
+      return 1;
+    }
+  }
   if (!ReadCsv(census, &header, &rows, &err)) {
     std::cerr << "csv error: " << err << "\n";
     return 1;
