@@ -1,0 +1,177 @@
+name: ANVIL P4.1 slice-3 vendored-engine replay gate (native, pinned zlib)
+
+# Lane (a) slice-3 per docs/P41-NATIVE-WORKORDER.md (vendored engine +
+# parameter registry + transform-4 construction) and the frozen prereg
+# STOP gate #2.
+# Question: does the VENDORED pinned zlib 1.3.1 (third_party/zlib, exact
+# upstream source + license + UPSTREAM.md) reproduce the frozen exact-replay
+# population (2,331 valid / 2,898,132 B mozilla; 160/160 samba) through a
+# NATIVE replay harness with the frozen parameter registry?
+# Byte-only job EXCEPT the harness build itself: NO timing claims, NO wire
+# format change, NO src/anvil.cpp change (additive only). Any unexplained
+# divergence => STOP the lane, do not proceed.
+# Manual dispatch only; raw artifact upload; `contents: read`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      slice_ref:
+        description: 'Git ref to check out as tooling + prototype + vendored source'
+        required: true
+        default: 'research/anvil-p41-slice3-20261117'
+      corpus:
+        description: 'Canonical corpus to fetch'
+        required: true
+        default: 'silesia'
+      label:
+        description: 'Concurrency label (distinct per dispatch)'
+        required: true
+        default: 'p41-slice3-baseline'
+
+concurrency:
+  group: anvil-p41-slice3-${{ inputs.label }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  replay-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/p41-slice3
+      SLICE_REF: ${{ inputs.slice_ref }}
+    steps:
+      - name: Checkout tooling + prototype + vendored source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SLICE_REF }}
+          path: tooling
+
+      - name: Install pinned dependencies (clang-18 + python only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 python3
+          clang-18 --version
+          python3 --version
+
+      - name: Fingerprint runner, source, and vendored engine identity
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "slice_ref=${SLICE_REF}"
+            echo "slice_sha=$(git -C tooling rev-parse HEAD)"
+            echo "harness_sha256=$(sha256sum tooling/tools/p41_replay_check.cpp | cut -d' ' -f1)"
+            echo "census_py_sha256=$(sha256sum tooling/prototypes/i9-deflate/census.py | cut -d' ' -f1)"
+            echo "upstream_md_sha256=$(sha256sum tooling/third_party/zlib/UPSTREAM.md | cut -d' ' -f1)"
+            echo "--- vendored zlib file hashes (sha256) ---"
+            sha256sum tooling/third_party/zlib/src/*.c tooling/third_party/zlib/include/*.h tooling/third_party/zlib/LICENSE | sort -k2
+            uname -a
+            lscpu
+            clang-18 --version
+            python3 --version
+          } | tee "$OUT_DIR/provenance.txt"
+          printf '%s\n' "$SLICE_REF" > "$OUT_DIR/slice-ref.txt"
+
+      - name: Fetch canonical corpus (MD5-verified, fail-closed)
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py silesia --out "$CORPUS_ROOT"
+          (
+            cd "$CORPUS_ROOT/silesia"
+            md5sum * | sort
+          ) | tee "$OUT_DIR/silesia-md5.txt"
+
+      - name: Census mozilla + scope controls (frozen population input)
+        run: |
+          set -e
+          for f in mozilla samba sao ooffice; do
+            python3 tooling/prototypes/i9-deflate/census.py "$CORPUS_ROOT/silesia/$f" --out-dir "$OUT_DIR/census-$f"
+          done
+
+      - name: Build pinned replay engine + native harness (no codec change)
+        run: |
+          set -e
+          mkdir -p "$OUT_DIR/build"
+          clang-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            -Itooling/third_party/zlib/include \
+            tooling/tools/p41_replay_check.cpp \
+            tooling/third_party/zlib/src/adler32.c \
+            tooling/third_party/zlib/src/compress.c \
+            tooling/third_party/zlib/src/crc32.c \
+            tooling/third_party/zlib/src/deflate.c \
+            tooling/third_party/zlib/src/inffast.c \
+            tooling/third_party/zlib/src/inflate.c \
+            tooling/third_party/zlib/src/inftrees.c \
+            tooling/third_party/zlib/src/trees.c \
+            tooling/third_party/zlib/src/uncompr.c \
+            tooling/third_party/zlib/src/zutil.c \
+            -o "$OUT_DIR/build/p41_replay_check"
+          echo "== build artifacts =="
+          ls -la "$OUT_DIR/build/" | tee "$OUT_DIR/build-artifacts.txt"
+          sha256sum "$OUT_DIR/build/p41_replay_check" | tee -a "$OUT_DIR/build-artifacts.txt"
+          "$OUT_DIR/build/p41_replay_check" --help 2>&1 | head -5 || true
+
+      - name: Harness self-test (malformed/framing suite, no corpus needed)
+        run: |
+          set -e
+          "$OUT_DIR/build/p41_replay_check" --selftest | tee "$OUT_DIR/selftest.txt"
+
+      - name: Native replay on mozilla (fail-closed STOP gate)
+        run: |
+          set -e
+          "$OUT_DIR/build/p41_replay_check" \
+            --census "$OUT_DIR/census-mozilla/census-mozilla.csv" \
+            --src "$CORPUS_ROOT/silesia/mozilla" \
+            --out-dir "$OUT_DIR/replay-native" \
+            --expect-valid 2331 --expect-bytes 2898132 --name mozilla \
+            | tee "$OUT_DIR/replay-native.log"
+
+      - name: Native replay scope control (samba 160/160)
+        run: |
+          set -e
+          "$OUT_DIR/build/p41_replay_check" \
+            --census "$OUT_DIR/census-samba/census-samba.csv" \
+            --src "$CORPUS_ROOT/silesia/samba" \
+            --out-dir "$OUT_DIR/replay-native-samba" \
+            --expect-valid 160 --name samba \
+            | tee "$OUT_DIR/replay-samba-native.log"
+
+      - name: Report decoder binary-size delta inputs
+        run: |
+          {
+            echo "== native replay artifacts (decoder cost inputs) =="
+            ls -la "$OUT_DIR/build/p41_replay_check"
+            du -b "$OUT_DIR/build/p41_replay_check"
+            echo "== vendored source footprint =="
+            du -cb tooling/third_party/zlib/src/*.c tooling/third_party/zlib/include/*.h | tail -3
+          } | tee "$OUT_DIR/binary-size.txt"
+
+      - name: Upload raw slice-3 evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-p41-slice3-replay-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/slice-ref.txt
+            ${{ env.OUT_DIR }}/silesia-md5.txt
+            ${{ env.OUT_DIR }}/census-mozilla/
+            ${{ env.OUT_DIR }}/census-samba/
+            ${{ env.OUT_DIR }}/census-sao/
+            ${{ env.OUT_DIR }}/census-ooffice/
+            ${{ env.OUT_DIR }}/build-artifacts.txt
+            ${{ env.OUT_DIR }}/selftest.txt
+            ${{ env.OUT_DIR }}/replay-native/
+            ${{ env.OUT_DIR }}/replay-native.log
+            ${{ env.OUT_DIR }}/replay-native-samba/
+            ${{ env.OUT_DIR }}/replay-samba-native.log
+            ${{ env.OUT_DIR }}/binary-size.txt
+          if-no-files-found: error
+          retention-days: 30
