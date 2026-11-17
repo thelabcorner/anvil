@@ -7,7 +7,8 @@ links this copy; the rest of the codec keeps using the distribution
 zlib, if any.
 
 - Upstream: `https://github.com/madler/zlib`
-- Tag: `v1.3.1` (upstream release, Mark Adler, 2024-01-22; tag object signed)
+- Tag: `v1.3.1` (upstream release, Mark Adler, 2024-01-22; annotated tag
+  object carrying a PGP signature block)
 - Tag object: `925af44f3cde53c6b076611c297850091b5dc7bb`
 - Commit: `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`
 - License: zlib license (see `LICENSE` in this directory)
