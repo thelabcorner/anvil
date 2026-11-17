@@ -98,22 +98,25 @@ jobs:
       - name: Build pinned replay engine + native harness (no codec change)
         run: |
           set -e
-          mkdir -p "$OUT_DIR/build"
-          # NOTE: clang++-18 (not clang-18): the C++ driver links libstdc++.
-          # Using the C driver here fails the link (undefined operator new).
+          mkdir -p "$OUT_DIR/build/obj"
+          # NOTE: two-stage build. (1) The vendored C engine compiles with the
+          # C driver: passing -std=c++20 for .c inputs is a hard error, so the
+          # C files get plain -O2 -DNDEBUG. (2) The C++ harness links with the
+          # C++ driver (libstdc++): using clang-18 here fails the link with
+          # undefined operator new. The static lib is the "private static
+          # replay target" from the integration plan §12; its size feeds the
+          # decoder binary-size delta report below.
+          for f in adler32 compress crc32 deflate inffast inflate inftrees trees uncompr zutil; do
+            clang-18 -O2 -DNDEBUG -Wall \
+              -Itooling/third_party/zlib/include \
+              -c "tooling/third_party/zlib/src/$f.c" \
+              -o "$OUT_DIR/build/obj/$f.o"
+          done
+          ar rcs "$OUT_DIR/build/libanvil_zlib_pinned.a" "$OUT_DIR/build"/obj/*.o
           clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
             -Itooling/third_party/zlib/include \
             tooling/tools/p41_replay_check.cpp \
-            tooling/third_party/zlib/src/adler32.c \
-            tooling/third_party/zlib/src/compress.c \
-            tooling/third_party/zlib/src/crc32.c \
-            tooling/third_party/zlib/src/deflate.c \
-            tooling/third_party/zlib/src/inffast.c \
-            tooling/third_party/zlib/src/inflate.c \
-            tooling/third_party/zlib/src/inftrees.c \
-            tooling/third_party/zlib/src/trees.c \
-            tooling/third_party/zlib/src/uncompr.c \
-            tooling/third_party/zlib/src/zutil.c \
+            "$OUT_DIR/build/libanvil_zlib_pinned.a" \
             -o "$OUT_DIR/build/p41_replay_check"
           echo "== build artifacts =="
           ls -la "$OUT_DIR/build/" | tee "$OUT_DIR/build-artifacts.txt"
@@ -150,8 +153,8 @@ jobs:
         run: |
           {
             echo "== native replay artifacts (decoder cost inputs) =="
-            ls -la "$OUT_DIR/build/p41_replay_check"
-            du -b "$OUT_DIR/build/p41_replay_check"
+            ls -la "$OUT_DIR/build/p41_replay_check" "$OUT_DIR/build/libanvil_zlib_pinned.a"
+            du -b "$OUT_DIR/build/p41_replay_check" "$OUT_DIR/build/libanvil_zlib_pinned.a"
             echo "== vendored source footprint =="
             du -cb tooling/third_party/zlib/src/*.c tooling/third_party/zlib/include/*.h | tail -3
           } | tee "$OUT_DIR/binary-size.txt"
@@ -176,5 +179,7 @@ jobs:
             ${{ env.OUT_DIR }}/replay-native-samba/
             ${{ env.OUT_DIR }}/replay-samba-native.log
             ${{ env.OUT_DIR }}/binary-size.txt
+            ${{ env.OUT_DIR }}/build/p41_replay_check
+            ${{ env.OUT_DIR }}/build/libanvil_zlib_pinned.a
           if-no-files-found: error
           retention-days: 30
