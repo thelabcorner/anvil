@@ -90,7 +90,8 @@ jobs:
           done
           python3 - <<'PY'
           import csv, json, pathlib, sys
-          out = pathlib.Path("$OUT_DIR")
+          import os
+          out = pathlib.Path(os.environ["OUT_DIR"])
           # mozilla frozen figures: 2,354 DEFLATE + 210 stored = 2,564 detected;
           # C = 3,177,007; U = 9,991,436
           rows = list(csv.DictReader(open(out / "mozilla" / "census-mozilla.csv")))
