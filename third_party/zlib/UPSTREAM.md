@@ -13,12 +13,13 @@ zlib, if any.
 - Commit: `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`
 - License: zlib license (see `LICENSE` in this directory)
 - Vendored files: `src/{adler32,compress,crc32,deflate,inffast,inflate,inftrees,trees,uncompr,zutil}.c`,
-  `include/{zlib,zconf,crc32,deflate,inffast,inffixed,inflate,inftrees,trees,zutil}.h`,
+  `include/{zlib,zconf,crc32,deflate,gzguts,inffast,inffixed,inflate,inftrees,trees,zutil}.h`,
   `LICENSE`, `README.upstream`
-- Excluded on purpose: gz* file API (`gzclose/gzlib/gzread/gzwrite` — the
-  replay decoder never touches the filesystem), `infback.c` (raw inflate
-  callback API — the harness uses `inflate()` with explicit `windowBits`
-  only), build scaffolding (`CMakeLists.txt`, `configure`, `Makefile.in`,
+- Excluded on purpose: gz* file API implementation (`gzclose/gzlib/gzread/gzwrite`
+  .c files — the replay decoder never touches the filesystem; `gzguts.h` IS
+  kept because `zutil.c` includes it unconditionally), `infback.c` (raw inflate
+  callback API — the harness uses `inflate()` with explicit window bits),
+  build scaffolding (`CMakeLists.txt`, `configure`, `Makefile.in`,
   `contrib/`, `doc/`, `examples/`, `test/`, `win32/`, etc.)
 
 The source was copied unmodified from that pinned upstream tag on 2026-11-17.
