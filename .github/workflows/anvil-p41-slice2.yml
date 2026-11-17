@@ -1,0 +1,145 @@
+name: ANVIL P4.1 slice-2 engine probe (full-grid replay vs frozen population)
+
+# Lane (a) slice-2 per docs/P41-NATIVE-WORKORDER.md slices 2+3 (probe half)
+# and the frozen prereg STOP gate #2.
+# Question: does a pinned stock zlib reproduce the frozen exact-replay
+# population (2,331 valid / 2,898,132 B on mozilla) on the CI runner?
+# Byte-only job: NO codec build, NO wire format, NO src/ change, NO timing
+# claims. A stock-distribution zlib is probed first (version fingerprinted);
+# vendoring the exact upstream source happens in slice-3 ONLY if this probe
+# reproduces. Any unexplained divergence => STOP the lane, do not proceed.
+# Manual dispatch only; raw artifact upload; `contents: read`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe_ref:
+        description: 'Git ref to check out as tooling + prototype source'
+        required: true
+        default: 'research/anvil-p41-slice1-20261117-fix1'
+      corpus:
+        description: 'Canonical corpus to fetch'
+        required: true
+        default: 'silesia'
+      label:
+        description: 'Concurrency label (distinct per dispatch)'
+        required: true
+        default: 'p41-slice2-baseline'
+
+concurrency:
+  group: anvil-p41-slice2-${{ inputs.label }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  replay-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/p41-slice2
+      PROBE_REF: ${{ inputs.probe_ref }}
+    steps:
+      - name: Checkout tooling + prototype source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PROBE_REF }}
+          path: tooling
+
+      - name: Install pinned dependencies (python only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3
+          python3 --version
+
+      - name: Fingerprint runner, source and zlib identity
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "probe_ref=${PROBE_REF}"
+            echo "probe_sha=$(git -C tooling rev-parse HEAD)"
+            echo "census_py_sha256=$(sha256sum tooling/prototypes/i9-deflate/census.py | cut -d' ' -f1)"
+            echo "replay_py_sha256=$(sha256sum tooling/prototypes/i9-deflate/replay.py | cut -d' ' -f1)"
+            python3 -c "import zlib; print('python_zlib_version=' + zlib.ZLIB_VERSION); print('python_zlib_runtime=' + zlib.ZLIB_RUNTIME_VERSION)"
+            uname -a
+            lscpu
+            dpkg-query -W -f='zlib1g=${Version}\n' zlib1g 2>/dev/null || true
+            dpkg-query -W -f='zlib1g-dev=${Version}\n' zlib1g-dev 2>/dev/null || true
+          } | tee "$OUT_DIR/provenance.txt"
+          printf '%s\n' "$PROBE_REF" > "$OUT_DIR/probe-ref.txt"
+
+      - name: Fetch canonical corpus (MD5-verified, fail-closed)
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py silesia --out "$CORPUS_ROOT"
+          (
+            cd "$CORPUS_ROOT/silesia"
+            md5sum * | sort
+          ) | tee "$OUT_DIR/silesia-md5.txt"
+
+      - name: Census mozilla + scope controls (reproduce slice-1 population)
+        run: |
+          set -e
+          for f in mozilla samba sao ooffice; do
+            python3 tooling/prototypes/i9-deflate/census.py "$CORPUS_ROOT/silesia/$f" --out-dir "$OUT_DIR/census-$f"
+          done
+
+      - name: Full-grid replay on mozilla (probe the pinned engine)
+        run: |
+          set -e
+          python3 tooling/prototypes/i9-deflate/replay.py \
+            "$OUT_DIR/census-mozilla/census-mozilla.json" \
+            --src "$CORPUS_ROOT/silesia/mozilla" \
+            --out-dir "$OUT_DIR/replay-mozilla"
+
+      - name: Assert frozen population reproduced (fail-closed STOP gate)
+        run: |
+          python3 - <<'PY'
+          import csv, json, os, pathlib
+          out = pathlib.Path(os.environ["OUT_DIR"])
+          rows = list(csv.DictReader(open(out / "replay-mozilla" / "replay-mozilla.csv")))
+          # frozen figures: 2,331 valid bit-exact replays, 2,898,132 B
+          # (replay.py schema: per-stream `mode` in {valid,diff,brute}, `clen`)
+          valid = [r for r in rows if r.get("mode") == "valid"]
+          vbytes = sum(int(r["clen"]) for r in valid)
+          print(f"valid_streams={len(valid)} valid_bytes={vbytes}")
+          summ = json.load(open(out / "replay-mozilla" / "replay-mozilla.json"))
+          print(json.dumps(summ, indent=1)[:1500])
+          assert len(valid) == 2331, f"STOP: valid {len(valid)} != frozen 2331"
+          assert vbytes == 2898132, f"STOP: valid bytes {vbytes} != frozen 2898132"
+          print("REPLAY_GATE: PASS — runner zlib reproduces frozen population")
+          PY
+
+      - name: Record scope-control replay (samba, informational)
+        run: |
+          set +e
+          python3 tooling/prototypes/i9-deflate/replay.py \
+            "$OUT_DIR/census-samba/census-samba.json" \
+            --src "$CORPUS_ROOT/silesia/samba" \
+            --out-dir "$OUT_DIR/replay-samba" | tail -n 30 | tee "$OUT_DIR/replay-samba-note.txt"
+          set -e
+          true
+
+      - name: Upload raw replay-probe evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-p41-slice2-replay-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/probe-ref.txt
+            ${{ env.OUT_DIR }}/silesia-md5.txt
+            ${{ env.OUT_DIR }}/census-mozilla/
+            ${{ env.OUT_DIR }}/census-samba/
+            ${{ env.OUT_DIR }}/census-sao/
+            ${{ env.OUT_DIR }}/census-ooffice/
+            ${{ env.OUT_DIR }}/replay-mozilla/
+            ${{ env.OUT_DIR }}/replay-samba-note.txt
+          if-no-files-found: error
+          retention-days: 30
