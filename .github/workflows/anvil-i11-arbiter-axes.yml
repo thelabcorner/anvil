@@ -735,12 +735,20 @@ jobs:
       - name: Download the gate and cell artefacts
         run: |
           mkdir -p "$OUT_DIR/cells" "$OUT_DIR/gate"
+          # NOTE: explicit --repo is required: this job checks out tooling/
+          # and candidate/ into subdirs, so the workspace root is NOT a git
+          # repo and bare `gh run download` fails with "no git remotes found"
+          # (previously swallowed by `|| true`, leaving an empty OUT_DIR and
+          # a failed assemble). Per-artifact subdirs are required too: a
+          # single-name `gh run download` extracts flat into --dir, so all
+          # 17 cells would overwrite each other's encode-cell.json.
           gh run download "$RUN_ID" \
+            --repo "${{ github.repository }}" \
             --name "anvil-i11-arbiter-axes-gate-$RUN_ID" \
             --dir "$OUT_DIR/gate" || true
           for f in $(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
                       --jq '.artifacts[].name' | grep 'arbiter-axes-cell' || true); do
-            gh run download "$RUN_ID" --name "$f" --dir "$OUT_DIR/cells" || true
+            gh run download "$RUN_ID" --repo "${{ github.repository }}" --name "$f" --dir "$OUT_DIR/cells/$f" || true
           done
           find "$OUT_DIR" -name '*.json' -o -name '*.csv' -o -name '*.txt' \
             -o -name '*.md' | sort
