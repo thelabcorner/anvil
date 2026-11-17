@@ -1,0 +1,140 @@
+name: ANVIL P4.1 slice-1 census (ZIP DEFLATE population)
+
+# Lane (a) slice-1 per docs/P41-SLICE1-DISPATCH.md (frozen prereg
+# docs/P41-DEFLATE-REPLAY-PREREG-DRAFT.md). Byte-only census job:
+# NO codec build, NO timing claims, NO benchmark.
+# Verifies the native-runner census reproduces the frozen mozilla
+# DEFLATE population before any wire/representation work (STOP gate #2).
+# Manual dispatch only; raw artifact upload; `contents: read`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      census_ref:
+        description: 'Git ref to check out as tooling+prototype source'
+        required: true
+        default: 'research/anvil-p41-slice1-20261117'
+      corpus:
+        description: 'Canonical corpus to fetch'
+        required: true
+        default: 'silesia'
+        type: choice
+        options:
+          - silesia
+          - both
+      label:
+        description: 'Concurrency label (distinct per dispatch)'
+        required: true
+        default: 'p41-slice1'
+
+concurrency:
+  group: anvil-p41-slice1-${{ inputs.label }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CORPUS_ROOT: ${{ github.workspace }}/corpora
+      OUT_DIR: ${{ github.workspace }}/p41-slice1
+      CENSUS_REF: ${{ inputs.census_ref }}
+    steps:
+      - name: Checkout tooling + prototype source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CENSUS_REF }}
+          path: tooling
+
+      - name: Install pinned dependencies (python only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3
+          python3 --version
+
+      - name: Fingerprint runner and source
+        run: |
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "workflow_ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "census_ref=${CENSUS_REF}"
+            echo "census_sha=$(git -C tooling rev-parse HEAD)"
+            echo "census_py_sha256=$(sha256sum tooling/prototypes/i9-deflate/census.py | cut -d' ' -f1)"
+            echo "replay_py_sha256=$(sha256sum tooling/prototypes/i9-deflate/replay.py | cut -d' ' -f1)"
+            uname -a
+            lscpu
+            python3 --version
+          } | tee "$OUT_DIR/provenance.txt"
+          printf '%s\n' "$CENSUS_REF" > "$OUT_DIR/census-ref.txt"
+
+      - name: Fetch canonical corpus (MD5-verified, fail-closed)
+        run: |
+          python3 tooling/tools/gha_fetch_corpus.py "${{ inputs.corpus == 'both' && 'silesia' || inputs.corpus }}" --out "$CORPUS_ROOT"
+          (
+            cd "$CORPUS_ROOT/silesia"
+            md5sum * | sort
+          ) | tee "$OUT_DIR/silesia-md5.txt"
+
+      - name: Census mozilla + scope controls (fail-closed assertions)
+        run: |
+          set -e
+          for f in mozilla samba sao ooffice; do
+            python3 tooling/prototypes/i9-deflate/census.py "$CORPUS_ROOT/silesia/$f" --out-dir "$OUT_DIR/$f"
+          done
+          python3 - <<'PY'
+          import csv, json, pathlib, sys
+          out = pathlib.Path("$OUT_DIR")
+          # mozilla frozen figures: 2,354 DEFLATE + 210 stored = 2,564 detected;
+          # C = 3,177,007; U = 9,991,436
+          rows = list(csv.DictReader(open(out / "mozilla" / "census-mozilla.csv")))
+          n_deflate = sum(1 for r in rows if r["method"] == "deflate")
+          n_stored = sum(1 for r in rows if r["method"] == "stored")
+          c = sum(int(r["clen"]) for r in rows if r["method"] == "deflate")
+          u = sum(int(r["ulen"]) for r in rows if r["method"] == "deflate")
+          print(f"mozilla: deflate={n_deflate} stored={n_stored} C={c} U={u}")
+          assert n_deflate == 2354, f"mozilla DEFLATE count {n_deflate} != 2354"
+          assert n_stored == 210, f"mozilla stored count {n_stored} != 210"
+          assert c == 3177007, f"mozilla C {c} != 3177007"
+          assert u == 9991436, f"mozilla U {u} != 9991436"
+          # scope controls: samba 160 DEFLATE; sao/ooffice zero
+          for name, want in (("samba", 160), ("sao", 0), ("ooffice", 0)):
+              r2 = list(csv.DictReader(open(out / name / f"census-{name}.csv")))
+              got = sum(1 for r in r2 if r["method"] == "deflate")
+              print(f"{name}: deflate={got} (expect {want})")
+              assert got == want, f"{name} DEFLATE count {got} != {want}"
+          print("CENSUS_GATE: PASS")
+          PY
+
+      - name: Replay spot-check on bounded region (464 streams, no gate)
+        run: |
+          set +e
+          python3 tooling/prototypes/i9-deflate/replay.py \
+            --help > "$OUT_DIR/replay-help.txt" 2>&1 || true
+          set -e
+          echo "replay spot-check deferred to slice-2 (full 2,354-stream replay)" \
+            | tee "$OUT_DIR/replay-note.txt"
+
+      - name: Upload raw census evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-p41-slice1-census-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/census-ref.txt
+            ${{ env.OUT_DIR }}/silesia-md5.txt
+            ${{ env.OUT_DIR }}/mozilla/
+            ${{ env.OUT_DIR }}/samba/
+            ${{ env.OUT_DIR }}/sao/
+            ${{ env.OUT_DIR }}/ooffice/
+            ${{ env.OUT_DIR }}/replay-help.txt
+            ${{ env.OUT_DIR }}/replay-note.txt
+          if-no-files-found: error
+          retention-days: 30
