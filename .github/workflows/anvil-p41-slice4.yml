@@ -1,0 +1,282 @@
+name: ANVIL P4.1 slice-4 transform-4 codec integration gate (additive, default-off)
+
+# Lane (a) slice-4 per docs/P41-SLICE4-DISPATCH.md: wire vendored zlib 1.3.1
+# privately into src/anvil.cpp and add transform 4 (DEFLATE-REPLAY-v1) as an
+# additive, default-off codec path. Decoder reads t4 unconditionally.
+#
+# Gates (all from CI artifacts; NO local compute):
+#   1. build fingerprint + vendored-tree + binary sha256 (clang-18 Release)
+#   2. harness selftest (malformed/framing/replay-length/final-size suite)
+#   3. real-codec FORCED t4 roundtrip on a synthetic method-8 ZIP (sha256 exact)
+#      plus t4-used evidence (encoder selects transform 4)
+#   4. existing-path identity: --ratio-deflate=off AND default flags produce
+#      byte-identical output to the parent (pre-slice-4) binary, same runner
+#   5. fuzz.py PASS (incl. malformed-t4 envelope cases + all legacy rev2 cases)
+#   6. decoder binary-size delta vs parent binary + pinned static lib size
+#
+# Manual dispatch only; raw artifact upload; `contents: read`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      slice_ref:
+        description: 'Slice-4 branch/ref to check out'
+        required: true
+        default: 'research/anvil-p41-slice4-20261118'
+      parent_ref:
+        description: 'Pre-slice-4 ref for the existing-path identity baseline binary'
+        required: true
+        default: 'research/anvil-p41-slice3-20261117'
+      label:
+        description: 'Concurrency label (distinct per dispatch)'
+        required: true
+        default: 'p41-slice4-baseline'
+
+concurrency:
+  group: anvil-p41-slice4-${{ inputs.label }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  slice4-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      OUT_DIR: ${{ github.workspace }}/p41-slice4
+      SLICE_REF: ${{ inputs.slice_ref }}
+      PARENT_REF: ${{ inputs.parent_ref }}
+    steps:
+      - name: Checkout slice-4 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SLICE_REF }}
+          path: slice4
+
+      - name: Checkout pre-slice-4 baseline source (identity binary)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PARENT_REF }}
+          path: baseline
+
+      - name: Install pinned build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build \
+            libbrotli-dev libzstd-dev zstd xz-utils \
+            python3 python3-pip util-linux
+          python3 -m pip install --break-system-packages --disable-pip-version-check psutil
+          clang-18 --version
+          clang++-18 --version
+
+      - name: Fingerprint runner, source, vendored engine
+        run: |
+          set -e
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "slice_ref=${SLICE_REF}"
+            echo "slice_sha=$(git -C slice4 rev-parse HEAD)"
+            echo "parent_ref=${PARENT_REF}"
+            echo "parent_sha=$(git -C baseline rev-parse HEAD)"
+            echo "anvil_cpp_sha256=$(sha256sum slice4/src/anvil.cpp | cut -d' ' -f1)"
+            echo "cmake_sha256=$(sha256sum slice4/CMakeLists.txt | cut -d' ' -f1)"
+            echo "fuzz_sha256=$(sha256sum slice4/tests/fuzz.py | cut -d' ' -f1)"
+            echo "upstream_md_sha256=$(sha256sum slice4/third_party/zlib/UPSTREAM.md | cut -d' ' -f1)"
+            echo "--- vendored zlib file hashes (sha256) ---"
+            sha256sum slice4/third_party/zlib/src/*.c slice4/third_party/zlib/include/*.h slice4/third_party/zlib/LICENSE | sort -k2
+            echo "--- toolchain ---"
+            uname -a
+            lscpu
+            clang++-18 --version
+            cmake --version
+            ninja --version
+          } | tee "$OUT_DIR/provenance.txt"
+
+      - name: Build slice-4 codec + pinned static lib (clang-18 Release)
+        run: |
+          set -e
+          cmake -S slice4 -B "$OUT_DIR/build-slice4" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$OUT_DIR/build-slice4" --parallel 4
+          cmake -LA -N "$OUT_DIR/build-slice4" > "$OUT_DIR/cmake-cache-slice4.txt"
+          {
+            echo "== slice-4 build artifacts =="
+            find "$OUT_DIR/build-slice4" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+            echo "== slice-4 binary hashes =="
+            sha256sum "$OUT_DIR/build-slice4/anvil"
+            echo "== pinned static lib =="
+            find "$OUT_DIR/build-slice4" -name 'libanvil_zlib_pinned.a' -exec sha256sum {} \;
+            find "$OUT_DIR/build-slice4" -name 'libanvil_zlib_pinned.a' -exec du -b {} \;
+          } | tee "$OUT_DIR/build-slice4-artifacts.txt"
+
+      - name: Build pre-slice-4 baseline codec (identity binary)
+        run: |
+          set -e
+          cmake -S baseline -B "$OUT_DIR/build-baseline" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$OUT_DIR/build-baseline" --parallel 4
+          cmake -LA -N "$OUT_DIR/build-baseline" > "$OUT_DIR/cmake-cache-baseline.txt"
+          {
+            echo "== baseline binary hash =="
+            sha256sum "$OUT_DIR/build-baseline/anvil"
+            du -b "$OUT_DIR/build-baseline/anvil"
+          } | tee "$OUT_DIR/build-baseline-artifacts.txt"
+
+      - name: Build native replay harness + selftest (malformed t4 program suite)
+        run: |
+          set -e
+          mkdir -p "$OUT_DIR/build/obj"
+          for f in adler32 compress crc32 deflate inffast inflate inftrees trees uncompr zutil; do
+            clang-18 -O2 -DNDEBUG -Wall \
+              -Islice4/third_party/zlib/include \
+              -c "slice4/third_party/zlib/src/$f.c" -o "$OUT_DIR/build/obj/$f.o"
+          done
+          ar rcs "$OUT_DIR/build/libanvil_zlib_pinned.a" "$OUT_DIR/build"/obj/*.o
+          clang++-18 -O3 -DNDEBUG -std=c++20 -Wall -Wextra -Wpedantic \
+            -Islice4/third_party/zlib/include \
+            slice4/tools/p41_replay_check.cpp \
+            "$OUT_DIR/build/libanvil_zlib_pinned.a" -o "$OUT_DIR/build/p41_replay_check"
+          "$OUT_DIR/build/p41_replay_check" --selftest | tee "$OUT_DIR/harness-selftest.txt"
+          sha256sum "$OUT_DIR/build/p41_replay_check" | tee "$OUT_DIR/harness-sha.txt"
+
+      - name: Forced transform-4 roundtrip on synthetic method-8 ZIP
+        run: |
+          set -e
+          python3 - <<'PY' | tee "$OUT_DIR/t4-seed.log"
+          import io, zipfile, pathlib, os
+          payload = bytes((i*37+11)&0xFF for i in range(200000))
+          b = io.BytesIO()
+          with zipfile.ZipFile(b, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+              zf.writestr('data.bin', payload)
+          pathlib.Path(os.environ['OUT_DIR'], 't4-source.zip').write_bytes(b.getvalue())
+          print('wrote synthetic method-8 ZIP', len(b.getvalue()), 'bytes')
+          PY
+          "$OUT_DIR/build-slice4/anvil" c "$OUT_DIR/t4-source.zip" "$OUT_DIR/t4.anv" \
+            --parse=ratio --ratio-deflate=on --ratio-context=off --ratio-lines=off --quiet
+          "$OUT_DIR/build-slice4/anvil" d "$OUT_DIR/t4.anv" "$OUT_DIR/t4.out" --quiet
+          sha256sum "$OUT_DIR/t4-source.zip" "$OUT_DIR/t4.out" | tee "$OUT_DIR/t4-roundtrip-hashes.txt"
+          cmp "$OUT_DIR/t4-source.zip" "$OUT_DIR/t4.out"
+          # t4-used evidence: transform id byte of the single mode-17 block == 4.
+          python3 - <<'PY' | tee "$OUT_DIR/t4-used.txt"
+          import pathlib, os
+          blob = pathlib.Path(os.environ['OUT_DIR'], 't4.anv').read_bytes()
+          def uvar(p):
+              x=s=0
+              while True:
+                  b=blob[p]; p+=1; x|=(b&0x7f)<<s
+                  if not b&0x80: return x,p
+                  s+=7
+          assert blob[:4]==b'ANV0' and blob[4]==2, 'not rev2'
+          p=5
+          _,p=uvar(p); _,p=uvar(p); blen,p=uvar(p)
+          assert blob[p]==17, 'not mode 17'
+          p+=1; plen,p=uvar(p); p+=4
+          tid=blob[p]
+          print('transform_id=', tid, 'block_len=', blen, 'payload_len=', plen)
+          assert tid==4, 't4 was NOT used by the forced encode'
+          print('T4_USED: PASS')
+          PY
+
+      - name: Existing-path identity (default + --ratio-deflate=off byte-identical to parent)
+        run: |
+          set -e
+          # Use Silesia mozilla if available via the corpus fetch helper; otherwise
+          # a deterministic in-repo source. The identity property must hold on
+          # arbitrary bytes: default and explicit-off must equal the parent binary.
+          python3 - <<'PY' | tee "$OUT_DIR/identity-src.log"
+          import pathlib
+          data = bytes((i*131+7)&0xFF for i in range(300000))
+          pathlib.Path('$OUT_DIR/identity-src.bin').write_bytes(data)
+          print('wrote identity source', len(data))
+          PY
+          for tag in default off; do
+            if [ "$tag" = default ]; then
+              FLAGS=""
+            else
+              FLAGS="--ratio-deflate=off"
+            fi
+            "$OUT_DIR/build-slice4/anvil" c "$OUT_DIR/identity-src.bin" "$OUT_DIR/slice4-$tag.anv" --parse=ratio $FLAGS --quiet
+            "$OUT_DIR/build-baseline/anvil" c "$OUT_DIR/identity-src.bin" "$OUT_DIR/baseline-$tag.anv" --parse=ratio --quiet
+            cmp "$OUT_DIR/slice4-$tag.anv" "$OUT_DIR/baseline-$tag.anv"
+          done
+          sha256sum "$OUT_DIR"/slice4-*.anv "$OUT_DIR"/baseline-*.anv | tee "$OUT_DIR/identity-hashes.txt"
+          echo "EXISTING_PATH_IDENTITY: PASS" | tee "$OUT_DIR/identity-result.txt"
+
+      - name: Fuzz gate (incl. malformed-t4 + all legacy rev2 cases)
+        run: |
+          set -e
+          taskset -c 0 python3 slice4/tests/fuzz.py \
+            --exe "$OUT_DIR/build-slice4/anvil" --cases 50 \
+            | tee "$OUT_DIR/fuzz.txt"
+
+      - name: Decoder binary-size delta
+        run: |
+          set -e
+          {
+            echo "baseline_anvil_bytes=$(du -b "$OUT_DIR/build-baseline/anvil" | cut -f1)"
+            echo "slice4_anvil_bytes=$(du -b "$OUT_DIR/build-slice4/anvil" | cut -f1)"
+            echo "pinned_lib_bytes=$(du -b "$OUT_DIR/build/libanvil_zlib_pinned.a" | cut -f1)"
+          } | tee "$OUT_DIR/binary-size-delta.txt"
+
+      - name: Assemble gate ruling
+        run: |
+          set -e
+          t4sel=$(grep -c 'T4_USED: PASS' "$OUT_DIR/t4-used.txt" || true)
+          ident=$(grep -c 'EXISTING_PATH_IDENTITY: PASS' "$OUT_DIR/identity-result.txt" || true)
+          sels=$(grep -c 'SELFTEST: PASS' "$OUT_DIR/harness-selftest.txt" || true)
+          fuzzok=$(grep -c '^PASS' "$OUT_DIR/fuzz.txt" || true)
+          status=PASS
+          [ "$t4sel" -ge 1 ] || status=FAIL
+          [ "$ident" -ge 1 ] || status=FAIL
+          [ "$sels" -ge 1 ] || status=FAIL
+          [ "$fuzzok" -ge 1 ] || status=FAIL
+          {
+            echo "slice4_status=$status"
+            echo "slice_sha=$(git -C slice4 rev-parse HEAD)"
+            echo "t4_used=$t4sel"
+            echo "existing_path_identity=$ident"
+            echo "harness_selftest=$sels"
+            echo "fuzz_pass=$fuzzok"
+            echo "ruling=P4.1_SLICE4_${status}_EVIDENCE_FROM_CI_MANIFESTS"
+          } | tee "$OUT_DIR/gate-ruling.txt"
+          [ "$status" = PASS ]
+
+      - name: Upload raw slice-4 evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-p41-slice4-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/cmake-cache-slice4.txt
+            ${{ env.OUT_DIR }}/cmake-cache-baseline.txt
+            ${{ env.OUT_DIR }}/build-slice4-artifacts.txt
+            ${{ env.OUT_DIR }}/build-baseline-artifacts.txt
+            ${{ env.OUT_DIR }}/harness-selftest.txt
+            ${{ env.OUT_DIR }}/harness-sha.txt
+            ${{ env.OUT_DIR }}/t4-seed.log
+            ${{ env.OUT_DIR }}/t4.anv
+            ${{ env.OUT_DIR }}/t4-roundtrip-hashes.txt
+            ${{ env.OUT_DIR }}/t4-used.txt
+            ${{ env.OUT_DIR }}/identity-src.log
+            ${{ env.OUT_DIR }}/identity-hashes.txt
+            ${{ env.OUT_DIR }}/identity-result.txt
+            ${{ env.OUT_DIR }}/fuzz.txt
+            ${{ env.OUT_DIR }}/binary-size-delta.txt
+            ${{ env.OUT_DIR }}/gate-ruling.txt
+            ${{ env.OUT_DIR }}/build-slice4/anvil
+            ${{ env.OUT_DIR }}/build-baseline/anvil
+          if-no-files-found: warn
+          retention-days: 30
