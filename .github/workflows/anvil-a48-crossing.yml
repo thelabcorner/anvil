@@ -120,7 +120,7 @@ jobs:
           mapfile -t FILES < "$OUT_DIR/files.txt"
           ARGS=()
           for f in "${FILES[@]}"; do ARGS+=("$OUT_DIR/corpora/silesia/$f"); done
-          python3 tooling/tools/a48_grid.py "${ARGS[@]}" \
+          python3 tooling/tools/a48_grid.py --files "${ARGS[@]}" \
             --anvil "$OUT_DIR/build/anvil" \
             --brotli "$OUT_DIR/build/brotli_lw" \
             --tools tooling/tools \
