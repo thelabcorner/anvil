@@ -4909,7 +4909,8 @@ static bool t4_scan_zip(const std::vector<uint8_t>& d,std::vector<T4Cand>& out){
         while(p+46<=n && d[p]=='P'&&d[p+1]=='K'&&d[p+2]==1&&d[p+3]==2 && entries<c.n_total+1){
             uint16_t flags=rd16(d,p+8), method=rd16(d,p+10);
             uint32_t crc=rd32(d,p+16), csize=rd32(d,p+20), usize=rd32(d,p+24);
-            uint16_t nlen=rd16(d,p+28), elen=rd16(d,p+30), clen_=rd16(d,p+32), lho=rd32(d,p+42);
+            uint16_t nlen=rd16(d,p+28), elen=rd16(d,p+30), clen_=rd16(d,p+32);
+            uint32_t lho=rd32(d,p+42);
             if(flags&1) break; // encryption -> opaque archive
             if(csize==0xFFFFFFFF||usize==0xFFFFFFFF||lho==0xFFFFFFFF||method==99) break; // ZIP64
             p+=46; if(p+nlen+elen+clen_>n) break; p+=nlen+elen+clen_; ++entries;
@@ -4937,7 +4938,7 @@ static bool t4_build(const std::vector<uint8_t>& d,std::vector<uint8_t>& out){
     for(const auto& c:cands){
         const uint8_t* comp=d.data()+c.off;
         size_t got=0; plain.assign(c.ulen?c.ulen:1,0);
-        if(!t4_inflate(comp,c.clen,plain.data(),plain.size(),&got)||got!=c.ulen){ plain.clear(); continue; }
+        if(!t4_inflate(comp,c.clen,plain.data(),plain.size(),&got,-15)||got!=c.ulen){ plain.clear(); continue; }
         plain.resize(got);
         T4Replay rr=t4_replay(plain,std::vector<uint8_t>(comp,comp+c.clen),c.raw);
         if(!rr.ok) continue;
@@ -4972,13 +4973,13 @@ static std::vector<uint8_t> t4_inverse(const std::vector<uint8_t>& x,size_t out_
             ew=static_cast<int8_t>(*pp++); el=*pp++; em=*pp++; es=*pp++;
             t4::Params p=t4::decode_code(255,ew,el,em,es);
             if(!t4::valid(p)) throw std::runtime_error("bad transform 4 escape params");
-            replay.assign(r.clen,0); size_t got=0;
+            replay.assign(r.clen,0);
             if(!t4_deflate(std::vector<uint8_t>(pp,pe),p,&replay)||replay.size()!=r.clen)
                 throw std::runtime_error("transform 4 replay length mismatch");
             out.insert(out.end(),replay.begin(),replay.end());
         } else {
             t4::Params p=t4::decode_code(r.pcode);
-            replay.assign(r.clen,0); size_t got=0;
+            replay.assign(r.clen,0);
             if(!t4_deflate(r.plain,p,&replay)||replay.size()!=r.clen)
                 throw std::runtime_error("transform 4 replay length mismatch");
             out.insert(out.end(),replay.begin(),replay.end());
