@@ -209,6 +209,31 @@ def main() -> int:
         print(f"{name}: bytes anvil/xz/brotli={cb['anvil']}/{cb['xz']}/{cb['brotli']} "
               f"valid={valid} rt={rt}", flush=True)
 
+        # Durable per-file checkpoint: the original 12-file experiment can exceed
+        # the hosted job's runtime limit. This is *diagnostic evidence only*;
+        # a partial grid is NEVER eligible for an H1/H0 conclusion.
+        # Atomic replacement avoids exposing a half-written CSV/JSON snapshot.
+        def checkpoint_text(filename: str, contents: str) -> None:
+            dest = out / filename
+            temporary = out / (filename + ".tmp")
+            temporary.write_text(contents, encoding="utf-8")
+            os.replace(temporary, dest)
+
+        import io
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+        checkpoint_text("grid-partial.csv", buffer.getvalue())
+        checkpoint_text("timing-validity-partial.json", json.dumps(validity, indent=2) + "\n")
+        checkpoint_text("bracket-robustness-partial.json", json.dumps(robustness, indent=2) + "\n")
+        checkpoint_text("progress.json", json.dumps({
+            "completed_files": [entry["file"] for entry in validity],
+            "completed_count": len(validity),
+            "total_count": len(a.files),
+            "eligible_for_frontier_claim": False,
+        }, indent=2) + "\n")
+
     grid = out / "grid.csv"
     with grid.open("w", newline="") as fp:
         w = csv.DictWriter(fp, fieldnames=FIELDS); w.writeheader(); w.writerows(rows)
