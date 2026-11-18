@@ -4960,7 +4960,11 @@ static bool t4_build(const std::vector<uint8_t>& d,std::vector<uint8_t>& out){
 
 static std::vector<uint8_t> t4_inverse(const std::vector<uint8_t>& x,size_t out_len){
     std::vector<t4::Record> recs; std::vector<uint8_t> tail;
-    if(!t4::parse(x.data(),x.size(),out_len,&recs,&tail)) throw std::runtime_error("bad transform 4 program");
+    // t4::parse's block_len is the transformed-body capacity (gap+plaintext+tail),
+    // which is bounded by the transformed payload size x.size(), NOT the original
+    // block length (plaintext is larger than compressed on real data). The
+    // original-size guarantee is enforced below via output accumulation.
+    if(!t4::parse(x.data(),x.size(),x.size(),&recs,&tail)) throw std::runtime_error("bad transform 4 program");
     std::vector<uint8_t> out; out.reserve(out_len); std::vector<uint8_t> replay;
     for(const auto& r:recs){
         if(out.size()>out_len || r.gap.size()>out_len-out.size() || r.clen>out_len-out.size()-r.gap.size())
