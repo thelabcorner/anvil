@@ -196,9 +196,9 @@ jobs:
           # a deterministic in-repo source. The identity property must hold on
           # arbitrary bytes: default and explicit-off must equal the parent binary.
           python3 - <<'PY' | tee "$OUT_DIR/identity-src.log"
-          import pathlib
+          import pathlib, os
           data = bytes((i*131+7)&0xFF for i in range(300000))
-          pathlib.Path('$OUT_DIR/identity-src.bin').write_bytes(data)
+          pathlib.Path(os.environ['OUT_DIR'], 'identity-src.bin').write_bytes(data)
           print('wrote identity source', len(data))
           PY
           for tag in default off; do
