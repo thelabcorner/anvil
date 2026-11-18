@@ -42,7 +42,10 @@ def run(argv: list[str]) -> None:
 
 
 def paired(tools: Path, control: list[str], candidate: list[str], reps: int,
-           label: str, out: Path, seed: int = 41246) -> dict:
+           label: str, out: Path, seed: int = 41246,
+           candidate_observe: Path | None = None,
+           control_observe: Path | None = None,
+           expected_sha256: str | None = None) -> dict:
     argv = [sys.executable, str(tools / "paired_bench.py"),
             "--control-json", json.dumps(control),
             "--candidate-json", json.dumps(candidate),
@@ -53,6 +56,14 @@ def paired(tools: Path, control: list[str], candidate: list[str], reps: int,
             "--ambient-max-cv", "0.10",
             "--out", str(out / f"paired-{label}.csv"),
             "--summary", str(out / f"paired-{label}.json")]
+    # Observations happen AFTER the timed subprocess, so they do not redefine
+    # the benchmark clock. They detect malformed/non-deterministic timed output.
+    if candidate_observe is not None:
+        argv += ["--candidate-observe", str(candidate_observe)]
+    if control_observe is not None:
+        argv += ["--control-observe", str(control_observe)]
+    if expected_sha256 is not None:
+        argv += ["--expected-sha256", expected_sha256]
     p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if p.returncode != 0:
         raise RuntimeError(f"paired_bench failed for {label}:\n{p.stdout[-2000:]}")
@@ -161,6 +172,7 @@ def main() -> int:
             raise RuntimeError(f"{name}: one or more encoded streams failed bit-exact roundtrip")
 
         # --- timing arms (argv JSON) ---
+        packed_sha = sha256(a_pack)
         A_ENC = [anvil, "c", str(src), str(work / "enc.anvil"), "--parse=ratio",
                  "--ratio-backend=auto", "--ratio-context=off", "--ratio-lines=off",
                  "--bwt-aux=on", "--bwt-subblock=8388608", "--quiet"]
@@ -171,13 +183,22 @@ def main() -> int:
         B_DEC = [brotli, "d", str(b_pack), str(work / "dec.br"), str(n)]
 
         # decode plane: ANVIL vs each ref + A/A null
-        d_ax = paired(tools, X_DEC, A_DEC, a.decode_reps, f"{name}-dec-xz", out)
-        d_ab = paired(tools, B_DEC, A_DEC, a.decode_reps, f"{name}-dec-brotli", out)
-        d_nn = paired(tools, A_DEC, A_DEC, a.decode_reps, f"{name}-dec-null", out)
+        d_ax = paired(tools, X_DEC, A_DEC, a.decode_reps, f"{name}-dec-xz", out,
+                      candidate_observe=work / "dec.anvil", expected_sha256=src_sha)
+        d_ab = paired(tools, B_DEC, A_DEC, a.decode_reps, f"{name}-dec-brotli", out,
+                      candidate_observe=work / "dec.anvil",
+                      control_observe=work / "dec.br", expected_sha256=src_sha)
+        d_nn = paired(tools, A_DEC, A_DEC, a.decode_reps, f"{name}-dec-null", out,
+                      candidate_observe=work / "dec.anvil",
+                      control_observe=work / "dec.anvil", expected_sha256=src_sha)
         # encode plane: ANVIL vs each ref + A/A null
-        e_ax = paired(tools, X_ENC, A_ENC, a.encode_reps, f"{name}-enc-xz", out)
-        e_ab = paired(tools, B_ENC, A_ENC, a.encode_reps, f"{name}-enc-brotli", out)
-        e_nn = paired(tools, A_ENC, A_ENC, a.encode_reps, f"{name}-enc-null", out)
+        e_ax = paired(tools, X_ENC, A_ENC, a.encode_reps, f"{name}-enc-xz", out,
+                      candidate_observe=work / "enc.anvil", expected_sha256=packed_sha)
+        e_ab = paired(tools, B_ENC, A_ENC, a.encode_reps, f"{name}-enc-brotli", out,
+                      candidate_observe=work / "enc.anvil", expected_sha256=packed_sha)
+        e_nn = paired(tools, A_ENC, A_ENC, a.encode_reps, f"{name}-enc-null", out,
+                      candidate_observe=work / "enc.anvil",
+                      control_observe=work / "enc.anvil", expected_sha256=packed_sha)
 
         def span1(s: dict) -> bool:
             lo, hi = s["paired_ratio_ci95"]
