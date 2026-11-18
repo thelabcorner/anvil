@@ -10,6 +10,10 @@ Project ANVIL's ultimate goal is a **credible general-purpose compression improv
 
 The frozen R-2 gate (`docs/gate-verify-i9.py`) defines a crossing as non-dominated, ratio < 0.95, with no reference gap bracket. **Mathematical edge case:** when ANVIL's ratio is smaller than *every included reference's* ratio, no reference with ratio <= ANVIL exists. Therefore neither dominance nor a `q_lo` gap anchor is possible; a `FRONT-CROSSING` label follows **regardless of ANVIL's slow decode/encode throughput**. This is a legitimate *within-sampled-grid* nondominance result, not a global all-axis win.
 
+## Additional I20 Pareto-semantics contradiction
+
+The durable `RESEARCH_LEDGER.md` I20 C7 closeout describes ANVIL as **"dominat[ing] xz -9e on all three gate axes"** while reporting ANVIL decode RSS as **1.44–1.49×** xz. That is not literal three-axis Pareto dominance. A resource budget of `RSS <= 2× reference` is an *acceptance threshold*, not an assertion that ANVIL's RSS is no greater than xz's. The correct statement is **compressed-byte win + decode-time win + peak-memory acceptance within a preregistered 2× guardrail, with peak memory still higher than xz**. This matters because the overarching Goal requires actual Pareto comparison including memory, encode, binary size, and safety, while the I20 closure token explicitly leaves encode and decoder-only size pending. Do not propagate this mistaken "dominates on all three axes" phrase into A48 or any research publication.
+
 ## Source-grounded defects and minimum repairs
 
 1. **Correctness is not a hard gate.** `tools/a48_grid.py` computes `rt = all(sha256(...))` then emits rows with `roundtrip=FAIL`; it does not raise on failure. The A48 workflow later determines H1/H0 from only crossing count and timing validity, not `roundtrip`. A false positive H1 on a wrong-decoding codec is therefore possible. **Repair:** fail immediately on any non-OK roundtrip; independently check row-level roundtrip before promoting a verdict. Keep the raw evidence artifact in `always()` path.
