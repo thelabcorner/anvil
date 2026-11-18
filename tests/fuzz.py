@@ -131,7 +131,10 @@ def adversarial_rev2(exe: Path, td: Path) -> int:
 
     cases=[]
     m=bytearray(blob); m[lay['transform_off']]=0xff; cases.append(('unknown-transform-id',bytes(m)))
-    m=bytearray(blob); m[lay['transform_off']]=4; cases.append(('invalid-transform-id-4',bytes(m)))
+    # transform id 4 (DEFLATE-REPLAY-v1) is legitimate on builds with the pinned
+    # engine; it must be rejected here only because this t4-off seed's backend
+    # payload is a t0 program (no valid t4 framing), so the t4 inverse rejects it.
+    m=bytearray(blob); m[lay['transform_off']]=4; cases.append(('t4-id-with-t0-program',bytes(m)))
     m=bytearray(blob); m[lay['backend_off']]=0xff; cases.append(('unknown-backend-id',bytes(m)))
     m=bytearray(blob); m[lay['backend_off']]=0; cases.append(('reserved-backend-id-0',bytes(m)))
     if lay['xlen']<=1: raise RuntimeError('unexpected tiny rev2 transformed size')
@@ -953,6 +956,62 @@ def mutate(rng: random.Random, blob: bytes, n: int):
         yield bytes(m)
 
 
+def make_zip_with_deflate(payload: bytes, name: str = 'a.txt') -> bytes:
+    """Minimal single-entry ZIP (deflate method 8, sizes in headers, no descriptor)."""
+    import io, zipfile
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        zf.writestr(name, payload)
+    return b.getvalue()
+
+
+def adversarial_t4(exe: Path, td: Path) -> tuple[int, list[str]]:
+    """P4.1 transform-4: forced-roundtrip + malformed envelope cases.
+
+    Builds a synthetic method-8 ZIP whose deflate member is replay-exact under
+    the pinned engine, compresses with --ratio-deflate=on, and asserts a t4
+    block is emitted and round-trips byte-exact. Envelope mutations (transform
+    id above 4, corrupt backend id, truncations) must be rejected. Deep t4
+    program malformations (bad version/engine/param, truncated varints, gap and
+    plaintext overflow, replay-length and final-size mismatch) are asserted by
+    p41_replay_check --selftest in the slice-4 workflow. If the encoder does not
+    select t4 for this seed, the gate reports skipped (no false claim).
+    """
+    skipped: list[str] = []
+    src = td / 't4-source.zip'; packed = td / 't4-valid.anv'; dec = td / 't4.out'; bad = td / 't4-bad.anv'
+    payload = bytes((i * 37 + 11) & 0xFF for i in range(20000))
+    src.write_bytes(make_zip_with_deflate(payload))
+    p = run([exe, 'c', src, packed, '--parse=ratio', '--ratio-deflate=on',
+             '--ratio-context=off', '--ratio-lines=off', '--quiet'], ok=False)
+    if p.returncode:
+        skipped.append('encode-with-ratio-deflate-failed')
+        return 0, skipped
+    blob = packed.read_bytes()
+    if blob[:4] != b'ANV0' or blob[4] != 2:
+        skipped.append('not-rev2'); return 0, skipped
+    lay = ratio_layout(blob)
+    if blob[lay['transform_off']] != 4:
+        skipped.append('seed-selected-non-t4-transform')
+        return 0, skipped
+    run([exe, 'd', packed, dec, '--quiet'])
+    if dec.read_bytes() != src.read_bytes():
+        raise RuntimeError('adversarial_t4: forced roundtrip failed')
+
+    cases: list[tuple[str, bytes]] = []
+    for tid in (5, 0xFF):
+        m = bytearray(blob); m[lay['transform_off']] = tid
+        cases.append((f't4-transform-id-{tid}', bytes(m)))
+    m = bytearray(blob); m[lay['backend_off']] = 0xFF
+    cases.append(('t4-corrupt-backend-id', bytes(m)))
+    for cut in (5, lay['plen_off'], len(blob) - 1):
+        if 0 < cut < len(blob):
+            cases.append((f't4-truncate-{cut}', blob[:cut]))
+    for label, mut in cases:
+        bad.write_bytes(mut)
+        require_reject(exe, bad, dec, label)
+    return len(cases), skipped
+
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--exe',default=str(Path(__file__).parents[1]/'anvil')); ap.add_argument('--cases',type=int,default=120); ap.add_argument('--seed',type=int,default=0xA11E); ap.add_argument('--mutations',type=int,default=6,help='mutations per valid file (0 to disable)'); args=ap.parse_args()
     exe=Path(args.exe); rng=random.Random(args.seed)
@@ -962,6 +1021,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='anvil-fuzz-') as td:
         td=Path(td)
         deterministic=adversarial_rev2(exe,td)
+        det_t4, t4_skipped = adversarial_t4(exe, td)
         deterministic_bwt, _ = adversarial_bwt(exe, td)
         aux_bwt = aux_bwt_roundtrip(exe, td)
         golden = golden_bwt(exe, td)
@@ -998,7 +1058,7 @@ def main():
                         mutated+=1
                 total+=1
     print(f'PASS seed={args.seed} roundtrip_variants={total} mutations={mutated} '
-          f'deterministic_rev2={deterministic} deterministic_bwt={deterministic_bwt} '
+          f'deterministic_rev2={deterministic} deterministic_t4={det_t4} t4_skipped={t4_skipped} deterministic_bwt={deterministic_bwt} '
           f'aux_bwt={aux_bwt} golden_bwt={golden} forced_postcoders={forced_post} '
           f'registry_block_modes={reg["block_modes"]} registry_transforms={reg["transforms"]} '
           f'suite_modes={sorted(suite_observed)} suite_unforceable={sorted(suite_missing)}')

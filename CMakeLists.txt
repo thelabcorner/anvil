@@ -27,6 +27,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsais/src/libsais.c")
     target_compile_options(anvil_libsais PRIVATE -O3 -DNDEBUG)
   endif()
 endif()
+# P4.1 transform 4 (DEFLATE-REPLAY-v1) pins its own zlib engine.  The exact
+# vendored source set and rebuild flags are format-defining (see
+# third_party/zlib/UPSTREAM.md); the rest of ANVIL does NOT link this copy.
+# The decoder must read t4 wire unconditionally, so anvil always links it.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/src/deflate.c")
+  add_library(anvil_zlib_pinned STATIC
+    third_party/zlib/src/adler32.c
+    third_party/zlib/src/compress.c
+    third_party/zlib/src/crc32.c
+    third_party/zlib/src/deflate.c
+    third_party/zlib/src/inffast.c
+    third_party/zlib/src/inflate.c
+    third_party/zlib/src/inftrees.c
+    third_party/zlib/src/trees.c
+    third_party/zlib/src/uncompr.c
+    third_party/zlib/src/zutil.c)
+  target_include_directories(anvil_zlib_pinned PUBLIC third_party/zlib/include)
+  target_compile_definitions(anvil PRIVATE ANVIL_HAVE_ZLIB_PINNED=1)
+  target_link_libraries(anvil PRIVATE anvil_zlib_pinned)
+  if(MSVC)
+    target_compile_options(anvil_zlib_pinned PRIVATE /O2 /DNDEBUG)
+  else()
+    target_compile_options(anvil_zlib_pinned PRIVATE -O2 -DNDEBUG)
+  endif()
+endif()
 if(BROTLI_INCLUDE_DIR AND BROTLIENC_LIBRARY AND BROTLIDEC_LIBRARY AND BROTLICOMMON_LIBRARY)
   target_compile_definitions(anvil PRIVATE ANVIL_HAVE_BROTLI=1)
   target_include_directories(anvil PRIVATE ${BROTLI_INCLUDE_DIR})

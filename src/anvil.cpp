@@ -39,6 +39,9 @@
 #ifdef ANVIL_HAVE_LIBSAIS
 #include <libsais.h>
 #endif
+#ifdef ANVIL_HAVE_ZLIB_PINNED
+#include <zlib.h>
+#endif
 
 namespace anvil {
 
@@ -3830,6 +3833,7 @@ struct Options {
     bool ariref=false;     // I8 mode-16: ARI-REF additive arithmetic reference (Experiment Z, transmitted-Delta only)
     bool ratio_context=true; // ratio mode 17: decoder-routed order-1 context partition candidate
     bool ratio_lines=true;   // ratio mode 17: line-record column transpose candidate
+    bool ratio_deflate=false; // P4.1 transform 4 (DEFLATE-REPLAY-v1); DEFAULT OFF (existing paths byte-identical)
     std::string ratio_backend="brotli"; // rev-2 mode-17 backend registry choice (wire id 1 today)
     // I20 C7: decode-budgeted routing.  The inverse BWT costs n/2 dependent
     // random accesses, so routing a file to it buys compressed bytes at the
@@ -4751,6 +4755,241 @@ static std::vector<uint8_t> ratio_inverse_lines(const std::vector<uint8_t>& x,si
     return out;
 }
 
+// ---- P4.1 transform 4 (DEFLATE-REPLAY-v1) ----------------------------------
+// Adopt-class infrastructure, NO novelty claim.  Exact byte reconstruction of
+// embedded DEFLATE streams using a pinned zlib engine (engine id 1).  The wire
+// layout, parameter registry and bounds mirror tools/p41_replay_check.cpp and
+// docs/I10-DEFLATE-REPLAY-INTEGRATION-PLAN.md §§6-11 verbatim.
+namespace t4 {
+constexpr uint64_t kVersion=1;
+constexpr uint64_t kEngineId=1;
+constexpr uint64_t kMaxRecords=1u<<20;
+constexpr size_t kMaxPlainPerRecord=64u<<20;
+constexpr size_t kMaxTotal=512u<<20;
+
+// Escape record layout: plain = [int8 wbits, level, mem, strategy][plaintext] (fixed 4-byte prefix).
+struct Params { int wbits=0, level=0, mem=0, strategy=-1;
+    bool operator==(const Params& o) const { return wbits==o.wbits&&level==o.level&&mem==o.mem&&strategy==o.strategy; } };
+inline bool valid(const Params& p){
+    if(p.level<1||p.level>9||p.mem<1||p.mem>9||p.strategy<0||p.strategy>4) return false;
+    return p.wbits==-15 || (p.wbits>=9&&p.wbits<=15);
+}
+inline Params decode_code(int code,int ew=0,int el=0,int em=0,int es=0){
+    switch(code){ case 0:return {-15,6,8,0}; case 1:return {-15,6,9,0}; case 2:return {15,6,8,1};
+        case 255:return {ew,el,em,es}; default:return {0,0,0,-1}; }
+}
+inline int encode_code(const Params& p){
+    if(p==decode_code(0)) return 0; if(p==decode_code(1)) return 1; if(p==decode_code(2)) return 2; return 255;
+}
+struct Record { std::vector<uint8_t> gap, plain; size_t clen=0; int pcode=0; };
+
+inline bool add_le(size_t a,size_t b,size_t cap,size_t* out){ if(a>cap||b>cap-a) return false; *out=a+b; return true; }
+
+inline void put_uvar_(std::vector<uint8_t>& o,uint64_t v){ put_uvar(o,v); }
+inline bool get_uvar_(const uint8_t*& p,const uint8_t* e,uint64_t* v){
+    uint64_t r=0; int shift=0;
+    for(int i=0;i<10;++i){ if(p>=e) return false; uint8_t b=*p++; if(shift>=64) return false;
+        r|=uint64_t(b&0x7f)<<shift; if(!(b&0x80)){ *v=r; return true; } shift+=7; }
+    return false;
+}
+
+inline bool serialize(const std::vector<Record>& recs,const std::vector<uint8_t>& tail,std::vector<uint8_t>* out){
+    if(recs.size()>kMaxRecords) return false;
+    std::vector<uint8_t> b;
+    put_uvar_(b,kVersion); put_uvar_(b,kEngineId); put_uvar_(b,recs.size());
+    for(const auto& r:recs){
+        if(r.gap.size()>kMaxTotal||r.plain.size()>kMaxPlainPerRecord) return false;
+        if(r.pcode!=255 && !valid(decode_code(r.pcode))) return false;
+        put_uvar_(b,r.gap.size()); put_uvar_(b,r.clen); put_uvar_(b,r.plain.size()); put_uvar_(b,static_cast<uint64_t>(r.pcode));
+        b.insert(b.end(),r.gap.begin(),r.gap.end()); b.insert(b.end(),r.plain.begin(),r.plain.end());
+        if(b.size()>kMaxTotal) return false;
+    }
+    put_uvar_(b,tail.size()); b.insert(b.end(),tail.begin(),tail.end());
+    if(b.size()>kMaxTotal) return false;
+    *out=std::move(b); return true;
+}
+inline bool parse(const uint8_t* data,size_t len,uint64_t block_len,std::vector<Record>* recs,std::vector<uint8_t>* tail){
+    const uint8_t* p=data; const uint8_t* end=data+len; uint64_t ver=0,eng=0,count=0;
+    if(!get_uvar_(p,end,&ver)||ver!=kVersion) return false;
+    if(!get_uvar_(p,end,&eng)||eng!=kEngineId) return false;
+    if(!get_uvar_(p,end,&count)||count>kMaxRecords) return false;
+    size_t produced=0; recs->clear();
+    for(uint64_t i=0;i<count;++i){
+        uint64_t gl=0,cl=0,ul=0,pc=0;
+        if(!get_uvar_(p,end,&gl)||!get_uvar_(p,end,&cl)||!get_uvar_(p,end,&ul)||!get_uvar_(p,end,&pc)) return false;
+        if(pc>255||(pc!=0&&pc!=1&&pc!=2&&pc!=255)) return false;
+        if(gl>static_cast<uint64_t>(end-p)) return false;
+        size_t g=0; if(!add_le(produced,static_cast<size_t>(gl),static_cast<size_t>(block_len),&g)) return false; produced=g;
+        if(ul>kMaxPlainPerRecord||ul>static_cast<uint64_t>(end-p-gl)) return false;
+        if(!add_le(produced,static_cast<size_t>(ul),static_cast<size_t>(block_len),&g)) return false; produced=g;
+        if(cl==0||cl>kMaxTotal) return false;
+        Record r; r.gap.assign(p,p+gl); p+=gl; r.plain.assign(p,p+ul); p+=ul;
+        r.clen=static_cast<size_t>(cl); r.pcode=static_cast<int>(pc); recs->push_back(std::move(r));
+    }
+    uint64_t tl=0; if(!get_uvar_(p,end,&tl)||tl>static_cast<uint64_t>(end-p)) return false;
+    size_t g=0; if(!add_le(produced,static_cast<size_t>(tl),static_cast<size_t>(block_len),&g)) return false; produced=g;
+    tail->assign(p,p+tl); p+=tl;
+    // header bytes account for (block_len - produced); exact consumption of
+    // every serialized byte plus the payload cap is the invariant here.  The
+    // original-size guarantee is checked by the inverse after replay.
+    return p==end && produced<=block_len;
+}
+} // namespace t4
+
+#ifdef ANVIL_HAVE_ZLIB_PINNED
+// Narrow pinned-engine wrappers: each call builds/tears down its own z_stream,
+// no zlib state leaks into the core codec.
+static bool t4_inflate(const uint8_t* in,size_t in_len,uint8_t* out,size_t out_cap,size_t* out_len,int wbits){
+    z_stream s; std::memset(&s,0,sizeof(s));
+    s.next_in=const_cast<Bytef*>(in); s.avail_in=static_cast<uInt>(in_len);
+    s.next_out=out; s.avail_out=static_cast<uInt>(out_cap);
+    if(inflateInit2(&s,wbits)!=Z_OK) return false;
+    int rc=inflate(&s,Z_FINISH); *out_len=out_cap-s.avail_out; inflateEnd(&s);
+    return rc==Z_STREAM_END;
+}
+static bool t4_deflate(const std::vector<uint8_t>& plain,const t4::Params& p,std::vector<uint8_t>* out){
+    if(!t4::valid(p)) return false;
+    uLong bound=static_cast<uLong>(plain.size()+plain.size()/8+128);
+    out->assign(bound,0); z_stream s; std::memset(&s,0,sizeof(s));
+    if(deflateInit2(&s,p.level,Z_DEFLATED,p.wbits,p.mem,p.strategy)!=Z_OK) return false;
+    s.next_in=const_cast<Bytef*>(plain.data()); s.avail_in=static_cast<uInt>(plain.size());
+    s.next_out=out->data(); s.avail_out=static_cast<uInt>(out->size());
+    int rc=deflate(&s,Z_FINISH); size_t used=out->size()-s.avail_out; deflateEnd(&s);
+    if(rc!=Z_STREAM_END) return false; out->resize(used); return true;
+}
+
+// Registry-first then bounded fallback, mirroring harness ReplayStream exactly.
+struct T4Replay { bool ok=false; t4::Params p{}; int code=-1; size_t plain=0; };
+static T4Replay t4_replay(const std::vector<uint8_t>& plain,const std::vector<uint8_t>& target,bool is_raw){
+    T4Replay r; r.plain=plain.size();
+    std::vector<int> wbits;
+    if(is_raw) wbits.push_back(-15);
+    else { if(!target.empty()){ int w=((target[0]>>4)&0x0F)+8; if(w>=9&&w<=15) wbits.push_back(w); }
+           if(std::find(wbits.begin(),wbits.end(),15)==wbits.end()) wbits.push_back(15); }
+    static const t4::Params kPriority[]={
+        {-15,6,8,0},{-15,6,9,0},{-15,6,8,1},{-15,6,8,2},{-15,6,8,3},{-15,6,8,4}};
+    const int levels[9]={1,2,3,4,5,6,7,8,9}, mems[9]={1,2,3,4,5,6,7,8,9}, strats[5]={0,1,2,3,4};
+    long calls=0; const long kCap=20000; std::vector<uint8_t> out;
+    auto try_p=[&](const t4::Params& cand)->bool{
+        if(++calls>kCap) return false;
+        if(!t4_deflate(plain,cand,&out)) return false;
+        if(out.size()==target.size()&&std::memcmp(out.data(),target.data(),out.size())==0){ r.ok=true; r.p=cand; r.code=t4::encode_code(cand); return true; }
+        return false;
+    };
+    for(int wb:wbits){
+        for(const auto& base:kPriority){ t4::Params p=base; p.wbits=wb; if(try_p(p)) return r; }
+        for(int l:levels) for(int m:mems) for(int s:strats){ if(calls>kCap) return r; t4::Params p{wb,l,m,s}; if(try_p(p)) return r; }
+    }
+    return r;
+}
+
+// EOCD+central-directory scanner (fail-closed; plan §8).  Names/methods mirror
+// prototypes/i9-deflate/census.py; ZIP64, encryption and data descriptors are
+// rejected (opaque).  Offsets are block-relative and sorted, non-overlapping.
+static uint16_t rd16(const std::vector<uint8_t>& d,size_t p){ return uint16_t(d[p])|(uint16_t(d[p+1])<<8); }
+static uint32_t rd32(const std::vector<uint8_t>& d,size_t p){ return uint32_t(d[p])|(uint32_t(d[p+1])<<8)|(uint32_t(d[p+2])<<16)|(uint32_t(d[p+3])<<24); }
+struct T4Cand { size_t off=0, clen=0, ulen=0; bool raw=false; };
+static bool t4_scan_zip(const std::vector<uint8_t>& d,std::vector<T4Cand>& out){
+    const size_t n=d.size(); if(n<22) return true;
+    struct CD { size_t base,eocd,n_total,cd_size,cd_off; };
+    std::vector<CD> cds;
+    for(size_t off=0; off+22<=n; ++off){
+        if(!(d[off]=='P'&&d[off+1]=='K'&&d[off+2]==5&&d[off+3]==6)) continue;
+        uint32_t n_total=rd16(d,off+10), cd_size=rd32(d,off+12), cd_off=rd32(d,off+16);
+        if(n_total==0||cd_size==0xFFFFFFFF||cd_off==0xFFFFFFFF) continue; // ZIP64 rejected
+        if(off<cd_off+cd_size) continue;
+        size_t base=off-cd_off-cd_size;
+        if(base+cd_off+cd_size>n) continue;
+        cds.push_back({base,off,n_total,cd_size,cd_off});
+    }
+    std::vector<T4Cand> cands;
+    for(const auto& c:cds){
+        size_t p=c.base+c.cd_off; size_t entries=0;
+        std::unordered_set<uint64_t> seen;
+        while(p+46<=n && d[p]=='P'&&d[p+1]=='K'&&d[p+2]==1&&d[p+3]==2 && entries<c.n_total+1){
+            uint16_t flags=rd16(d,p+8), method=rd16(d,p+10);
+            uint32_t crc=rd32(d,p+16), csize=rd32(d,p+20), usize=rd32(d,p+24);
+            uint16_t nlen=rd16(d,p+28), elen=rd16(d,p+30), clen_=rd16(d,p+32), lho=rd32(d,p+42);
+            if(flags&1) break; // encryption -> opaque archive
+            if(csize==0xFFFFFFFF||usize==0xFFFFFFFF||lho==0xFFFFFFFF||method==99) break; // ZIP64
+            p+=46; if(p+nlen+elen+clen_>n) break; p+=nlen+elen+clen_; ++entries;
+            size_t abso=c.base+lho;
+            if(abso+30>n||!(d[abso]=='P'&&d[abso+1]=='K'&&d[abso+2]==3&&d[abso+3]==4)) continue;
+            uint16_t lnlen=rd16(d,abso+26), lelen=rd16(d,abso+28);
+            size_t ds=abso+30+lnlen+lelen;
+            if(ds>csize||ds>n||csize==0||ds+csize>n) continue;
+            uint64_t key=(uint64_t(ds)<<32)|csize;
+            if(seen.count(key)) continue; seen.insert(key);
+            if(method==8){ T4Cand tc; tc.off=ds; tc.clen=csize; tc.ulen=usize; tc.raw=true; cands.push_back(tc); }
+            (void)crc;
+        }
+    }
+    std::sort(cands.begin(),cands.end(),[](const T4Cand&a,const T4Cand&b){ return a.off<b.off; });
+    size_t cursor=0;
+    for(const auto& c:cands){ if(c.off<cursor) continue; out.push_back(c); cursor=c.off+c.clen; }
+    return true;
+}
+
+static bool t4_build(const std::vector<uint8_t>& d,std::vector<uint8_t>& out){
+    std::vector<T4Cand> cands; t4_scan_zip(d,cands);
+    if(cands.empty()) return false;
+    std::vector<t4::Record> recs; size_t cursor=0; std::vector<uint8_t> plain;
+    for(const auto& c:cands){
+        const uint8_t* comp=d.data()+c.off;
+        size_t got=0; plain.assign(c.ulen?c.ulen:1,0);
+        if(!t4_inflate(comp,c.clen,plain.data(),plain.size(),&got)||got!=c.ulen){ plain.clear(); continue; }
+        plain.resize(got);
+        T4Replay rr=t4_replay(plain,std::vector<uint8_t>(comp,comp+c.clen),c.raw);
+        if(!rr.ok) continue;
+        t4::Record r; r.gap.assign(d.begin()+cursor,d.begin()+static_cast<long>(c.off));
+        r.clen=c.clen; r.pcode=rr.code;
+        if(rr.code==255){
+            r.plain.push_back(static_cast<uint8_t>(rr.p.wbits));
+            r.plain.push_back(static_cast<uint8_t>(rr.p.level));
+            r.plain.push_back(static_cast<uint8_t>(rr.p.mem));
+            r.plain.push_back(static_cast<uint8_t>(rr.p.strategy));
+        }
+        r.plain.insert(r.plain.end(),plain.begin(),plain.end());
+        recs.push_back(std::move(r)); cursor=c.off+c.clen;
+    }
+    if(recs.empty()) return false;
+    std::vector<uint8_t> tail(d.begin()+static_cast<long>(cursor),d.end());
+    return t4::serialize(recs,tail,&out);
+}
+
+static std::vector<uint8_t> t4_inverse(const std::vector<uint8_t>& x,size_t out_len){
+    std::vector<t4::Record> recs; std::vector<uint8_t> tail;
+    if(!t4::parse(x.data(),x.size(),out_len,&recs,&tail)) throw std::runtime_error("bad transform 4 program");
+    std::vector<uint8_t> out; out.reserve(out_len); std::vector<uint8_t> replay;
+    for(const auto& r:recs){
+        if(out.size()>out_len || r.gap.size()>out_len-out.size() || r.clen>out_len-out.size()-r.gap.size())
+            throw std::runtime_error("transform 4 output bound");
+        out.insert(out.end(),r.gap.begin(),r.gap.end());
+        int ew=0,el=0,em=0,es=0;
+        if(r.pcode==255){
+            const uint8_t* pp=r.plain.data(); const uint8_t* pe=pp+r.plain.size();
+            if(pe-pp<4) throw std::runtime_error("bad transform 4 escape");
+            ew=static_cast<int8_t>(*pp++); el=*pp++; em=*pp++; es=*pp++;
+            t4::Params p=t4::decode_code(255,ew,el,em,es);
+            if(!t4::valid(p)) throw std::runtime_error("bad transform 4 escape params");
+            replay.assign(r.clen,0); size_t got=0;
+            if(!t4_deflate(std::vector<uint8_t>(pp,pe),p,&replay)||replay.size()!=r.clen)
+                throw std::runtime_error("transform 4 replay length mismatch");
+            out.insert(out.end(),replay.begin(),replay.end());
+        } else {
+            t4::Params p=t4::decode_code(r.pcode);
+            replay.assign(r.clen,0); size_t got=0;
+            if(!t4_deflate(r.plain,p,&replay)||replay.size()!=r.clen)
+                throw std::runtime_error("transform 4 replay length mismatch");
+            out.insert(out.end(),replay.begin(),replay.end());
+        }
+    }
+    out.insert(out.end(),tail.begin(),tail.end());
+    if(out.size()!=out_len) throw std::runtime_error("transform 4 final size mismatch");
+    return out;
+}
+#endif // ANVIL_HAVE_ZLIB_PINNED
+
 // Optional LZP prepass (transform id 3) for the BWT backend: remove predictable
 // long phrases before sorting. The residue is stored with an explicit side
 // table so the decoder reconstructs the original block exactly. Ablation
@@ -4843,13 +5082,20 @@ static std::vector<uint8_t> encode_ratio_block(const std::vector<uint8_t>& d,con
     consider(0,d);
     if(opt.ratio_context) { auto x=ratio_transform_ctx1(d); consider(1,x); }
     if(opt.ratio_lines) { std::vector<uint8_t> x; if(ratio_transform_lines(d,x)) consider(2,x); }
+#ifdef ANVIL_HAVE_ZLIB_PINNED
+    if(opt.ratio_deflate){ std::vector<uint8_t> x; if(t4_build(d,x)) consider(4,x); }
+#endif
     return best;
 }
 
 static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t out_len,const Options& opt,std::vector<uint8_t>* in_owner,DecodeSink* sink) {
     if(n<3) throw std::runtime_error("truncated ratio payload");
     const uint8_t* e=p+n; uint8_t transform=*p++; uint8_t backend=*p++;
+#ifdef ANVIL_HAVE_ZLIB_PINNED
+    if(transform>4) throw std::runtime_error("unknown ratio transform id");
+#else
     if(transform>3) throw std::runtime_error("unknown ratio transform id");
+#endif
     if(backend!=kRatioBackendBrotli && backend!=kRatioBackendBwt) throw std::runtime_error("unknown ratio backend id");
     uint64_t xlen=get_uvar(p,e); uint64_t maxx=2ull*out_len+4096;
     if(xlen>maxx || xlen>std::numeric_limits<size_t>::max()) throw std::runtime_error("ratio transformed size bound");
@@ -4869,6 +5115,9 @@ static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t 
     }
     if(transform==0){ if(x.size()!=out_len) throw std::runtime_error("ratio direct size mismatch"); return x; }
     if(transform==1) return ratio_inverse_ctx1(x,out_len);
+#ifdef ANVIL_HAVE_ZLIB_PINNED
+    if(transform==4) return t4_inverse(x,out_len);
+#endif
     return ratio_inverse_lines(x,out_len); // transform==2 (validated above)
 }
 
@@ -5240,7 +5489,7 @@ static bool anvil_option_takes_value(const std::string& name) {
         "--parse","--literal","--entropy","--block","--chain","--max-match","--surprise",
         "--shape-states","--boundary","--negate","--channels","--pnra","--stream-suite",
         "--stream-ctx","--fused-decode","--stream-lambda","--hotop-rlzp","--hotop-budget",
-        "--ariref","--ratio-context","--ratio-lines","--ratio-backend","--bwt-post",
+        "--ariref","--ratio-context","--ratio-lines","--ratio-deflate","--ratio-backend","--bwt-post",
         "--bwt-aux","--bwt-lzp","--bwt-subblock","--decode-threads","--bwt-aux-walks"
     };
     for(const char* n:names) if(name==n) return true;
@@ -5249,7 +5498,7 @@ static bool anvil_option_takes_value(const std::string& name) {
 
 static void usage() {
     std::cerr << "ANVIL v0 research codec\n"
-              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-backend=brotli|bwt|auto] [--ratio-bwt-min-gain-pct=N] [--bwt-aux=on|off] [--bwt-aux-walks=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
+              << "  anvil c <input> <output> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop|ratio] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse] [--block=N] [--chain=N] [--max-match=N] [--surprise=N] [--shape-states=1|28] [--boundary=on|off] [--negate=on|off] [--channels=on|off] [--pnra=on|off] [--stream-suite=on|off] [--stream-lambda=N] [--hotop-rlzp=on|off] [--hotop-budget=on|off] [--ratio-context=on|off] [--ratio-lines=on|off] [--ratio-deflate=on|off] [--ratio-backend=brotli|bwt|auto] [--ratio-bwt-min-gain-pct=N] [--bwt-aux=on|off] [--bwt-aux-walks=N] [--stream-log] [--fused-decode=on|off] [--quiet]\n"
               << "  anvil d <input> <output> [--quiet]\n"
               << "  anvil verify <input> [--parse=auto|dp|greedy|sparse|mdl|shape|topology|tcopy|hotop] [--literal=auto|o0|o1|g4|g8|g16] [--entropy=auto|arith|rans|sparse]\n"
               << "  note: sparse->11, shape->12, topology->13, tcopy->14, hotop->15, ariref->16, ratio->17 (rev-2 transform + explicit backend registry)\n"
@@ -5291,6 +5540,7 @@ int main(int argc,char**argv) {
             else if(a.rfind("--ariref=",0)==0)opt.ariref=(a.substr(9)!="off");
             else if(a.rfind("--ratio-context=",0)==0)opt.ratio_context=(a.substr(16)!="off");
             else if(a.rfind("--ratio-lines=",0)==0)opt.ratio_lines=(a.substr(14)!="off");
+            else if(a.rfind("--ratio-deflate=",0)==0){ std::string v=a.substr(16); if(v!="on"&&v!="off") throw std::runtime_error("--ratio-deflate must be on|off"); opt.ratio_deflate=(v=="on"); }
             else if(a.rfind("--ratio-backend=",0)==0)opt.ratio_backend=a.substr(16);
     else if(a.rfind("--ratio-bwt-min-gain-pct=",0)==0){
         const std::string v=a.substr(27);

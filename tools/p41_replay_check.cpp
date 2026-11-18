@@ -812,15 +812,18 @@ int main(int argc, char** argv) {
           param_hist[key]++;
         } else {
           mode = (plain.size() >= 256 ? "diff" : "brute");
-          if (mode == "diff")
+          if (mode == "diff") {
+            ++n_diff;
             diff_bytes += static_cast<long>(cl);
-          else
+          } else {
             ++n_brute;
+          }
         }
       } else {
         // Inflate failed or zero-length: counted as diff (payload kept raw
         // in v1). Never fatal: census already verified decompressibility.
         mode = "diff";
+        ++n_diff;
         diff_bytes += static_cast<long>(cl);
       }
       if (mode != "valid" && mode != "diff" && mode != "brute") {

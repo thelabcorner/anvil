@@ -82,6 +82,7 @@ backend decode. Backend ID `0` is reserved/invalid.
 | 1 | ctx1-256 | 256 previous-byte-routed streams plus their lengths |
 | 2 | line-columns | record lengths followed by column-major record bytes |
 | 3 | lzp-residue | LZP side table (literals, then matches); the backend payload is the BWT of the concatenated `literals || matches` residue. **DISABLED** (do-not-reburn 06 §G2); the encoder refuses `--bwt-lzp=on` and the decoder rejects transform 3 — see below |
+| 4 | deflate-replay-v1 | Pinned-zlib reconstruction program for embedded raw/zlib DEFLATE streams (see "Transform 4" below). Encoder-only opt-in via `--ratio-deflate=on`; decoder always reads it |
 
 Transform 1 (`ctx1-256`) stores `256 x uvarint stream_len`, then streams 0..255.
 For each original byte, the route is the previously decoded byte (initial
@@ -124,6 +125,75 @@ and the decoder rejects any `transform == 3` payload with
 transform 3; the `bwt_lzp_preprocess` / `bwt_lzp_reconstruct` helpers are kept
 `[[maybe_unused]]` as an ablation reference only. `tests/fuzz.py` asserts this
 path as a clean up-front rejection.
+
+### Transform 4 (DEFLATE-REPLAY-v1)
+
+Transform 4 is a pinned-engine reconstruction program for embedded method-8
+(DEFLATE) streams. It is adopt-class infrastructure (no novelty claim), gated
+on the frozen I9-5 replay population. The encoder emits it ONLY when
+`--ratio-deflate=on`; with the default `off` (and with default flags) no
+transform-4 candidate is built, so existing paths are byte-identical. The
+decoder reads transform 4 unconditionally.
+
+The transformed representation is a direct reconstruction program:
+
+```
+uvarint representation_version (=1)
+uvarint replay_engine_id (=1)
+uvarint record_count
+per record:
+  uvarint gap_len
+  uvarint compressed_len   (original compressed bytes to regenerate)
+  uvarint plaintext_len    (stored bytes: plaintext, plus 4 for escape)
+  uvarint param_code       (0,1,2, or 255 escape)
+  gap_bytes[gap_len]       (raw, never rewritten: headers/descriptors/CRCs)
+  plaintext_bytes[plaintext_len]
+uvarint tail_len
+tail_bytes[tail_len]
+```
+
+Records are sorted by original offset and never overlap; offsets are omitted
+and derived from cumulative reconstructed output. No ZIP metadata is rewritten:
+because each replay reproduces its original compressed bytes exactly, all outer
+offsets stay valid. The ratio backend compresses this entire representation.
+
+The replay engine is part of the format. Engine ID `1` =
+`zlib-1.3.1-pinned-v1` (vendored zlib 1.3.1, commit `51b7f2ab`, exact source
+set and build flags in `third_party/zlib/UPSTREAM.md` and `CMakeLists.txt`).
+A future engine or version is a new ID, never a silent substitution. The pinned
+static library is linked privately into `anvil`; the rest of the codec does not
+use it.
+
+Parameter registry (immutable; code -> `wbits,level,memLevel,strategy`):
+
+| code | wbits | level | memLevel | strategy |
+|---:|---:|---:|---:|---:|
+| 0 | -15 (raw) | 6 | 8 | 0 |
+| 1 | -15 (raw) | 6 | 9 | 0 |
+| 2 | 15 (zlib) | 6 | 8 | 1 |
+| 255 | escape: `int8 wbits, level, memLevel, strategy` prefix of `plaintext_bytes` | | | |
+
+The encoder inflates each candidate under strict bounds, tries registry codes
+first, then a bounded grid (levels/memLevels 1-9, strategies 0-4, hard cap
+20,000 deflate calls per block), and accepts a record only when recompression
+is byte-for-byte identical to the original. Non-replayable streams stay raw gap.
+The decoder does NOT search: it resolves the code, replays, and requires the
+replayed length to equal `compressed_len` exactly.
+
+Decoder bounds (all enforced before allocation/read): representation version
+and engine ID must match; `record_count <= 1<<20`; `plaintext_len <= 64 MiB`;
+checked-add of every cumulative length against the block length; `gap_len`
+and `plaintext_len` bounded by bytes remaining; `compressed_len` in `1..512 MiB`;
+param code in `{0,1,2,255}`; exact input consumption; replayed length equality;
+final reconstructed size equality. Any mismatch is malformed input. Recursive
+parsing and unbounded search are forbidden in the decoder.
+
+The encoder ZIP scanner (fail-closed; encoder-only) parses EOCD + central
+directory with checked arithmetic, requires local-header validity, identifies
+method 8, rejects encryption/data descriptors/ZIP64, caps entries, and rejects
+overlapping or duplicate candidate ranges. Fake `PK` signatures inside payload
+bytes cannot become records without structural validation. Unsupported
+structures remain opaque.
 
 The encoder always builds transform 0 under the selected backend and accepts a
 nonzero transform only when the **complete mode-17 payload** is smaller. Thus a
