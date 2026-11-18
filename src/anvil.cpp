@@ -5102,7 +5102,16 @@ static std::vector<uint8_t> decode_ratio_block(const uint8_t* p,size_t n,size_t 
     if(transform>3) throw std::runtime_error("unknown ratio transform id");
 #endif
     if(backend!=kRatioBackendBrotli && backend!=kRatioBackendBwt) throw std::runtime_error("unknown ratio backend id");
-    uint64_t xlen=get_uvar(p,e); uint64_t maxx=2ull*out_len+4096;
+    uint64_t xlen=get_uvar(p,e);
+    // t4 legitimately expands compressed streams to their plaintext, so its
+    // transformed representation can be much larger than the original block.
+    // Bound it by the format's absolute program cap; legacy transforms keep the
+    // tight 2*out_len+4096 bound byte-for-byte.
+#ifdef ANVIL_HAVE_ZLIB_PINNED
+    uint64_t maxx=(transform==4)?static_cast<uint64_t>(t4::kMaxTotal):(2ull*out_len+4096);
+#else
+    uint64_t maxx=2ull*out_len+4096;
+#endif
     if(xlen>maxx || xlen>std::numeric_limits<size_t>::max()) throw std::runtime_error("ratio transformed size bound");
     // Transform 3 (LZP residue) is disabled with a clean rejection: the
     // uncommitted wire carried no backend-payload length, so [bwt][side-table]
