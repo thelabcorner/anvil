@@ -114,6 +114,11 @@ jobs:
           printf '%s\n' "${FILES[@]}" > "$OUT_DIR/files.txt"
           echo "silesia files: ${#FILES[@]}"
 
+      - name: Self-test independent A48 validator (synthetic scalar only)
+        run: |
+          set -e
+          python3 -m unittest discover -s tooling/tests -p 'test_a48_claim_audit.py' -v
+
       - name: Build per-file paired grid (ANVIL-cap8 vs xz-9e vs Brotli q11/lw30)
         run: |
           set -e
@@ -135,6 +140,18 @@ jobs:
           V=$(python3 -c "import json;d=json.load(open('$OUT_DIR/grid-out/timing-validity.json'));print(all(x['timing_valid_all'] for x in d))")
           echo "all_timing_valid=$V" | tee "$OUT_DIR/timing-valid.txt"
           [ "$V" = True ] || { echo "TIMING INCONCLUSIVE -> cannot decide H1/H0 from this run"; }
+
+      - name: Independently validate A48 raw paired evidence
+        run: |
+          set -e
+          python3 tooling/tools/a48_claim_audit.py \
+            --grid "$OUT_DIR/benchmark-suite.csv" \
+            --timing "$OUT_DIR/grid-out/timing-validity.json" \
+            --files "$OUT_DIR/files.txt" \
+            --paired-dir "$OUT_DIR/grid-out" \
+            --out "$OUT_DIR/independent-audit.json"
+          # INVALID evidence exits nonzero; INCONCLUSIVE timing is retained
+          # as data, never silently converted into an experimental H0.
 
       - name: Run UNMODIFIED frozen arbiters (two separate invocations, hash-compare)
         run: |
@@ -204,6 +221,7 @@ jobs:
             ${{ env.OUT_DIR }}/grid-build.log
             ${{ env.OUT_DIR }}/benchmark-suite.csv
             ${{ env.OUT_DIR }}/timing-valid.txt
+            ${{ env.OUT_DIR }}/independent-audit.json
             ${{ env.OUT_DIR }}/ruling.txt
             ${{ env.OUT_DIR }}/arbiter/
             ${{ env.OUT_DIR }}/grid-out/
