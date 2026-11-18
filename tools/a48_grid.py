@@ -157,6 +157,8 @@ def main() -> int:
         b_out = work / "brotli.out"
         run([brotli, "d", str(b_pack), str(b_out), str(n)])
         rt = all(sha256(p) == src_sha for p in (a_out, x_out, b_out))
+        if not rt:
+            raise RuntimeError(f"{name}: one or more encoded streams failed bit-exact roundtrip")
 
         # --- timing arms (argv JSON) ---
         A_ENC = [anvil, "c", str(src), str(work / "enc.anvil"), "--parse=ratio",
