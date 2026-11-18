@@ -1,0 +1,202 @@
+name: ANVIL A48 — per-file FRONT-CROSSING classification of the cap-8 point
+
+# Executes the PARKED A48 prereg (RESEARCH_LEDGER.md). This is the ONLY tool
+# that can certify a FRONT-CROSSING: the reference-cost gate can only falsify.
+#
+# (1) frozen tooling + candidate SHA 2c5eeb9e (C7+L3, NO t4 confound);
+# (2) each Silesia file encoded with --parse=ratio --ratio-backend=auto
+#     --bwt-subblock=8388608 (the reproduced RSS/decode breakthrough);
+# (3) per-file grid CSV (file,codec,ratio,MBps) via tools/paired_bench.py
+#     (same VM, symmetric warmup, AB/BA interleave, all raw reps, bootstrap
+#     paired CI, A/A null spanning 1.0, timing_valid);
+# (4) UNMODIFIED tools/pareto_front.py, tools/beats_brotli.py,
+#     docs/gate-verify-i9.py -> FRONT-CROSSING count (R-2 bracket rule);
+# (5) ratio-thickness robustness scan (full brotli/zstd/xz ratio classes).
+# Manual dispatch only; raw artifact upload; contents: read. NO local compute.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: 'Candidate ref (C7+L3, no t4)'
+        required: true
+        default: 'research/anvil-i20-pareto-gate-closure-20261021'
+      candidate_sha:
+        description: 'Expected candidate commit SHA (empty = verify ref HEAD only)'
+        required: false
+        default: '2c5eeb9e570b1e1162cbff98d29e0a978edeca92'
+      label:
+        description: 'Concurrency label (distinct per dispatch)'
+        required: true
+        default: 'a48-cap8'
+
+concurrency:
+  group: anvil-a48-${{ inputs.label }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      OUT_DIR: ${{ github.workspace }}/a48
+      CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+    steps:
+      - name: Checkout frozen tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          path: tooling
+
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          path: candidate
+
+      - name: Install pinned build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake ninja-build \
+            libbrotli-dev libzstd-dev zstd xz-utils brotli python3 util-linux
+          clang-18 --version
+          clang++-18 --version
+          xz --version | head -1
+          brotli --version 2>&1 | head -1 || true
+          zstd --version
+
+      - name: Fingerprint source, candidate SHA, frozen tools
+        run: |
+          set -e
+          mkdir -p "$OUT_DIR"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "candidate_ref=${CANDIDATE_REF}"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "tooling_sha=$(git -C tooling rev-parse HEAD)"
+            echo "pareto_front_sha256=$(sha256sum tooling/tools/pareto_front.py | cut -d' ' -f1)"
+            echo "beats_brotli_sha256=$(sha256sum tooling/tools/beats_brotli.py | cut -d' ' -f1)"
+            echo "gate_verify_sha256=$(sha256sum tooling/docs/gate-verify-i9.py | cut -d' ' -f1)"
+            echo "paired_bench_sha256=$(sha256sum tooling/tools/paired_bench.py | cut -d' ' -f1)"
+            echo "a48_grid_sha256=$(sha256sum tooling/tools/a48_grid.py | cut -d' ' -f1)"
+            uname -a
+            lscpu | grep -E 'Model name|CPU\(s\)' || true
+          } | tee "$OUT_DIR/provenance.txt"
+          if [ -n "$CANDIDATE_SHA" ]; then
+            ACT="$(git -C candidate rev-parse HEAD)"
+            [ "$ACT" = "$CANDIDATE_SHA" ] || { echo "candidate SHA mismatch $ACT != $CANDIDATE_SHA"; exit 1; }
+          fi
+
+      - name: Build candidate anvil + brotli_lw
+        run: |
+          set -e
+          cmake -S candidate -B "$OUT_DIR/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$OUT_DIR/build" --parallel 4 --target anvil brotli_lw
+          sha256sum "$OUT_DIR/build/anvil" "$OUT_DIR/build/brotli_lw" \
+            | tee "$OUT_DIR/binary-sha256.txt"
+
+      - name: Fetch canonical Silesia corpus (MD5-verified)
+        run: |
+          set -e
+          python3 tooling/tools/gha_fetch_corpus.py silesia --out "$OUT_DIR/corpora"
+          ( cd "$OUT_DIR/corpora/silesia" && md5sum * | sort ) | tee "$OUT_DIR/silesia-md5.txt"
+          mapfile -t FILES < <(cd "$OUT_DIR/corpora/silesia" && ls)
+          printf '%s\n' "${FILES[@]}" > "$OUT_DIR/files.txt"
+          echo "silesia files: ${#FILES[@]}"
+
+      - name: Build per-file paired grid (ANVIL-cap8 vs xz-9e vs Brotli q11/lw30)
+        run: |
+          set -e
+          mapfile -t FILES < "$OUT_DIR/files.txt"
+          ARGS=()
+          for f in "${FILES[@]}"; do ARGS+=("$OUT_DIR/corpora/silesia/$f"); done
+          python3 tooling/tools/a48_grid.py "${ARGS[@]}" \
+            --anvil "$OUT_DIR/build/anvil" \
+            --brotli "$OUT_DIR/build/brotli_lw" \
+            --tools tooling/tools \
+            --out "$OUT_DIR/grid-out" \
+            --decode-reps 9 --encode-reps 7 \
+            | tee "$OUT_DIR/grid-build.log"
+          cp "$OUT_DIR/grid-out/grid.csv" "$OUT_DIR/benchmark-suite.csv"
+          echo "=== timing validity ==="
+          cat "$OUT_DIR/grid-out/timing-validity.json"
+          echo "=== bracket robustness ==="
+          cat "$OUT_DIR/grid-out/bracket-robustness.json"
+          V=$(python3 -c "import json;d=json.load(open('$OUT_DIR/grid-out/timing-validity.json'));print(all(x['timing_valid_all'] for x in d))")
+          echo "all_timing_valid=$V" | tee "$OUT_DIR/timing-valid.txt"
+          [ "$V" = True ] || { echo "TIMING INVALID -> no crossing claim possible"; }
+
+      - name: Run UNMODIFIED frozen arbiters (two separate invocations, hash-compare)
+        run: |
+          set -e
+          mkdir -p "$OUT_DIR/arbiter"
+          cd tooling
+          for RUN in 1 2; do
+            python3 tools/pareto_front.py "$OUT_DIR/benchmark-suite.csv" \
+              --out "$OUT_DIR/arbiter/pareto-baseline-run${RUN}.csv" \
+              > "$OUT_DIR/arbiter/pareto-front-run${RUN}.log"
+            python3 tools/beats_brotli.py "$OUT_DIR/benchmark-suite.csv" \
+              --out "$OUT_DIR/arbiter/pareto-verdict-run${RUN}.csv" \
+              > "$OUT_DIR/arbiter/beats-brotli-run${RUN}.log"
+            python3 docs/gate-verify-i9.py --suite "$OUT_DIR/benchmark-suite.csv" \
+              --refs "brotli-,zstd-,xz-" \
+              > "$OUT_DIR/arbiter/gate-run${RUN}.txt" 2>&1 || true
+          done
+          cd ..
+          : > "$OUT_DIR/arbiter/recompute-hashes.txt"
+          for NAME in pareto-baseline pareto-verdict gate; do
+            H1=$(sha256sum "$OUT_DIR/arbiter/${NAME}-run1."* | head -1 | cut -d' ' -f1)
+            H2=$(sha256sum "$OUT_DIR/arbiter/${NAME}-run2."* | head -1 | cut -d' ' -f1)
+            echo "${NAME} run1=${H1} run2=${H2} identical=$([ "$H1" = "$H2" ] && echo yes || echo NO)" \
+              >> "$OUT_DIR/arbiter/recompute-hashes.txt"
+          done
+          cat "$OUT_DIR/arbiter/recompute-hashes.txt"
+          ! grep -q 'identical=NO' "$OUT_DIR/arbiter/recompute-hashes.txt"
+
+      - name: Rule H1 vs H0 from classifier output
+        run: |
+          set -e
+          echo "=== gate classifier ==="
+          cat "$OUT_DIR/arbiter/gate-run1.txt"
+          echo "=== pareto front (EXTENDS_FRONT rows) ==="
+          cat "$OUT_DIR/arbiter/pareto-front-run1.log"
+          CROSS=$(grep -o '[0-9]* FRONT-CROSSING' "$OUT_DIR/arbiter/gate-run1.txt" \
+                  | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+          VALID=$(grep -o 'all_timing_valid=[A-Za-z]*' "$OUT_DIR/timing-valid.txt" | cut -d= -f2)
+          {
+            echo "front_crossing_count=${CROSS:-0}"
+            echo "all_timing_valid=${VALID}"
+            echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
+            echo "ruling=$( [ "${CROSS:-0}" -gt 0 ] && [ "$VALID" = True ] && echo 'H1_FRONT_CROSSING_PASS' || echo 'H0_FRONT_CROSSING_ZERO' )"
+          } | tee "$OUT_DIR/ruling.txt"
+
+      - name: Upload raw A48 evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-a48-${{ github.run_id }}
+          path: |
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/binary-sha256.txt
+            ${{ env.OUT_DIR }}/silesia-md5.txt
+            ${{ env.OUT_DIR }}/files.txt
+            ${{ env.OUT_DIR }}/grid-build.log
+            ${{ env.OUT_DIR }}/benchmark-suite.csv
+            ${{ env.OUT_DIR }}/timing-valid.txt
+            ${{ env.OUT_DIR }}/ruling.txt
+            ${{ env.OUT_DIR }}/arbiter/
+            ${{ env.OUT_DIR }}/grid-out/
+            ${{ env.OUT_DIR }}/build/anvil
+            ${{ env.OUT_DIR }}/build/brotli_lw
+          if-no-files-found: warn
+          retention-days: 30
