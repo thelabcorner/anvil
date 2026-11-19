@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -48,6 +49,14 @@ def paired(tools: Path, control: list[str], candidate: list[str],
            source_hash: str, label: str, out: Path, reps: int) -> dict:
     summary = out / f"paired-{label}.json"
     raw = out / f"paired-{label}.csv"
+    # Hosted runners may expose an affinity mask NOT containing logical CPU 0.
+    # Choose the first process-allowed CPU, then pin every paired arm equally.
+    if not hasattr(os, "sched_getaffinity"):
+        raise RuntimeError("A70 hosted paired scout requires Linux affinity support")
+    allowed = sorted(os.sched_getaffinity(0))
+    if not allowed:
+        raise RuntimeError("A70 runner has no permitted CPU affinity set")
+    selected_cpu = allowed[0]
     argv = [
         sys.executable, str(tools / "paired_bench.py"),
         "--control-json", json.dumps(control),
@@ -56,7 +65,7 @@ def paired(tools: Path, control: list[str], candidate: list[str],
         "--bootstrap", "20000", "--seed", "41246",
         "--epsilon", "0.02", "--max-cv", "0.15",
         "--ambient-reps", "5", "--ambient-iterations", "250000",
-        "--ambient-max-cv", "0.10", "--cpu", "0",
+        "--ambient-max-cv", "0.10", "--cpu", str(selected_cpu),
         "--control-observe", str(control_output),
         "--candidate-observe", str(candidate_output),
         "--expected-sha256", source_hash,
@@ -74,6 +83,10 @@ def paired(tools: Path, control: list[str], candidate: list[str],
             raise RuntimeError(f"not byte-exact in {label}/{arm}")
     if len(d.get("pairs", [])) != reps:
         raise RuntimeError(f"raw paired repetition coverage incomplete: {label}")
+    d["peer_affinity_preflight"] = {
+        "selected_cpu": selected_cpu,
+        "parent_allowed_cpus": allowed,
+    }
     return d
 
 
