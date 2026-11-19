@@ -10,6 +10,7 @@ import argparse
 import csv
 import json
 import math
+import random
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -59,6 +60,27 @@ def aggregate(rows: list[dict]) -> list[dict]:
             row[key] = f"{ib / 1e6 / elapsed_s:.3f}"
         out.append(row)
     return out
+
+
+def recompute_paired_ci(pairs: list[dict], seed: int, samples: int) -> tuple[float, float, float]:
+    """Independently check the frozen paired bootstrap against ALL raw pairs.
+
+    This reproduces the frozen resampling contract but does not trust its
+    published point estimate or confidence interval. It performs scalar-only
+    arithmetic; no codec run, build or benchmark.
+    """
+    logs = [math.log(float(p["candidate_s"]) / float(p["control_s"]))
+            for p in pairs]
+    n = len(logs)
+    ratio = math.exp(statistics.median(logs))
+    rng = random.Random(seed ^ 0xA5A5A5A5)
+    boot = []
+    for _ in range(samples):
+        boot.append(math.exp(statistics.median(
+            [logs[rng.randrange(n)] for _ in range(n)])))
+    boot.sort()
+    return (ratio, boot[max(0, int(0.025 * samples))],
+            boot[min(samples - 1, int(0.975 * samples))])
 
 
 def audit(grid: Path, timing: Path, expected: Path, paired_dir: Path | None) -> dict:
@@ -151,6 +173,27 @@ def audit(grid: Path, timing: Path, expected: Path, paired_dir: Path | None) -> 
                                         errors.append(f"{f}: paired median mismatch {phase}-{opponent} {arm}")
                             except (KeyError, ValueError, TypeError) as exc:
                                 errors.append(f"{f}: invalid raw repetition {phase}-{opponent}: {exc}")
+                        # Recompute the paired bootstrap independently from
+                        # original per-repetition times. Medians alone cannot
+                        # validate a claimed 95% CI or A/A null.
+                        if isinstance(pairs, list) and len(pairs) == expected_reps:
+                            try:
+                                if sorted(int(p["pair"]) for p in pairs) != list(range(expected_reps)):
+                                    errors.append(f"{f}: missing/duplicate raw pair index {phase}-{opponent}")
+                                seed = int(summary["seed"])
+                                count = int(summary["bootstrap_samples"])
+                                if count < 1000 or count > 100000:
+                                    raise ValueError(f"unsafe bootstrap count {count}")
+                                point, low, high = recompute_paired_ci(pairs, seed, count)
+                                claimed = [float(summary["paired_ratio_candidate_over_control"]),
+                                           *(float(v) for v in summary["paired_ratio_ci95"])]
+                                if len(claimed) != 3 or not all(math.isfinite(v) for v in claimed):
+                                    raise ValueError("invalid published ratio/CI")
+                                if any(not math.isclose(v, c, rel_tol=1e-9, abs_tol=1e-9)
+                                       for v, c in zip((point, low, high), claimed)):
+                                    errors.append(f"{f}: paired ratio/CI mismatch {phase}-{opponent}")
+                            except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
+                                errors.append(f"{f}: invalid paired bootstrap evidence {phase}-{opponent}: {exc}")
                         ctrl = summary.get("control", {}).get("argv", [])
                         cand = summary.get("candidate", {}).get("argv", [])
                         if not isinstance(ctrl, list) or not isinstance(cand, list) or not ctrl or not cand:
