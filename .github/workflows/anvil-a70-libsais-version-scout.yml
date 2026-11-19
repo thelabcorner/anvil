@@ -1,0 +1,165 @@
+name: ANVIL A70 — libsais serial decoder version scout (manual only)
+
+# This file is a staged experiment protocol, not a performance claim.
+# Workflows only run after publication through an approved GitHub Actions path.
+# No push, pull_request, schedule, or automatic execution triggers.
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: 'Unique concurrency label for this explicitly manual run'
+        type: string
+        required: true
+        default: 'a70-version-scout'
+      reps:
+        description: 'Interleaved paired repetitions per file (all raw reps retained)'
+        type: choice
+        required: true
+        default: '9'
+        options:
+          - '7'
+          - '9'
+          - '13'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anvil-a70-${{ inputs.label }}
+  cancel-in-progress: false
+
+jobs:
+  serial-version-scout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      OUT_DIR: ${{ github.workspace }}/a70
+      OLD_SHA: 2c5eeb9e570b1e1162cbff98d29e0a978edeca92
+    steps:
+      - name: Checkout FROZEN old-codec baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 2c5eeb9e570b1e1162cbff98d29e0a978edeca92
+          path: old
+
+      - name: Checkout staged candidate at exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+
+      - name: Install build dependencies on hosted runner
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 cmake ninja-build libbrotli-dev libzstd-dev python3 util-linux time
+          clang-18 --version
+          clang++-18 --version
+
+      - name: Freeze source provenance, compiler, CPU topology, and versions
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          OLD_ACTUAL=$(git -C old rev-parse HEAD)
+          NEW_ACTUAL=$(git -C candidate rev-parse HEAD)
+          [ "$OLD_ACTUAL" = "$OLD_SHA" ] || { echo 'Incorrect frozen old source'; exit 1; }
+          [ "$NEW_ACTUAL" = "${GITHUB_SHA}" ] || { echo 'Candidate ref drift'; exit 1; }
+          grep -q 'LIBSAIS_VERSION_STRING  "2.10.4"' old/third_party/libsais/include/libsais.h
+          grep -q 'LIBSAIS_VERSION_STRING  "2.12.2"' candidate/third_party/libsais/include/libsais.h
+          grep -q 'b1aa1fde090e00a4e2030b9fb54198698b84e463' candidate/third_party/libsais/UPSTREAM.md
+          {
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "workflow_source_sha=${GITHUB_SHA}"
+            echo "old_code_sha=$OLD_ACTUAL"
+            echo "candidate_code_sha=$NEW_ACTUAL"
+            echo "tooling_sha=$NEW_ACTUAL"
+            echo "runner_image=ubuntu-24.04"
+            sha256sum old/third_party/libsais/src/libsais.c
+            sha256sum candidate/third_party/libsais/src/libsais.c
+            sha256sum old/third_party/libsais/include/libsais.h
+            sha256sum candidate/third_party/libsais/include/libsais.h
+            sha256sum candidate/third_party/libsais/LICENSE
+            sha256sum candidate/tools/a70_version_scout.py
+            sha256sum candidate/tools/paired_bench.py
+            sha256sum candidate/tools/gha_fetch_corpus.py
+            clang-18 --version | head -1
+            clang++-18 --version | head -1
+            echo '=== clang-18 compile-time ISA feature macros ==='
+            clang-18 -dM -E -x c /dev/null | grep -E '__SSE2__|__AVX2__|__aarch64__' || true
+            uname -a
+            lscpu
+          } | tee "$OUT_DIR/provenance.txt"
+          [ -z "$(git -C old status --porcelain)" ]
+          [ -z "$(git -C candidate status --porcelain)" ]
+          # Causal isolation: forbid unacknowledged ANVIL/benchmark/build changes.
+          # The two checkouts may differ in draft workflow/tests/docs, but the
+          # compiled codec, build config, and frozen statistical tooling MUST match.
+          for f in src/anvil.cpp CMakeLists.txt tools/paired_bench.py tools/gha_fetch_corpus.py; do
+            cmp "old/$f" "candidate/$f" || { echo "NON-LIBSAIS DIFFERENCE: $f"; exit 1; }
+          done
+          echo "verified: identical ANVIL codec source, CMake, and benchmark tools"
+
+      - name: Preflight A70 scalar orchestration tests before expensive builds
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s candidate/tests -p 'test_a70_version_scout.py' -v
+
+      - name: Build serial old/new decoder variants with identical toolchain
+        run: |
+          set -euo pipefail
+          cmake -S old -B "$OUT_DIR/old-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake -S candidate -B "$OUT_DIR/new-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DANVIL_BUILD_NATIVE_BENCH=OFF
+          cmake --build "$OUT_DIR/old-build" --parallel 4 --target anvil
+          cmake --build "$OUT_DIR/new-build" --parallel 4 --target anvil
+          # Pin the effective compiler contract, not just intended flags.
+          ! grep -E -- '-march=native|-mavx2|-mavx512' "$OUT_DIR/old-build/compile_commands.json" "$OUT_DIR/new-build/compile_commands.json"
+          cp "$OUT_DIR/old-build/compile_commands.json" "$OUT_DIR/old-compile-commands.json"
+          cp "$OUT_DIR/new-build/compile_commands.json" "$OUT_DIR/new-compile-commands.json"
+          {
+            sha256sum "$OUT_DIR/old-build/anvil" "$OUT_DIR/new-build/anvil"
+            wc -c "$OUT_DIR/old-build/anvil" "$OUT_DIR/new-build/anvil"
+          } | tee "$OUT_DIR/binary-identities.txt"
+          ldd "$OUT_DIR/old-build/anvil" > "$OUT_DIR/old-ldd.txt"
+          ldd "$OUT_DIR/new-build/anvil" > "$OUT_DIR/new-ldd.txt"
+
+      - name: Validate old-wire compatibility and measure paired serial decode
+        run: |
+          set -euo pipefail
+          python3 candidate/tools/a70_version_scout.py \
+            --old "$OUT_DIR/old-build/anvil" \
+            --candidate "$OUT_DIR/new-build/anvil" \
+            --tools candidate/tools \
+            --out "$OUT_DIR" \
+            --files dickens mr mozilla \
+            --reps "${{ inputs.reps }}" \
+            --test-truncation | tee "$OUT_DIR/scout-console.log"
+
+      - name: Upload bounded raw evidence even after invalid/incomplete tests
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-a70-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            ${{ env.OUT_DIR }}/provenance.txt
+            ${{ env.OUT_DIR }}/binary-identities.txt
+            ${{ env.OUT_DIR }}/old-ldd.txt
+            ${{ env.OUT_DIR }}/new-ldd.txt
+            ${{ env.OUT_DIR }}/old-compile-commands.json
+            ${{ env.OUT_DIR }}/new-compile-commands.json
+            ${{ env.OUT_DIR }}/old-build/anvil
+            ${{ env.OUT_DIR }}/new-build/anvil
+            ${{ env.OUT_DIR }}/scout-console.log
+            ${{ env.OUT_DIR }}/scout.json
+            ${{ env.OUT_DIR }}/scout-partial.json
+            ${{ env.OUT_DIR }}/results/*.json
+            ${{ env.OUT_DIR }}/results/*.csv
+            ${{ env.OUT_DIR }}/results/*-rss.txt
+            ${{ env.OUT_DIR }}/work/*/old.anv
