@@ -49,10 +49,14 @@ def aggregate(rows: list[dict]) -> list[dict]:
     for name, rs in groups.items():
         ib = sum(int(r["input_bytes"]) for r in rs)
         cb = sum(int(r["compressed_bytes"]) for r in rs)
-        row = {"codec": name, "ratio": cb / ib}
+        # Reproduce the FROZEN gate-verify-i9.py aggregate_rows() quantization
+        # EXACTLY. Full-precision aggregates can change dominance on near-ties,
+        # even when the source bytes and timings are identical.
+        row = {"codec": name, "ratio": f"{cb / ib:.6f}"}
         for key in PLANES:
-            elapsed_s = sum(int(r["input_bytes"]) / (1e6 * float(r[key])) for r in rs)
-            row[key] = ib / (1e6 * elapsed_s)
+            elapsed_s = sum(int(r["input_bytes"]) / 1e6 /
+                            max(float(r[key]), 1e-12) for r in rs)
+            row[key] = f"{ib / 1e6 / elapsed_s:.3f}"
         out.append(row)
     return out
 
