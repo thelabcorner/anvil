@@ -19,7 +19,7 @@ Reference class is deliberately THIN (xz-9e + brotli-q11/lw30) exactly as the
 A48 prereg specifies; the frozen tools' GRID-THIN caveat applies to the ruling.
 """
 from __future__ import annotations
-import argparse, csv, hashlib, json, os, subprocess, sys
+import argparse, csv, hashlib, json, os, shutil, subprocess, sys
 from pathlib import Path
 
 FIELDS = ["file", "input_bytes", "codec", "compressed_bytes", "ratio",
@@ -42,7 +42,10 @@ def run(argv: list[str]) -> None:
 
 
 def paired(tools: Path, control: list[str], candidate: list[str], reps: int,
-           label: str, out: Path, seed: int = 41246) -> dict:
+           label: str, out: Path, seed: int = 41246,
+           candidate_observe: Path | None = None,
+           control_observe: Path | None = None,
+           expected_sha256: str | None = None) -> dict:
     argv = [sys.executable, str(tools / "paired_bench.py"),
             "--control-json", json.dumps(control),
             "--candidate-json", json.dumps(candidate),
@@ -53,6 +56,14 @@ def paired(tools: Path, control: list[str], candidate: list[str], reps: int,
             "--ambient-max-cv", "0.10",
             "--out", str(out / f"paired-{label}.csv"),
             "--summary", str(out / f"paired-{label}.json")]
+    # Observations happen AFTER the timed subprocess, so they do not redefine
+    # the benchmark clock. They detect malformed/non-deterministic timed output.
+    if candidate_observe is not None:
+        argv += ["--candidate-observe", str(candidate_observe)]
+    if control_observe is not None:
+        argv += ["--control-observe", str(control_observe)]
+    if expected_sha256 is not None:
+        argv += ["--expected-sha256", expected_sha256]
     p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if p.returncode != 0:
         raise RuntimeError(f"paired_bench failed for {label}:\n{p.stdout[-2000:]}")
@@ -83,6 +94,7 @@ def main() -> int:
     rows: list[dict] = []
     validity: list[dict] = []
     robustness: list[dict] = []
+    pack_manifest: list[dict] = []
 
     def ratio_scan(src: Path, name: str, n: int) -> dict:
         """Deterministic ratio reference scan across the FULL frozen class.
@@ -97,11 +109,9 @@ def main() -> int:
         if subprocess.run(["which", "brotli"], stdout=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL).returncode == 0:
             for q in (1, 3, 5, 9, 11):
-                p = out / "work" / name / f"ref-brotli-q{q}.br"
                 r = subprocess.run(["brotli", "-q", str(q), "-c", str(src)],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 if r.returncode == 0:
-                    p.write_bytes(r.stdout)
                     ratios[f"brotli-q{q}"] = len(r.stdout) / n
         # zstd CLI tiers if available
         if subprocess.run(["which", "zstd"], stdout=subprocess.DEVNULL,
@@ -157,8 +167,30 @@ def main() -> int:
         b_out = work / "brotli.out"
         run([brotli, "d", str(b_pack), str(b_out), str(n)])
         rt = all(sha256(p) == src_sha for p in (a_out, x_out, b_out))
+        if not rt:
+            raise RuntimeError(f"{name}: one or more encoded streams failed bit-exact roundtrip")
+        pack_manifest.append({
+            "file": name,
+            "input_bytes": n,
+            "input_sha256": src_sha,
+            "roundtrip_sha256_verified": True,
+            "packs": {
+                "anvil-cap8": {"bytes": cb["anvil"], "sha256": sha256(a_pack)},
+                "xz-9e": {"bytes": cb["xz"], "sha256": sha256(x_pack)},
+                "brotli-q11-lw30": {"bytes": cb["brotli"], "sha256": sha256(b_pack)}
+            },
+            "timed_output_verification": {
+                "anvil_encode": "SHA256 after each measured candidate repetition",
+                "anvil_decode": "SHA256 after each measured candidate repetition",
+                "brotli_decode": "SHA256 after each measured control repetition in dec-brotli comparison",
+                "xz_encode": "one-shot roundtrip only; timed stdout is not captured",
+                "xz_decode": "one-shot roundtrip only; timed stdout is not captured",
+                "brotli_encode": "one-shot roundtrip only; timed outputs not observed",
+            },
+        })
 
         # --- timing arms (argv JSON) ---
+        packed_sha = sha256(a_pack)
         A_ENC = [anvil, "c", str(src), str(work / "enc.anvil"), "--parse=ratio",
                  "--ratio-backend=auto", "--ratio-context=off", "--ratio-lines=off",
                  "--bwt-aux=on", "--bwt-subblock=8388608", "--quiet"]
@@ -169,13 +201,22 @@ def main() -> int:
         B_DEC = [brotli, "d", str(b_pack), str(work / "dec.br"), str(n)]
 
         # decode plane: ANVIL vs each ref + A/A null
-        d_ax = paired(tools, X_DEC, A_DEC, a.decode_reps, f"{name}-dec-xz", out)
-        d_ab = paired(tools, B_DEC, A_DEC, a.decode_reps, f"{name}-dec-brotli", out)
-        d_nn = paired(tools, A_DEC, A_DEC, a.decode_reps, f"{name}-dec-null", out)
+        d_ax = paired(tools, X_DEC, A_DEC, a.decode_reps, f"{name}-dec-xz", out,
+                      candidate_observe=work / "dec.anvil", expected_sha256=src_sha)
+        d_ab = paired(tools, B_DEC, A_DEC, a.decode_reps, f"{name}-dec-brotli", out,
+                      candidate_observe=work / "dec.anvil",
+                      control_observe=work / "dec.br", expected_sha256=src_sha)
+        d_nn = paired(tools, A_DEC, A_DEC, a.decode_reps, f"{name}-dec-null", out,
+                      candidate_observe=work / "dec.anvil",
+                      control_observe=work / "dec.anvil", expected_sha256=src_sha)
         # encode plane: ANVIL vs each ref + A/A null
-        e_ax = paired(tools, X_ENC, A_ENC, a.encode_reps, f"{name}-enc-xz", out)
-        e_ab = paired(tools, B_ENC, A_ENC, a.encode_reps, f"{name}-enc-brotli", out)
-        e_nn = paired(tools, A_ENC, A_ENC, a.encode_reps, f"{name}-enc-null", out)
+        e_ax = paired(tools, X_ENC, A_ENC, a.encode_reps, f"{name}-enc-xz", out,
+                      candidate_observe=work / "enc.anvil", expected_sha256=packed_sha)
+        e_ab = paired(tools, B_ENC, A_ENC, a.encode_reps, f"{name}-enc-brotli", out,
+                      candidate_observe=work / "enc.anvil", expected_sha256=packed_sha)
+        e_nn = paired(tools, A_ENC, A_ENC, a.encode_reps, f"{name}-enc-null", out,
+                      candidate_observe=work / "enc.anvil",
+                      control_observe=work / "enc.anvil", expected_sha256=packed_sha)
 
         def span1(s: dict) -> bool:
             lo, hi = s["paired_ratio_ci95"]
@@ -207,11 +248,43 @@ def main() -> int:
         print(f"{name}: bytes anvil/xz/brotli={cb['anvil']}/{cb['xz']}/{cb['brotli']} "
               f"valid={valid} rt={rt}", flush=True)
 
+        # Durable per-file checkpoint: the original 12-file experiment can exceed
+        # the hosted job's runtime limit. This is *diagnostic evidence only*;
+        # a partial grid is NEVER eligible for an H1/H0 conclusion.
+        # Atomic replacement avoids exposing a half-written CSV/JSON snapshot.
+        def checkpoint_text(filename: str, contents: str) -> None:
+            dest = out / filename
+            temporary = out / (filename + ".tmp")
+            temporary.write_text(contents, encoding="utf-8")
+            os.replace(temporary, dest)
+
+        import io
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+        checkpoint_text("grid-partial.csv", buffer.getvalue())
+        checkpoint_text("timing-validity-partial.json", json.dumps(validity, indent=2) + "\n")
+        checkpoint_text("bracket-robustness-partial.json", json.dumps(robustness, indent=2) + "\n")
+        checkpoint_text("pack-manifest-partial.json", json.dumps(pack_manifest, indent=2) + "\n")
+        checkpoint_text("progress.json", json.dumps({
+            "completed_files": [entry["file"] for entry in validity],
+            "completed_count": len(validity),
+            "total_count": len(a.files),
+            "eligible_for_frontier_claim": False,
+        }, indent=2) + "\n")
+        # Deterministic intermediate outputs are not durable scientific evidence:
+        # hashes, complete wire bytes, and all paired raw repetitions are captured.
+        # Drop per-file compress/decompress working copies immediately instead of
+        # retaining them for an oversized Actions artifact.
+        shutil.rmtree(work)
+
     grid = out / "grid.csv"
     with grid.open("w", newline="") as fp:
         w = csv.DictWriter(fp, fieldnames=FIELDS); w.writeheader(); w.writerows(rows)
     (out / "timing-validity.json").write_text(json.dumps(validity, indent=2) + "\n")
     (out / "bracket-robustness.json").write_text(json.dumps(robustness, indent=2) + "\n")
+    (out / "pack-manifest.json").write_text(json.dumps(pack_manifest, indent=2) + "\n")
     print(f"wrote {grid} ({len(rows)} rows); all_valid="
           f"{all(v['timing_valid_all'] for v in validity)}")
     return 0

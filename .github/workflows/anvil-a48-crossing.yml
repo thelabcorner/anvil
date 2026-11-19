@@ -114,6 +114,11 @@ jobs:
           printf '%s\n' "${FILES[@]}" > "$OUT_DIR/files.txt"
           echo "silesia files: ${#FILES[@]}"
 
+      - name: Self-test independent A48 validator (synthetic scalar only)
+        run: |
+          set -e
+          python3 -m unittest discover -s tooling/tests -p 'test_a48_claim_audit.py' -v
+
       - name: Build per-file paired grid (ANVIL-cap8 vs xz-9e vs Brotli q11/lw30)
         run: |
           set -e
@@ -134,7 +139,19 @@ jobs:
           cat "$OUT_DIR/grid-out/bracket-robustness.json"
           V=$(python3 -c "import json;d=json.load(open('$OUT_DIR/grid-out/timing-validity.json'));print(all(x['timing_valid_all'] for x in d))")
           echo "all_timing_valid=$V" | tee "$OUT_DIR/timing-valid.txt"
-          [ "$V" = True ] || { echo "TIMING INVALID -> no crossing claim possible"; }
+          [ "$V" = True ] || { echo "TIMING INCONCLUSIVE -> cannot decide H1/H0 from this run"; }
+
+      - name: Independently validate A48 raw paired evidence
+        run: |
+          set -e
+          python3 tooling/tools/a48_claim_audit.py \
+            --grid "$OUT_DIR/benchmark-suite.csv" \
+            --timing "$OUT_DIR/grid-out/timing-validity.json" \
+            --files "$OUT_DIR/files.txt" \
+            --paired-dir "$OUT_DIR/grid-out" \
+            --out "$OUT_DIR/independent-audit.json"
+          # INVALID evidence exits nonzero; INCONCLUSIVE timing is retained
+          # as data, never silently converted into an experimental H0.
 
       - name: Run UNMODIFIED frozen arbiters (two separate invocations, hash-compare)
         run: |
@@ -150,7 +167,7 @@ jobs:
               > "$OUT_DIR/arbiter/beats-brotli-run${RUN}.log"
             python3 docs/gate-verify-i9.py --suite "$OUT_DIR/benchmark-suite.csv" \
               --refs "brotli-,zstd-,xz-" \
-              > "$OUT_DIR/arbiter/gate-run${RUN}.txt" 2>&1 || true
+              > "$OUT_DIR/arbiter/gate-run${RUN}.txt" 2>&1
           done
           cd ..
           : > "$OUT_DIR/arbiter/recompute-hashes.txt"
@@ -170,14 +187,25 @@ jobs:
           cat "$OUT_DIR/arbiter/gate-run1.txt"
           echo "=== pareto front (EXTENDS_FRONT rows) ==="
           cat "$OUT_DIR/arbiter/pareto-front-run1.log"
-          CROSS=$(grep -o '[0-9]* FRONT-CROSSING' "$OUT_DIR/arbiter/gate-run1.txt" \
-                  | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+          # Do NOT conflate per-file and aggregate scopes. The frozen arbiter reports each separately.
+          PER_CROSS=$(awk '/^per-file :/ {for(i=1;i<=NF;i++) if($(i+1)=="FRONT-CROSSING") {print $i;exit}}' "$OUT_DIR/arbiter/gate-run1.txt")
+          AGG_CROSS=$(awk '/^AGGREGATE:/ {for(i=1;i<=NF;i++) if($(i+1)=="FRONT-CROSSING") {print $i;exit}}' "$OUT_DIR/arbiter/gate-run1.txt")
+          [ -n "$PER_CROSS" ] && [ -n "$AGG_CROSS" ] || { echo "Cannot parse frozen gate classification"; exit 1; }
           VALID=$(grep -o 'all_timing_valid=[A-Za-z]*' "$OUT_DIR/timing-valid.txt" | cut -d= -f2)
+          if [ "$VALID" != True ]; then
+            RULING="INCONCLUSIVE_TIMING"
+          elif [ "$PER_CROSS" -gt 0 ]; then
+            RULING="H1_SCOPED_THIN_SILESIA_PER_FILE_CROSSING"
+          else
+            RULING="H0_SCOPED_THIN_SILESIA_PER_FILE_CROSSING_ZERO"
+          fi
           {
-            echo "front_crossing_count=${CROSS:-0}"
-            echo "all_timing_valid=${VALID}"
+            echo "per_file_front_crossing_count=$PER_CROSS"
+            echo "aggregate_front_crossing_count=$AGG_CROSS"
+            echo "all_timing_valid=$VALID"
             echo "candidate_sha=$(git -C candidate rev-parse HEAD)"
-            echo "ruling=$( [ "${CROSS:-0}" -gt 0 ] && [ "$VALID" = True ] && echo 'H1_FRONT_CROSSING_PASS' || echo 'H0_FRONT_CROSSING_ZERO' )"
+            echo "claim_scope=Silesia per-file, ANVIL-cap8 vs xz-9e and Brotli q11/lw30 ONLY"
+            echo "ruling=$RULING"
           } | tee "$OUT_DIR/ruling.txt"
 
       - name: Upload raw A48 evidence
@@ -193,9 +221,16 @@ jobs:
             ${{ env.OUT_DIR }}/grid-build.log
             ${{ env.OUT_DIR }}/benchmark-suite.csv
             ${{ env.OUT_DIR }}/timing-valid.txt
+            ${{ env.OUT_DIR }}/independent-audit.json
             ${{ env.OUT_DIR }}/ruling.txt
             ${{ env.OUT_DIR }}/arbiter/
-            ${{ env.OUT_DIR }}/grid-out/
+            ${{ env.OUT_DIR }}/grid-out/paired-*.csv
+            ${{ env.OUT_DIR }}/grid-out/paired-*.json
+            ${{ env.OUT_DIR }}/grid-out/grid*.csv
+            ${{ env.OUT_DIR }}/grid-out/timing-validity*.json
+            ${{ env.OUT_DIR }}/grid-out/bracket-robustness*.json
+            ${{ env.OUT_DIR }}/grid-out/progress.json
+            ${{ env.OUT_DIR }}/grid-out/pack-manifest*.json
             ${{ env.OUT_DIR }}/build/anvil
             ${{ env.OUT_DIR }}/build/brotli_lw
           if-no-files-found: warn
