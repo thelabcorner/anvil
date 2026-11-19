@@ -1,6 +1,6 @@
 # Independent all-axis Pareto claim audit — supplementary, NOT the frozen I9 gate
 
-**Status:** source implementation and 22 adversarial **scalar** tests passed (read-only Python in a temporary directory; no codec builds, benchmarks, CI runs or changes to a running experiment). **Claim scope:** one source file / one hosted job / a declared set of mainstream reference modes. This is NOT a universal-statistical dominance proof.
+**Status:** source implementation and 24 adversarial **scalar** tests passed (read-only Python in a temporary directory; no codec builds, benchmarks, CI runs or changes to a running experiment). **Claim scope:** one source file / one hosted job / a declared set of mainstream reference modes. This is NOT a universal-statistical dominance proof.
 
 ## Why the extra audit exists
 
@@ -63,6 +63,8 @@ Real A48 partial artifact [run 44380412243 / artifact 14480494484](https://githu
 }
 ```
 
+**Independent reference-set control:** `required_references` within the candidate's manifest must match a separately frozen evaluator-controlled lock file, e.g. `{"schema":1,"required_references":["brotli-q11-lw30","xz-9e","zstd-19"]}`. The command requires `--reference-lock` and a separately recorded SHA-256 of that file. The lock must be committed/frozen **before** experimental evaluation and verified against that source-controlled commitment; a candidate cannot establish dominance by omitting strong baselines from its own manifest. This program checks supplied lock bytes and set equality; it does **not** independently authenticate a GitHub commit or prove that the lock represents every mainstream codec. Do not fabricate that source freeze or assemble an easy comparator set after observing the candidate.
+
 **The example above is a schema illustration with placeholders, deliberately NOT valid evidence.** `decoder_distribution_bytes` must include the complete decoder and all necessary runtime/model/dictionary assets, not just the bare CLI executable. `complete_wire_bytes` must include headers, indices, framing, and all source-specific side information. `peak_rss_samples_bytes` are process peaks from at least three separate invocations on the same runner; a single "/usr/bin/time" observation is **insufficient**.
 
 Raw paired timing CIs are expressed as **candidate elapsed time divided by reference elapsed time**. An upper bound <=1 is required to establish observed timing nonregression, and upper bound <1 gives significant timing improvement at the supplied 95% level. Both before/after A/A nulls must include 1.0 and the time-arm run IDs must match the scope. Source, pairing, firmware/runner and code provenance must be verified separately; self-declared SHA strings are only traceability, not authentication.
@@ -79,7 +81,10 @@ Raw paired timing CIs are expressed as **candidate elapsed time divided by refer
 ## Executable command
 
 ```bash
-python3 tools/pareto_allaxis_audit.py results/one-file-samejob-evidence.json --out results/all-axis-scope-audit.json
+python3 tools/pareto_allaxis_audit.py results/one-file-samejob-evidence.json \
+  --reference-lock path/to/PREREGISTERED-reference-set.json \
+  --reference-lock-sha256 HASH_FROM_AN_INDEPENDENT_PRIOR_SOURCE_FREEZE \
+  --out results/all-axis-scope-audit.json
 python3 -m unittest discover -s tests -p 'test_pareto_allaxis_audit.py' -v
 ```
 
@@ -89,6 +94,6 @@ These scripts do **not** dispatch GitHub Actions, modify benchmarks, synthesize 
 
 ## Independent adversarial scalar checks
 
-22 deterministic cases pass: positive scoped observation, bytes-regressed/time-faster counterexample, time-regressed/bytes-better counterexample, CI crossing, null drift, one-shot RSS, overlapping RSS, unambiguously worse RSS, omitted decoder assets, lost random access, failed roundtrip as HARD FAIL, missing reference class, mismatched run ID, absent raw evidence hash, corrupt decoded output, incomplete all-reference win, missing runner fingerprint, missing RSS evidence SHA, spoofed candidate/reference codec identity, and three fail-closed CLI tests (valid scope exit 0, regression/inconclusive exit 1, invalid reference coverage exit 2).
+24 deterministic cases pass: positive scoped observation, bytes-regressed/time-faster counterexample, time-regressed/bytes-better counterexample, CI crossing, null drift, one-shot RSS, overlapping RSS, unambiguously worse RSS, omitted decoder assets, lost random access, failed roundtrip as HARD FAIL, missing reference class, mismatched run ID, absent raw evidence hash, corrupt decoded output, incomplete all-reference win, missing runner fingerprint, missing RSS evidence SHA, spoofed candidate/reference codec identity, three fail-closed CLI tests and two externally frozen reference-set counterexamples (valid scope exit 0, regression/inconclusive exit 1, invalid reference coverage exit 2).
 
 **Decision:** PROCEED_WITH_GUARDS on this standalone read-only validator; no execution of a full benchmark or general-purpose Pareto promotion is claimed.
