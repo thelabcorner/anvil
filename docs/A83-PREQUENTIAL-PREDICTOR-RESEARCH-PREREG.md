@@ -24,7 +24,7 @@ A forward causal state-updating predictor naturally pairs with a forward range/a
 
 Test a tiny integer-only smoothed bitwise context bank (order-0, 1, 2, 4, 8) and confidence-gated mixture. Every state transition must depend only on bytes ALREADY decoded; predict then code/decode then update. Use bounded count rescaling, fixed probability quantization and deterministic tie breaks. The initial research artifact is a **read-only prequential log-loss oracle, NOT a compressor**. Calculate ideal bits and CDF rounding overhead, not false real archive lengths; record cold-start penalty and state-memory maximum.
 
-Break-even for M transmitted model bytes over n source bytes is Δbpb > 8*M/n. A 3,000,000-byte model costs 0.024 bpb over 1,000,000,000-byte enwik9; 0.24 bpb over 100,000,000-byte enwik8. Such a model also costs memory and compute. No more-than-1-bit or sub-1-bit claims without actual full-wire results.
+Break-even for ONE charged M-byte model asset over n source bytes is Δbpb > 8*M/n. A 3,000,000-byte model therefore costs 0.024 bpb over 1,000,000,000-byte enwik9 or 0.24 bpb over 100,000,000-byte enwik8 when counted ONCE. **Hutter-specific crucial correction:** its score is S_comp + S_archive, so if the same asset is embedded in BOTH the compressor and self-extracting archive, the effective model asset penalty is approximately **2*M**, hence 0.048 bpb on enwik9 or 0.48 bpb on enwik8. Reused/overlapping binary layouts must be accounted for using the actual two submitted file sizes, not an automatic 2x assumption. This also costs memory and compute. No sub-1-bit-per-byte claim without actual full-wire results.
 
 ## Preregistered gates before implementation
 
