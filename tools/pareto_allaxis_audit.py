@@ -12,6 +12,7 @@ Only local scalar parsing/math; no codec, benchmark, network or mutation.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -131,7 +132,7 @@ def check_input(scope: dict, candidate: dict, ref: dict,
     return missing, hard
 
 
-def compare(manifest: dict) -> dict:
+def compare(manifest: dict, locked_references: tuple[str, ...] | None = None) -> dict:
     """Produce conservative witnessed status for each *named* baseline."""
     problems = []
     if manifest.get("schema") != 1:
@@ -147,10 +148,14 @@ def compare(manifest: dict) -> dict:
         return {"status": "INVALID_SCHEMA", "errors": ["references/paired must be lists"]}
     if not isinstance(required, list) or not required or any(
             not isinstance(x, str) or not x for x in required):
-        problems.append("explicit nonempty required_references list missing")
+        problems.append("manifest has no valid required_references")
         required = []
     if len(required) != len(set(required)):
-        problems.append("duplicate names in required references")
+        problems.append("duplicate names in manifest required_references")
+    if not locked_references or len(locked_references) != len(set(locked_references)):
+        problems.append("INDEPENDENT immutable reference lock is mandatory")
+    elif set(required) != set(locked_references):
+        problems.append("manifest reference list differs from externally frozen reference lock")
     ref_index = {r.get("codec"): r for r in refs if isinstance(r, dict)}
     pair_index = {r.get("reference"): r for r in pairs if isinstance(r, dict)}
     if len(ref_index) != len(refs) or len(pair_index) != len(pairs):
@@ -238,9 +243,25 @@ def compare(manifest: dict) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("manifest", type=Path, help="One-file, same-run all-axis evidence JSON")
+    ap.add_argument("--reference-lock", type=Path, required=True,
+                    help="Separate pre-registered reference-class JSON file")
+    ap.add_argument("--reference-lock-sha256", required=True,
+                    help="SHA256 pinned from the source-controlled preregistration")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
-    result = compare(json.loads(args.manifest.read_text(encoding="utf-8")))
+    lock_bytes = args.reference_lock.read_bytes()
+    actual = hashlib.sha256(lock_bytes).hexdigest()
+    if not SHA256.fullmatch(args.reference_lock_sha256) or (
+            actual != args.reference_lock_sha256.lower()):
+        print("invalid external reference lock SHA256", file=sys.stderr)
+        return 2
+    lock = json.loads(lock_bytes)
+    expected = lock.get("required_references")
+    if lock.get("schema") != 1 or not isinstance(expected, list):
+        print("invalid external reference-lock schema", file=sys.stderr)
+        return 2
+    result = compare(json.loads(args.manifest.read_text(encoding="utf-8")),
+                     tuple(expected))
     data = json.dumps(result, indent=2, sort_keys=True) + "\n"
     print(data, end="")
     if args.out:
