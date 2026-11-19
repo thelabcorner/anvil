@@ -41,6 +41,6 @@ Both numerators `x_hi = range*cum_hi` and `x_lo = range*cum_lo` share `d=total`,
 
 ## Observation and disposition
 
-A private **scalar-only** Python identity check using the exact formula above passed **67,848 x/d cases** spanning `d=1..2048`, CDF and rescale boundaries, `2^32`, `2^64-1`, and 64-bit extremes with seeded random trials. This is *not* a C++ compilation, a codec roundtrip or a speed measurement.
+A private **scalar-only** Python identity check using the exact formula above passed **67,881 x/d cases plus 5,000 realistic shared-CDF pairs** in the committed deterministic oracle, with 9/9 scalar tests passing; no codec was built spanning `d=1..2048`, CDF and rescale boundaries, `2^32`, `2^64-1`, and 64-bit extremes with seeded random trials. This is *not* a C++ compilation, a codec roundtrip or a speed measurement.
 
 This idea has higher multi-axis potential than importing a huge Hutter text predictor because it might improve **both encode and decode time with identical bytes**, but only if current real CPU profiles show division is a large fraction of the actual workload and the reciprocal construction is cheap. **No performance gain is claimed.** Keep draft PR #24 libsais version-only benchmark as the nearest existing decoder test; A90 is a separate, bounded research hypothesis, not a priority override.
