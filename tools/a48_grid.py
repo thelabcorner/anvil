@@ -179,7 +179,14 @@ def main() -> int:
                 "xz-9e": {"bytes": cb["xz"], "sha256": sha256(x_pack)},
                 "brotli-q11-lw30": {"bytes": cb["brotli"], "sha256": sha256(b_pack)}
             },
-            "timed_outputs_observed_per_repetition": True,
+            "timed_output_verification": {
+                "anvil_encode": "SHA256 after each measured candidate repetition",
+                "anvil_decode": "SHA256 after each measured candidate repetition",
+                "brotli_decode": "SHA256 after each measured control repetition in dec-brotli comparison",
+                "xz_encode": "one-shot roundtrip only; timed stdout is not captured",
+                "xz_decode": "one-shot roundtrip only; timed stdout is not captured",
+                "brotli_encode": "one-shot roundtrip only; timed outputs not observed",
+            },
         })
 
         # --- timing arms (argv JSON) ---
