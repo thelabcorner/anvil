@@ -19,7 +19,7 @@ Reference class is deliberately THIN (xz-9e + brotli-q11/lw30) exactly as the
 A48 prereg specifies; the frozen tools' GRID-THIN caveat applies to the ruling.
 """
 from __future__ import annotations
-import argparse, csv, hashlib, json, os, subprocess, sys
+import argparse, csv, hashlib, json, os, shutil, subprocess, sys
 from pathlib import Path
 
 FIELDS = ["file", "input_bytes", "codec", "compressed_bytes", "ratio",
@@ -94,6 +94,7 @@ def main() -> int:
     rows: list[dict] = []
     validity: list[dict] = []
     robustness: list[dict] = []
+    pack_manifest: list[dict] = []
 
     def ratio_scan(src: Path, name: str, n: int) -> dict:
         """Deterministic ratio reference scan across the FULL frozen class.
@@ -108,11 +109,9 @@ def main() -> int:
         if subprocess.run(["which", "brotli"], stdout=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL).returncode == 0:
             for q in (1, 3, 5, 9, 11):
-                p = out / "work" / name / f"ref-brotli-q{q}.br"
                 r = subprocess.run(["brotli", "-q", str(q), "-c", str(src)],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 if r.returncode == 0:
-                    p.write_bytes(r.stdout)
                     ratios[f"brotli-q{q}"] = len(r.stdout) / n
         # zstd CLI tiers if available
         if subprocess.run(["which", "zstd"], stdout=subprocess.DEVNULL,
@@ -170,6 +169,18 @@ def main() -> int:
         rt = all(sha256(p) == src_sha for p in (a_out, x_out, b_out))
         if not rt:
             raise RuntimeError(f"{name}: one or more encoded streams failed bit-exact roundtrip")
+        pack_manifest.append({
+            "file": name,
+            "input_bytes": n,
+            "input_sha256": src_sha,
+            "roundtrip_sha256_verified": True,
+            "packs": {
+                "anvil-cap8": {"bytes": cb["anvil"], "sha256": sha256(a_pack)},
+                "xz-9e": {"bytes": cb["xz"], "sha256": sha256(x_pack)},
+                "brotli-q11-lw30": {"bytes": cb["brotli"], "sha256": sha256(b_pack)}
+            },
+            "timed_outputs_observed_per_repetition": True,
+        })
 
         # --- timing arms (argv JSON) ---
         packed_sha = sha256(a_pack)
@@ -248,18 +259,25 @@ def main() -> int:
         checkpoint_text("grid-partial.csv", buffer.getvalue())
         checkpoint_text("timing-validity-partial.json", json.dumps(validity, indent=2) + "\n")
         checkpoint_text("bracket-robustness-partial.json", json.dumps(robustness, indent=2) + "\n")
+        checkpoint_text("pack-manifest-partial.json", json.dumps(pack_manifest, indent=2) + "\n")
         checkpoint_text("progress.json", json.dumps({
             "completed_files": [entry["file"] for entry in validity],
             "completed_count": len(validity),
             "total_count": len(a.files),
             "eligible_for_frontier_claim": False,
         }, indent=2) + "\n")
+        # Deterministic intermediate outputs are not durable scientific evidence:
+        # hashes, complete wire bytes, and all paired raw repetitions are captured.
+        # Drop per-file compress/decompress working copies immediately instead of
+        # retaining them for an oversized Actions artifact.
+        shutil.rmtree(work)
 
     grid = out / "grid.csv"
     with grid.open("w", newline="") as fp:
         w = csv.DictWriter(fp, fieldnames=FIELDS); w.writeheader(); w.writerows(rows)
     (out / "timing-validity.json").write_text(json.dumps(validity, indent=2) + "\n")
     (out / "bracket-robustness.json").write_text(json.dumps(robustness, indent=2) + "\n")
+    (out / "pack-manifest.json").write_text(json.dumps(pack_manifest, indent=2) + "\n")
     print(f"wrote {grid} ({len(rows)} rows); all_valid="
           f"{all(v['timing_valid_all'] for v in validity)}")
     return 0
