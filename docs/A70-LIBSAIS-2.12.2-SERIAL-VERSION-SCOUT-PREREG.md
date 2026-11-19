@@ -63,3 +63,24 @@ This preregistration was authored before the version-only candidate was prepared
 4. A version-only import changes the available encoder-side `libsais_bwt_aux` implementation too; to isolate decoder causality, decode exactly the SAME frozen **old-encoded** wire inputs in both arms. Only after decode-only safety/performance tests should newly encoded complete-wire bytes be compared as a separate factor. The four public function signatures used by ANVIL are identical between versions, but correct aux-index semantics/encoded compatibility remain to be tested.
 
 No heavy local builds, CI publication or dispatch have been performed. The draft remains intentionally unmerged.
+
+## A70 audit update — authentic old-wire provenance and route classification, 19 November 2026
+
+This supersedes any earlier assumption that the three selected files *necessarily* exercise the intended backend. A separate peer independently parsed the **actual frozen A48 artifact** (run `44380412243`, artifact `14480494484`, archive SHA-256 `71b6b288b1a2d3f2ae0adf132287e0b1a790642e937ba9526018f8b678ea3eab`) without running the codec. Source `tools/a48_grid.py` at the A48 branch uses the **identical** `--parse=ratio --ratio-backend=auto --ratio-context=off --ratio-lines=off --bwt-aux=on --bwt-subblock=8388608 --quiet` command as A70's old-encoder stage.
+
+Actual full `ANV0` revision-2 header parses from those historical immutable streams:
+
+| Input | Total old-wire bytes | SHA-256 of complete ANVIL file | Block mode/transform/backend |
+|---|---:|---|---|
+| dickens | 2,636,635 | `e2f188e5dc5879d622bc71278cdbb40e68baae73515379353a0fe498c0cb670d` | `17 / 0 / 2` = direct, **BWT** |
+| mr | 2,413,023 | `9cf875f7a51c910ba5772d31f7983400e8b89ee3d217f74bd1bc67101b5eed7c` | `17 / 0 / 2` = direct, **BWT** |
+| mozilla | 13,806,173 | `175c68610e213bb7af3275b7ef5cd51f008add01e2865e9a44020dc1a452443c` | `17 / 0 / 1` = direct, **Brotli** (negative control) |
+| nci (not in A70) | 1,497,442 | `6e5079237863632dfd1a2652d87af36d62133ce30743e62864526f389f821a93` | `17 / 0 / 1` = direct, Brotli |
+
+All four historical streams consist of **one revision-2 block**, declared source sizes match the frozen corpus, and the full input is consumed without trailing bytes. These are *historical* observations, not new A70 decode measurements; the A70 driver rechecks the freshly generated old-wire streams before every paired experiment.
+
+**Implemented safeguards in staged PR #24:** `inspect_ratio_wire` scans source-accurate ANVIL framing to record each block's actual decode backend and transformation without decompressing. `require_preregistered_route` fails closed unless `dickens/mr` are BWT-only and `mozilla` Brotli-only (mixed/unknown modes are not admissible). `verify_frozen_old_wire` requires the new frozen-old encoder outputs to **exactly reproduce the independent previous A48 full-stream bytes and SHA-256**, preventing unacknowledged package, codec-source, output-routing or encoder-version drift. A mismatch is an *experiment provenance failure*, not H0 against libsais.
+
+**Scalar verification of staged files:** `python -m unittest discover -s tests -p test_a70_version_scout.py -v` in an isolated local scratch directory produced **19 tests discovered, 18 PASS, 1 Linux-only `/usr/bin/time` test SKIPPED**, exit 0. Nine new routing/malformed header cases and three new old-wire-drift cases were included. The scratch directory was deleted after inspection. This was **not** a codec build, LLVM/Clang check, dataset decompression, hosted GHA run or real performance measurement. Linux RSS and full old-wire regeneration still require the authorized manual-only hosted A70 workflow.
+
+**Disposition:** `PROCEED_WITH_GUARDS` for the source-only protocol hardening; `AWAIT_AUTHORIZATION` for publishing the new workflow and dispatching a bounded GHA run. No universal Pareto claim follows from this three-file decoder-scout protocol.
