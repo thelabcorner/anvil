@@ -1,6 +1,6 @@
 # Independent all-axis Pareto claim audit — supplementary, NOT the frozen I9 gate
 
-**Status:** source implementation and 19 adversarial **scalar** tests passed (read-only Python in a temporary directory; no codec builds, benchmarks, CI runs or changes to a running experiment). **Claim scope:** one source file / one hosted job / a declared set of mainstream reference modes. This is NOT a universal-statistical dominance proof.
+**Status:** source implementation and 22 adversarial **scalar** tests passed (read-only Python in a temporary directory; no codec builds, benchmarks, CI runs or changes to a running experiment). **Claim scope:** one source file / one hosted job / a declared set of mainstream reference modes. This is NOT a universal-statistical dominance proof.
 
 ## Why the extra audit exists
 
@@ -83,10 +83,12 @@ python3 tools/pareto_allaxis_audit.py results/one-file-samejob-evidence.json --o
 python3 -m unittest discover -s tests -p 'test_pareto_allaxis_audit.py' -v
 ```
 
+CLI exit codes are intentionally meaningful: **0 only when all declared references have observed scope dominance; 1 for regression, inconclusive or not fully dominated; 2 for malformed/inconsistent reference coverage or schema.** A CI consumer must never interpret valid JSON output or an inconclusive result as experiment success.
+
 These scripts do **not** dispatch GitHub Actions, modify benchmarks, synthesize data or replace existing gates. To achieve ANVIL's actual objective, build a separate corpus-wide promotion protocol with exact immutable file coverage, independently verified source families, proper simultaneous same-job comparisons, multiple runner replications, decoder-only distribution footprint, full memory/fuzz/safety tests, and distinguish baseline codec levels. The old Class-A/2D 435/28/5/0 result is preserved, not reinterpreted.
 
 ## Independent adversarial scalar checks
 
-19 deterministic cases pass: positive scoped observation, bytes-regressed/time-faster counterexample, time-regressed/bytes-better counterexample, CI crossing, null drift, one-shot RSS, overlapping RSS, unambiguously worse RSS, omitted decoder assets, lost random access, failed roundtrip as HARD FAIL, missing reference class, mismatched run ID, absent raw evidence hash, corrupt decoded output, incomplete all-reference win, missing runner fingerprint, missing RSS evidence SHA, and spoofed candidate/reference codec identity.
+22 deterministic cases pass: positive scoped observation, bytes-regressed/time-faster counterexample, time-regressed/bytes-better counterexample, CI crossing, null drift, one-shot RSS, overlapping RSS, unambiguously worse RSS, omitted decoder assets, lost random access, failed roundtrip as HARD FAIL, missing reference class, mismatched run ID, absent raw evidence hash, corrupt decoded output, incomplete all-reference win, missing runner fingerprint, missing RSS evidence SHA, spoofed candidate/reference codec identity, and three fail-closed CLI tests (valid scope exit 0, regression/inconclusive exit 1, invalid reference coverage exit 2).
 
 **Decision:** PROCEED_WITH_GUARDS on this standalone read-only validator; no execution of a full benchmark or general-purpose Pareto promotion is claimed.
