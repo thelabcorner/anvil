@@ -140,6 +140,42 @@ class A70ScalarTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "noncanonical"):
             self._parse_synthetic_wire(malformed, 128)
 
+    def test_frozen_previous_run_fingerprint_is_enforced(self):
+        # Synthetic scalar fixture: the real 3 expected digests come from
+        # immutable A48 artifact 14480494484, not from this fake fixture.
+        payload = b"ANVIL old source, fixed test-only wire"
+        digest = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "old.anv"
+            path.write_bytes(payload)
+            with patch.dict(scout.FROZEN_A48_OLD_WIRE,
+                            {"dickens": (len(payload), digest)}):
+                result = scout.verify_frozen_old_wire(path, "dickens")
+                self.assertTrue(result["matches_byte_for_byte"])
+                self.assertEqual(result["artifact_id"], 14480494484)
+
+    def test_changed_wire_same_size_fails_frozen_fingerprint(self):
+        payload = b"wire-golden"
+        digest = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "old.anv"
+            path.write_bytes(b"wire-BROKEN")
+            with patch.dict(scout.FROZEN_A48_OLD_WIRE,
+                            {"dickens": (len(payload), digest)}):
+                with self.assertRaisesRegex(RuntimeError, "FROZEN_WIRE_DRIFT"):
+                    scout.verify_frozen_old_wire(path, "dickens")
+
+    def test_changed_wire_length_fails_frozen_fingerprint(self):
+        payload = b"wire-golden"
+        digest = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "old.anv"
+            path.write_bytes(payload + b"\x00")
+            with patch.dict(scout.FROZEN_A48_OLD_WIRE,
+                            {"mr": (len(payload), digest)}):
+                with self.assertRaisesRegex(RuntimeError, "FROZEN_WIRE_DRIFT"):
+                    scout.verify_frozen_old_wire(path, "mr")
+
     @unittest.skipUnless(Path("/usr/bin/time").is_file(),
                          "GNU time unavailable in this scalar test environment")
     def test_process_rss_not_timed_as_codec(self):
