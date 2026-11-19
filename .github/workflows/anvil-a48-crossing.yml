@@ -224,7 +224,13 @@ jobs:
             ${{ env.OUT_DIR }}/independent-audit.json
             ${{ env.OUT_DIR }}/ruling.txt
             ${{ env.OUT_DIR }}/arbiter/
-            ${{ env.OUT_DIR }}/grid-out/
+            ${{ env.OUT_DIR }}/grid-out/paired-*.csv
+            ${{ env.OUT_DIR }}/grid-out/paired-*.json
+            ${{ env.OUT_DIR }}/grid-out/grid*.csv
+            ${{ env.OUT_DIR }}/grid-out/timing-validity*.json
+            ${{ env.OUT_DIR }}/grid-out/bracket-robustness*.json
+            ${{ env.OUT_DIR }}/grid-out/progress.json
+            ${{ env.OUT_DIR }}/grid-out/pack-manifest*.json
             ${{ env.OUT_DIR }}/build/anvil
             ${{ env.OUT_DIR }}/build/brotli_lw
           if-no-files-found: warn
