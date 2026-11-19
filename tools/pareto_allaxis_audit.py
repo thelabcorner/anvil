@@ -245,7 +245,12 @@ def main() -> int:
     print(data, end="")
     if args.out:
         args.out.write_text(data, encoding="utf-8")
-    return 2 if result.get("integrity_errors") or result.get("status") == "INVALID_SCHEMA" else 0
+    # Exit 0 means a *scoped* all-reference observation passed.
+    # A regression, incomplete evidence, or unproven timing must never
+    # silently present as CI success merely because JSON printed correctly.
+    if result.get("integrity_errors") or result.get("status") == "INVALID_SCHEMA":
+        return 2
+    return 0 if result["status"] == "ALL_REQUIRED_REFERENCES_OBSERVED_SCOPE_DOMINANCE" else 1
 
 
 if __name__ == "__main__":
