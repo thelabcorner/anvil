@@ -62,7 +62,7 @@ def paired(tools: Path, control: list[str], candidate: list[str],
         "--expected-sha256", source_hash,
         "--out", str(raw), "--summary", str(summary),
     ]
-    run(argv)
+    run(argv, timeout=600)  # bounded per paired session; preserve artifact-upload time
     d = json.loads(summary.read_text(encoding="utf-8"))
     # Fail closed if the timed runs were not actually observed with the
     # canonical source hash AFTER their subprocess clock stopped.
@@ -119,7 +119,7 @@ def run_scout(a: argparse.Namespace) -> dict:
         run([str(a.old), "c", str(src), str(packed),
              "--parse=ratio", "--ratio-backend=auto",
              "--ratio-context=off", "--ratio-lines=off", "--bwt-aux=on",
-             "--bwt-subblock=8388608", "--quiet"])
+             "--bwt-subblock=8388608", "--quiet"], timeout=600)
 
         oldout, newout = filedir / "old.out", filedir / "new.out"
         oldcmd = [str(a.old), "d", str(packed), str(oldout), "--quiet"]
@@ -154,14 +154,23 @@ def run_scout(a: argparse.Namespace) -> dict:
                  str(filedir / "new-trunc.out"), "--quiet"],
                 timeout=120, expect_failure=True)
 
+        # Bracket the old-vs-new paired experiment with TWO A/A null sessions.
+        # A later-only null misses drift in the setup interval before comparison.
+        null_pre = paired(a.tools, oldcmd, oldcmd, oldout, oldout,
+                          source_hash, f"{name}-old-null-pre", results, a.reps)
         comparison = paired(a.tools, oldcmd, newcmd, oldout, newout,
                             source_hash, f"{name}-old-vs-new", results, a.reps)
-        null = paired(a.tools, oldcmd, oldcmd, oldout, oldout,
-                      source_hash, f"{name}-old-null", results, a.reps)
+        null_post = paired(a.tools, oldcmd, oldcmd, oldout, oldout,
+                           source_hash, f"{name}-old-null-post", results, a.reps)
 
-        null_ci = null.get("paired_ratio_ci95", [])
-        null_valid = (len(null_ci) == 2 and float(null_ci[0]) <= 1.0 <= float(null_ci[1]))
-        good = bool(comparison.get("timing_valid") and null.get("timing_valid") and null_valid)
+        def valid_null(d: dict) -> bool:
+            ci = d.get("paired_ratio_ci95", [])
+            return (len(ci) == 2 and
+                    float(ci[0]) <= 1.0 <= float(ci[1]) and
+                    d.get("timing_valid") is True)
+
+        null_valid = valid_null(null_pre) and valid_null(null_post)
+        good = bool(comparison.get("timing_valid") and null_valid)
         record = {
             "file": name, "input_bytes": size, "input_sha256": source_hash,
             "packed_bytes": packed.stat().st_size, "packed_sha256": sha256(packed),
@@ -172,7 +181,8 @@ def run_scout(a: argparse.Namespace) -> dict:
             "old_decode_sha256": source_hash, "new_decode_sha256": source_hash,
             "paired_candidate_over_control": comparison.get("paired_ratio_candidate_over_control"),
             "paired_ci95": comparison.get("paired_ratio_ci95"),
-            "null_ci95": null_ci,
+            "null_pre_ci95": null_pre.get("paired_ratio_ci95"),
+            "null_post_ci95": null_post.get("paired_ratio_ci95"),
             "timing_valid": good,
             "status": "SCOUT_TIMING_VALID" if good else "INCONCLUSIVE_TIMING",
         }
@@ -181,9 +191,10 @@ def run_scout(a: argparse.Namespace) -> dict:
         (a.out / "scout-partial.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(record, sort_keys=True), flush=True)
-        # Reproducible raw input and pack bytes are not needed in the artifact:
-        # exact hashes, paths, full sizes and paired repetitions are preserved.
-        for p in (src, packed, oldout, newout):
+        # Retain old compressed stream as immutable replay evidence (~19MB total
+        # for the three scout inputs); it is small compared with A48's 427MB
+        # regenerable-work artifact. Originals are source-pinned by MD5/SHA.
+        for p in (src, oldout, newout):
             p.unlink(missing_ok=True)
     manifest["research_decision"] = (
         "SCOUT_ONLY_NOT_FULL_PARETO_NO_VERSION_CLAIM"
