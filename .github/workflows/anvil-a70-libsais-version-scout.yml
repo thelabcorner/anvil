@@ -84,6 +84,8 @@ jobs:
             sha256sum candidate/tools/gha_fetch_corpus.py
             clang-18 --version | head -1
             clang++-18 --version | head -1
+            echo '=== clang-18 compile-time ISA feature macros ==='
+            clang-18 -dM -E -x c /dev/null | grep -E '__SSE2__|__AVX2__|__aarch64__' || true
             uname -a
             lscpu
           } | tee "$OUT_DIR/provenance.txt"
@@ -99,15 +101,19 @@ jobs:
         run: |
           set -euo pipefail
           cmake -S old -B "$OUT_DIR/old-build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
             -DANVIL_BUILD_NATIVE_BENCH=OFF
           cmake -S candidate -B "$OUT_DIR/new-build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
             -DANVIL_BUILD_NATIVE_BENCH=OFF
           cmake --build "$OUT_DIR/old-build" --parallel 4 --target anvil
           cmake --build "$OUT_DIR/new-build" --parallel 4 --target anvil
+          # Pin the effective compiler contract, not just intended flags.
+          ! grep -E -- '-march=native|-mavx2|-mavx512' "$OUT_DIR/old-build/compile_commands.json" "$OUT_DIR/new-build/compile_commands.json"
+          cp "$OUT_DIR/old-build/compile_commands.json" "$OUT_DIR/old-compile-commands.json"
+          cp "$OUT_DIR/new-build/compile_commands.json" "$OUT_DIR/new-compile-commands.json"
           {
             sha256sum "$OUT_DIR/old-build/anvil" "$OUT_DIR/new-build/anvil"
             wc -c "$OUT_DIR/old-build/anvil" "$OUT_DIR/new-build/anvil"
@@ -139,6 +145,8 @@ jobs:
             ${{ env.OUT_DIR }}/binary-identities.txt
             ${{ env.OUT_DIR }}/old-ldd.txt
             ${{ env.OUT_DIR }}/new-ldd.txt
+            ${{ env.OUT_DIR }}/old-compile-commands.json
+            ${{ env.OUT_DIR }}/new-compile-commands.json
             ${{ env.OUT_DIR }}/scout-console.log
             ${{ env.OUT_DIR }}/scout.json
             ${{ env.OUT_DIR }}/scout-partial.json
