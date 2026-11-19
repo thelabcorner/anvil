@@ -61,3 +61,16 @@ Both were `mode=17 / transform=0 / backend=1`, exactly one frame, with all input
 **Engineering implication:** For a direct-Brotli passthrough that preserves the ANV0 framing and sends precisely the same Brotli bytes, `B_ANVIL = B_Brotli + header_overhead > B_Brotli`. Such a route cannot strictly dominate standalone Brotli on **complete bytes**, regardless of faster decode, caching, libsais, or arithmetic. Reducing the wrapper to some positive size alone still leaves a positive byte gap. A genuine byte-axis crossing would require a new representation/entropy gain large enough to pay the (possibly optimized) envelope, or a fundamentally different format/contract; the latter cannot silently sacrifice backend identity, checksums, streaming or backward-compatibility gates merely to remove bytes. A single-file raw Brotli passthrough cannot be mislabeled an ANV0-codec Pareto win.
 
 **Scope limit:** This is proven for those two **actual archived** ANV0/q11 files only and the existing format; it is not a theorem that no alternative ANVIL transform can beat Brotli, nor an argument for optimizing text-only Hutter scores. Keep lossless, decoding work and competing xz/zstd axes as separate constraints. This should **PARK superficial header micro-optimizations as a route to full strict Pareto** unless a realistic representation improvement or clearly beneficial tiny-file workload makes their end-to-end cost decision-changing.
+
+### Conditional structural tradeoff for current direct-mode auto routing
+
+The frozen `src/anvil.cpp:4802–4836` `encode_ratio_block` implementation serially calculates Brotli q11 and BWT candidates for each eligible transform, then chooses the smaller complete payload. Consequently, for a **direct Brotli-selected** file, the candidate is the *same* Brotli stream plus nonzero ANV0 framing, while the encoder also paid the positive work of evaluating the losing BWT arm. Under the same process and work assumptions:
+
+```
+B_auto_direct_brotli = B_standalone_brotli + H,        H > 0
+T_auto_arm = T_brotli_encode + T_bwt_encode + overhead
+```
+
+This provides a conditional **two-axis structural obstruction** to strict Pareto dominance over the *same standalone Brotli setting* on Brotli-selected files. The first identity is empirically byte-exact on A48 `mozilla` and `nci`. The time expression is a source-level serial-work decomposition, **not** a cross-run timing CI or a claim that any measured wall time equals the sum of independently measured programs (different library/CPU/OS noise may alter that comparison). For BWT-selected `dickens`/`mr`, ANVIL earns a real byte win but still pays q11+BWT encode and historical BWT decode was ~11.08×/~7.05× slower than Brotli. Source-level cost gating, reuse, an independently superior single algorithm, or a truly certified early-exit mechanism is required to move that operating point, rather than just micro-optimizing the decoder.
+
+This is **not** an impossibility theorem for all future ANVIL modes; it is explicitly scoped to current serial dual evaluation, unchanged ANV0 wrapper, direct Brotli/BWT branches and same source/reference settings. It further argues against promoting Hutter-style extra prediction work without paired encode/decode costs.
