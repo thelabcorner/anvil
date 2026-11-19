@@ -34,10 +34,11 @@ def make_fixture(root):
                            decode_null_ci=[0.95,1.05],encode_null_ci=[0.95,1.05]))
         for phase, n in (('dec',9),('enc',7)):
             for opponent, ctl in (('xz','xz'),('brotli','brotli_lw'),('null','anvil')):
-                pairs=[dict(control_s=1.0,candidate_s=1.0) for _ in range(n)]
+                pairs=[dict(pair=i,control_s=1.0,candidate_s=1.0) for i in range(n)]
                 cmds=['anvil','d' if phase=='dec' else 'c', name]
                 ctrl=cmds if opponent=='null' else [ctl, '-dc' if phase=='dec' else '-c', name]
-                summary=dict(timing_valid=True,paired_ratio_ci95=[0.95,1.05],
+                summary=dict(timing_valid=True,paired_ratio_candidate_over_control=1.0,
+                    paired_ratio_ci95=[1.0,1.0], bootstrap_samples=1000, seed=41246,
                     control=dict(argv=ctrl,median_s=1.0),candidate=dict(argv=cmds,median_s=1.0),pairs=pairs)
                 (out/f'paired-{name}-{phase}-{opponent}.json').write_text(json.dumps(summary))
     with (root/'grid.csv').open('w',newline='') as f:
@@ -114,6 +115,18 @@ class ClaimAuditTests(unittest.TestCase):
         self.assertEqual(candidate["ratio"], "0.200000")
         self.assertEqual(refs[0]["ratio"], "0.200000")
         self.assertEqual(classify(candidate, refs, "encode_MBps"), "DOMINATED")
+
+    def test_raw_nonmedian_outliers_change_ci(self):
+        # Three 1 ms outliers in a 9-rep A/A null leave BOTH individual
+        # medians unchanged. The original auditor incorrectly accepted a
+        # fabricated CI because it only rechecked the medians.
+        path = self.paths[3] / "paired-dickens-dec-null.json"
+        summary = json.loads(path.read_text())
+        for pair in summary["pairs"][:3]:
+            pair["control_s"] = 0.001
+        path.write_text(json.dumps(summary))
+        self.assertEqual(self.check()["decision"],
+                         "INVALID_INCOMPLETE_OR_FAILED_CORRECTNESS")
 
     def test_order_of_hypotheses(self):
         p=dict(ratio='0.5',decode_MBps='2')
