@@ -19,14 +19,16 @@ class LineageTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / "generator.py").write_text("print('source')\n")
         p = (self.root / "generator.py").read_bytes()
+        (self.root / "generator2.py").write_text("print('independent-source')\n")
         self.names = ["discovery.json", "samefamily.jsonl", "unrelated.json"]
         self.manifest = {"schema": 1, "files": []}
         for name, family in zip(self.names, ["generator-A", "generator-A", "generator-B"]):
             data = ("abc:" + name).encode()
             (self.root / name).write_bytes(data)
+            generator = "generator2.py" if family == "generator-B" else "generator.py"
             self.manifest["files"].append({"path": name, "generator_family": family,
-                "git_blob_sha1": sha(data), "generator_path": "generator.py",
-                "generator_git_blob_sha1": sha(p)})
+                "git_blob_sha1": sha(data), "generator_path": generator,
+                "generator_git_blob_sha1": sha((self.root / generator).read_bytes())})
 
     def tearDown(self):
         self.temp.cleanup()
@@ -42,6 +44,12 @@ class LineageTests(unittest.TestCase):
     def test_different_declared_generator_not_claimed_independent(self):
         x = self.run_gate(self.names[2])
         self.assertEqual(x["decision"], "DISJOINT_DECLARED_LINEAGES_INDEPENDENCE_NOT_PROVEN")
+
+    def test_forged_distinct_family_still_same_generator(self):
+        self.manifest["files"][1]["generator_family"] = "fraudulent-independent-name"
+        x = self.run_gate(self.names[1])
+        self.assertEqual(x["decision"], "SAME_FAMILY_TRANSFER_NOT_INDEPENDENT_HOLDOUT")
+        self.assertTrue(x["pairs"][0]["same_generator_source"])
 
     def test_mutated_corpus_fail_closed(self):
         (self.root / self.names[1]).write_text("changed")
