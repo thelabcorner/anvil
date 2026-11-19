@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from a48_claim_audit import audit, classify
+from a48_claim_audit import audit, classify, aggregate
 
 NAMES = (
     'dickens', 'mozilla', 'mr', 'nci', 'ooffice', 'osdb',
@@ -93,6 +93,27 @@ class ClaimAuditTests(unittest.TestCase):
         data[0]['encode_null_ci']=[1.01,1.05]
         path.write_text(json.dumps(data))
         self.assertEqual(self.check()['decision'],'INCONCLUSIVE_TIMING_NOT_H0')
+
+    def test_frozen_aggregate_precision_boundary(self):
+        # The frozen gate quantizes aggregate ratios to six decimals and
+        # throughput to three; a 1-byte ratio edge must not invent a crossing.
+        rows = []
+        for codec, size, rate in [
+            ("anvil-cap8", 2000001, 10),
+            ("brotli-q11-lw30", 2000002, 20),
+            ("xz-9e", 2100000, 30),
+        ]:
+            rows.append({
+                "codec": codec, "file": "f", "input_bytes": "10000000",
+                "compressed_bytes": str(size),
+                "encode_MBps": str(rate), "decode_MBps": str(rate),
+            })
+        grouped = aggregate(rows)
+        candidate = next(r for r in grouped if r["codec"] == "anvil-cap8")
+        refs = [r for r in grouped if r is not candidate]
+        self.assertEqual(candidate["ratio"], "0.200000")
+        self.assertEqual(refs[0]["ratio"], "0.200000")
+        self.assertEqual(classify(candidate, refs, "encode_MBps"), "DOMINATED")
 
     def test_order_of_hypotheses(self):
         p=dict(ratio='0.5',decode_MBps='2')
