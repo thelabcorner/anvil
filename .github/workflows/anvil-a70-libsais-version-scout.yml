@@ -52,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-18 cmake ninja-build libbrotli-dev libzstd-dev python3 util-linux
+          sudo apt-get install -y --no-install-recommends clang-18 cmake ninja-build libbrotli-dev libzstd-dev python3 util-linux time
           clang-18 --version
           clang++-18 --version
 
@@ -89,6 +89,11 @@ jobs:
           } | tee "$OUT_DIR/provenance.txt"
           [ -z "$(git -C old status --porcelain)" ]
           [ -z "$(git -C candidate status --porcelain)" ]
+
+      - name: Preflight A70 scalar orchestration tests before expensive builds
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s candidate/tests -p 'test_a70_version_scout.py' -v
 
       - name: Build serial old/new decoder variants with identical toolchain
         run: |
