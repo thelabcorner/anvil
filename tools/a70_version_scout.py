@@ -90,6 +90,101 @@ def paired(tools: Path, control: list[str], candidate: list[str],
     return d
 
 
+def inspect_ratio_wire(path: Path, expected_source_bytes: int) -> dict:
+    """Read only frame headers and routed backend tags from ANVIL revision 2.
+
+    Source contract: src/anvil.cpp compress() writes
+      ANV0, revision=2, uvar(block_capacity), uvar(original_bytes),
+      repeated [uvar(block_bytes), mode, uvar(payload_bytes), crc32_le,
+                payload];
+    ratio mode 17 payload begins [transform_id, backend_id,
+                                  uvar(transformed_bytes), encoded_stream].
+    No entropy decoding or codec execution is performed here.
+    """
+    size = path.stat().st_size
+    if size < 8:
+        raise RuntimeError("A70 invalid ANVIL frame: too short")
+
+    with path.open("rb") as f:
+        def read_exact(n: int) -> bytes:
+            b = f.read(n)
+            if len(b) != n:
+                raise RuntimeError("A70 truncated ANVIL header")
+            return b
+
+        def uvar() -> int:
+            value = 0
+            for i in range(10):
+                b = read_exact(1)[0]
+                if i == 9 and b > 1:
+                    raise RuntimeError("A70 invalid overflowing uvar")
+                value |= (b & 127) << (i * 7)
+                if not (b & 128):
+                    if i and not (b & 127):
+                        raise RuntimeError("A70 noncanonical uvar from old encoder")
+                    return value
+            raise RuntimeError("A70 invalid 10-byte uvar")
+
+        if read_exact(5) != b"ANV0\x02":
+            raise RuntimeError("A70 expected canonical revision-2 ANVIL wire")
+        block_capacity = uvar()
+        declared_source_bytes = uvar()
+        if not (0 < block_capacity <= 128 << 20):
+            raise RuntimeError("A70 invalid revision-2 block capacity")
+        if declared_source_bytes != expected_source_bytes:
+            raise RuntimeError("A70 packed source length disagrees with frozen corpus")
+        blocks: list[dict] = []
+        consumed = 0
+        while consumed < declared_source_bytes:
+            block_len = uvar()
+            if block_len == 0 or block_len > block_capacity:
+                raise RuntimeError("A70 invalid wire block length")
+            if consumed + block_len > declared_source_bytes:
+                raise RuntimeError("A70 block exceeds original source")
+            mode = read_exact(1)[0]
+            payload_len = uvar()
+            read_exact(4)  # existing per-block CRC32, decoder verifies it
+            start = f.tell()
+            end = start + payload_len
+            if end > size:
+                raise RuntimeError("A70 payload exceeds compressed file")
+            item = {"source_bytes": block_len, "payload_bytes": payload_len,
+                    "mode": mode}
+            if mode == 17:
+                if payload_len < 3:
+                    raise RuntimeError("A70 truncated ratio-mode payload")
+                transform, backend = read_exact(2)
+                if transform > 2 or backend not in (1, 2):
+                    raise RuntimeError("A70 invalid transform/backend identifier")
+                transformed = uvar()
+                if f.tell() > end or transformed > 2 * block_len + 4096:
+                    raise RuntimeError("A70 invalid transformed payload length")
+                item.update({
+                    "transform": transform,
+                    "backend": "brotli" if backend == 1 else "bwt",
+                    "transformed_bytes": transformed,
+                })
+            elif mode == 0:
+                if payload_len != block_len:
+                    raise RuntimeError("A70 invalid raw block payload length")
+                item["backend"] = "raw"
+            else:
+                raise RuntimeError(f"A70 unexpected revision-2 block mode {mode}")
+            f.seek(end)
+            consumed += block_len
+            blocks.append(item)
+        if f.tell() != size:
+            raise RuntimeError("A70 trailing bytes after complete original frame")
+        counts = {"brotli": 0, "bwt": 0, "raw": 0}
+        for b in blocks:
+            counts[b["backend"]] += 1
+        return {
+            "revision": 2, "declared_source_bytes": declared_source_bytes,
+            "block_capacity": block_capacity, "block_count": len(blocks),
+            "backend_blocks": counts, "blocks": blocks,
+        }
+
+
 def run_scout(a: argparse.Namespace) -> dict:
     a.out.mkdir(parents=True, exist_ok=True)
     results = a.out / "results"
@@ -133,6 +228,18 @@ def run_scout(a: argparse.Namespace) -> dict:
              "--parse=ratio", "--ratio-backend=auto",
              "--ratio-context=off", "--ratio-lines=off", "--bwt-aux=on",
              "--bwt-subblock=8388608", "--quiet"], timeout=600)
+
+        wire = inspect_ratio_wire(packed, size)
+        # Route provenance MUST precede any speed observation. A libsais
+        # version-only test on a Brotli-routed file is a negative control,
+        # never evidence that the inverse-BWT implementation got faster.
+        expected_backend = "brotli" if name == "mozilla" else "bwt"
+        observed = set(b["backend"] for b in wire["blocks"])
+        if observed != {expected_backend}:
+            raise RuntimeError(
+                f"A70 ROUTING_DRIFT {name}: expected only {expected_backend}, "
+                f"actual={sorted(observed)}. No libsais speed claim is valid."
+            )
 
         oldout, newout = filedir / "old.out", filedir / "new.out"
         oldcmd = [str(a.old), "d", str(packed), str(oldout), "--quiet"]
@@ -187,6 +294,8 @@ def run_scout(a: argparse.Namespace) -> dict:
         record = {
             "file": name, "input_bytes": size, "input_sha256": source_hash,
             "packed_bytes": packed.stat().st_size, "packed_sha256": sha256(packed),
+            "old_wire_backend": expected_backend,
+            "old_wire_route_provenance": wire,
             "old_decode_peak_rss_kib_one_shot": old_rss_kib,
             "new_decode_peak_rss_kib_one_shot": new_rss_kib,
             "rss_note": "one-shot per-process GNU time KiB outside paired clocks; NOT full RSS gate",
