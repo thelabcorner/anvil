@@ -139,3 +139,4 @@ jobs:
             ${{ env.OUT_DIR }}/scout-partial.json
             ${{ env.OUT_DIR }}/results/*.json
             ${{ env.OUT_DIR }}/results/*.csv
+            ${{ env.OUT_DIR }}/results/*-rss.txt
