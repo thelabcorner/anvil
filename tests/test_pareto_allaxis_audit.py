@@ -18,6 +18,7 @@ from pareto_allaxis_audit import compare, main
 
 H = hashlib.sha256(b"source-data").hexdigest()
 ART = hashlib.sha256(b"raw-pair-evidence").hexdigest()
+LOCK_REFS = ("brotli-q11", "xz-9e")
 
 
 def record(codec, wire, size, rss):
@@ -80,15 +81,35 @@ class ParetoAllAxisTests(unittest.TestCase):
         m = valid_manifest()
         if change:
             change(m)
-        return compare(m)
+        return compare(m, LOCK_REFS)
 
     def cli_exit(self, manifest):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")
-            with patch.object(sys, "argv", ["audit", str(path)]):
+            lock = Path(td) / "baseline-lock.json"
+            lock.write_text(json.dumps({"schema": 1, "required_references": LOCK_REFS}),
+                            encoding="utf-8")
+            lock_sha = hashlib.sha256(lock.read_bytes()).hexdigest()
+            argv = ["audit", str(path), "--reference-lock", str(lock),
+                    "--reference-lock-sha256", lock_sha]
+            with patch.object(sys, "argv", argv):
                 with redirect_stdout(io.StringIO()):
                     return main()
+
+    def test_no_external_lock_prevents_any_positive_claim(self):
+        r = compare(valid_manifest())
+        self.assertEqual(r["status"], "NOT_ALL_REQUIRED_REFERENCES_DOMINATED")
+        self.assertIn("INDEPENDENT immutable reference lock", repr(r["integrity_errors"]))
+
+    def test_manifest_cannot_hide_a_stronger_external_reference(self):
+        m = valid_manifest()
+        m["required_references"] = ["brotli-q11"]
+        m["references"] = m["references"][:1]
+        m["paired"] = m["paired"][:1]
+        r = compare(m, LOCK_REFS)
+        self.assertIn("externally frozen reference lock", repr(r["integrity_errors"]))
+        self.assertEqual(r["status"], "NOT_ALL_REQUIRED_REFERENCES_DOMINATED")
 
     def test_cli_only_returns_zero_for_scoped_all_axis_win(self):
         m = valid_manifest()
