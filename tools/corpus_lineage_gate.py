@@ -99,14 +99,21 @@ def evaluate(manifest: dict, root: Path, discovery: list[str], validation: list[
         for v in validation:
             if d not in by_name or v not in by_name:
                 continue
-            left = by_name[d].get("generator_family")
-            right = by_name[v].get("generator_family")
+            first, second = by_name[d], by_name[v]
+            left, right = first.get("generator_family"), second.get("generator_family")
+            # Different human-supplied labels must never conceal one and the
+            # same cryptographically identified generator source.
+            same_generator_sha = bool(first.get("generator_git_blob_sha1")) and (
+                first.get("generator_git_blob_sha1") == second.get("generator_git_blob_sha1"))
+            same_generator_path = bool(first.get("generator_path")) and (
+                first.get("generator_path") == second.get("generator_path"))
             cross.append({"discovery": d, "validation": v,
                           "discovery_family": left, "validation_family": right,
-                          "same_declared_family": left == right})
+                          "same_declared_family": left == right,
+                          "same_generator_source": same_generator_sha or same_generator_path})
     if errors:
         decision = "INVALID_PROVENANCE_OR_INPUTS"
-    elif any(x["same_declared_family"] for x in cross):
+    elif any(x["same_declared_family"] or x["same_generator_source"] for x in cross):
         decision = "SAME_FAMILY_TRANSFER_NOT_INDEPENDENT_HOLDOUT"
     else:
         decision = "DISJOINT_DECLARED_LINEAGES_INDEPENDENCE_NOT_PROVEN"
