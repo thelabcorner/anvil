@@ -31,6 +31,18 @@ def run(argv: list[str], timeout: int = 1800, *, expect_failure: bool = False) -
                            + p.stderr.decode("utf-8", "replace")[-2000:])
 
 
+def max_rss_kib(argv: list[str], output: Path) -> int:
+    """One-shot process peak in KiB, separate from every timed comparison."""
+    run(["/usr/bin/time", "-f", "%M", "-o", str(output), *argv])
+    try:
+        value = int(output.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"missing GNU time RSS observation: {output}") from exc
+    if value <= 0:
+        raise RuntimeError(f"nonsensical RSS observation {value} from {output}")
+    return value
+
+
 def paired(tools: Path, control: list[str], candidate: list[str],
            control_output: Path, candidate_output: Path,
            source_hash: str, label: str, out: Path, reps: int) -> dict:
@@ -117,6 +129,13 @@ def run_scout(a: argparse.Namespace) -> dict:
         if sha256(oldout) != source_hash or sha256(newout) != source_hash:
             raise RuntimeError(f"old-wire decode compatibility FAIL: {name}")
 
+        # Separate process-level peak-RSS readings OUTSIDE the paired clocks.
+        # This is a one-shot scout metric, NOT the full reproducible RSS gate.
+        old_rss_kib = max_rss_kib(oldcmd, results / f"{name}-old-rss.txt")
+        new_rss_kib = max_rss_kib(newcmd, results / f"{name}-new-rss.txt")
+        if sha256(oldout) != source_hash or sha256(newout) != source_hash:
+            raise RuntimeError(f"RSS measured command produced corrupt bytes: {name}")
+
         # One bounded malformed-input guard, not a substitute for full fuzz.
         if a.test_truncation:
             truncated = filedir / "truncated.anv"
@@ -146,6 +165,9 @@ def run_scout(a: argparse.Namespace) -> dict:
         record = {
             "file": name, "input_bytes": size, "input_sha256": source_hash,
             "packed_bytes": packed.stat().st_size, "packed_sha256": sha256(packed),
+            "old_decode_peak_rss_kib_one_shot": old_rss_kib,
+            "new_decode_peak_rss_kib_one_shot": new_rss_kib,
+            "rss_note": "one-shot per-process GNU time KiB outside paired clocks; NOT full RSS gate",
             "same_old_packed_sha_both_arms": True,
             "old_decode_sha256": source_hash, "new_decode_sha256": source_hash,
             "paired_candidate_over_control": comparison.get("paired_ratio_candidate_over_control"),
