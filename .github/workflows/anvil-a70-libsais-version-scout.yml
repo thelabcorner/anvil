@@ -154,6 +154,8 @@ jobs:
             ${{ env.OUT_DIR }}/new-ldd.txt
             ${{ env.OUT_DIR }}/old-compile-commands.json
             ${{ env.OUT_DIR }}/new-compile-commands.json
+            ${{ env.OUT_DIR }}/old-build/anvil
+            ${{ env.OUT_DIR }}/new-build/anvil
             ${{ env.OUT_DIR }}/scout-console.log
             ${{ env.OUT_DIR }}/scout.json
             ${{ env.OUT_DIR }}/scout-partial.json
