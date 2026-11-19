@@ -185,6 +185,23 @@ def inspect_ratio_wire(path: Path, expected_source_bytes: int) -> dict:
         }
 
 
+def require_preregistered_route(wire: dict, name: str) -> str:
+    expected_routes = {"dickens": "bwt", "mr": "bwt", "mozilla": "brotli"}
+    if name not in expected_routes:
+        raise ValueError(
+            f"A70 scout only preregisters {sorted(expected_routes)}; "
+            f"{name} requires a new source-backed route hypothesis"
+        )
+    expected = expected_routes[name]
+    observed = set(b["backend"] for b in wire["blocks"])
+    if observed != {expected}:
+        raise RuntimeError(
+            f"A70 ROUTING_DRIFT {name}: expected only {expected}, "
+            f"actual={sorted(observed)}. No libsais speed claim is valid."
+        )
+    return expected
+
+
 def run_scout(a: argparse.Namespace) -> dict:
     a.out.mkdir(parents=True, exist_ok=True)
     results = a.out / "results"
@@ -233,13 +250,7 @@ def run_scout(a: argparse.Namespace) -> dict:
         # Route provenance MUST precede any speed observation. A libsais
         # version-only test on a Brotli-routed file is a negative control,
         # never evidence that the inverse-BWT implementation got faster.
-        expected_backend = "brotli" if name == "mozilla" else "bwt"
-        observed = set(b["backend"] for b in wire["blocks"])
-        if observed != {expected_backend}:
-            raise RuntimeError(
-                f"A70 ROUTING_DRIFT {name}: expected only {expected_backend}, "
-                f"actual={sorted(observed)}. No libsais speed claim is valid."
-            )
+        expected_backend = require_preregistered_route(wire, name)
 
         oldout, newout = filedir / "old.out", filedir / "new.out"
         oldcmd = [str(a.old), "d", str(packed), str(oldout), "--quiet"]
