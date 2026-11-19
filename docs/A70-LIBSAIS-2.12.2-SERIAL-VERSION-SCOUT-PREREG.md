@@ -1,0 +1,52 @@
+# A70 — Pinned libsais 2.12.2 serial inverse-BWT scout (preregistration, NOT executed)
+
+**Prepared:** 2026-11-18. **Research disposition:** VERIFY the strongest available *conventional* decoder baseline before constructing an unimplemented run-aware/blocked LF algorithm. **Execution disposition:** TEST, contingent on an allowed, manual-only GitHub Actions publication/dispatch path. Nothing in this preregistration authorizes bypassing an existing workflow-push restriction.
+
+## Goal, decisive unknown, and prior evidence
+
+ANVIL's full objective remains exact lossless decoding plus complete-wire size, encode/decode time, peak RSS, decoder and dependencies size, stream/safety controls, and held-out generalization. A narrowly better inverse-BWT algorithm is a useful *mechanism* observation, not automatically all-axis Pareto dominance or a full Class-A crossing.
+
+- Frozen A44 cap-8 Silesia run `44370017321`, candidate `2c5eeb9e570b1e1162cbff98d29e0a978edeca92`, reported **47,365,274 compressed bytes**, **74.2 MiB peak RSS (1.450× xz)** and **ANVIL/Brotli decode-time ratio 2.3618** (paired 95% CI **[2.2788, 2.4446]**). The **Brotli decode-time guardrail <= 2.0** remains the binding Silesia cost axis. The cap experiment used default *byte-minimum* routing, **not active C7 percent-gain routing**; see research ledger A69 and the original raw job logs. Do not attribute the result to dormant C7 policy.
+- A48 run `44380412243` hit its 240-minute limit; original [artifact `14480494484`](https://github.com/thelabcorner/anvil/actions/runs/44380412243/artifacts/14480494484) preserves four complete per-file benchmarks but **no 12-file R-2 ruling**. It has 5 scoped thin-grid crossing labels across eight evaluated file-plane cells, not the full Class-A frontier nor all-axis Pareto. No point in rerunning that unchanged multi-hour grid.
+- The current vendored `third_party/libsais/{src/libsais.c,include/libsais.h}` identifies **libsais 2.10.4** (September 1, 2025). The upstream [official v2.12.2 release](https://github.com/IlyaGrebnov/libsais/releases/tag/v2.12.2), published **November 9, 2026**, reports improved inverse BWT in single- and multi-threaded operation. [Upstream CHANGES](https://github.com/IlyaGrebnov/libsais/blob/v2.12.2/CHANGES) reports **significantly** improved inverse BWT in **v2.12.0 (October 18, 2026)**, followed by additional optimization in **v2.12.2**. These are *upstream claims*, **not measured ANVIL improvements**. Version 2.12.0 also changed licensing to **Apache-2.0 WITH LLVM-exception** and tightened invalid-BWT safety behavior.
+- The existing `prototypes/i9-bwtinv/unbwt_bench.cpp` is Windows/QPC-only and its `aux_r*`/OMP arms call existing libsais APIs. It does not implement an independent blocked LF traversal. Upstream's README already documents in-place 5n inverse BWT and bigram-LF optimization; do not mistake those features for a new ANVIL invention.
+- Existing CMake builds libsais serial by default (`-O3 -DNDEBUG`, no `LIBSAIS_OPENMP`). Upstream's [CMake](https://github.com/IlyaGrebnov/libsais/blob/v2.12.2/CMakeLists.txt) similarly defaults `LIBSAIS_USE_OPENMP=OFF`, making a clean **serial version-only comparison** feasible without introducing multithread confounds.
+
+## Amdahl bound: a screen before investment
+
+To move 2.3618× Brotli decode time below 2.0× on the same fixed control, end-to-end ANVIL decode wall time must improve by **at least 1 − 2/2.3618 = 15.32%**. The inverse-BWT LF stage can only cause that change to the extent it actually occupies the original end-to-end critical path.
+
+Let `p` be the measured fraction of candidate end-to-end time spent in inverse-BWT, and `s` its isolated speedup under otherwise equal work. The maximum achievable total-time reduction is `p·(1 − 1/s)`. Therefore `p > 0.1532` is a necessary condition to close the cost axis *even with an infinitely fast inverse*. Illustrative **conditional** requirements: `p=0.2 -> s≥4.27×`; `p=0.3 -> s≥2.04×`; `p=0.4 -> s≥1.62×`; `p=0.6 -> s≥1.34×`. These are mathematical planning bounds, **not observed shares or speedups**.
+
+First profile/sum decode costs on exact BWT-routed cap-8 files, without attributing the Brotli-routed `mozilla` time to libsais. If `p≤0.1532`, PARK version-only decode as a solution to *this* Silesia gate, though the version can remain a maintenance/safety candidate. A positive microbench alone is insufficient.
+
+## H1 / H0, pre-registered discriminators
+
+**H1:** replacing only vendored libsais 2.10.4 with pinned upstream 2.12.2 significantly improves frozen, exact-byte inverse BWT decode; a same-run, end-to-end paired Silesia measurement closes or materially approaches the failing decode-vs-Brotli cost axis **without** violating unchanged wire bytes, source-hash, memory, decoder-size, or correctness gates.
+
+**H0:** version change is neutral, slower, noisy, incompatible, or insufficient at *end-to-end* level to change the Silesia decision. In that case do not further promote a pure-version speed claim; try an explicitly distinct 2/4-thread test only if a new measurable reason exists.
+
+**Competing hypothesis:** most latency lies outside libsais (I/O framing, MTF/RLE entropy decoding, or Brotli-routed files). A successful isolated inverse-BWT microbench would then yield little end-to-end change.
+
+### Phase S: smallest legitimate manual GitHub Actions experiment (version ONLY)
+
+1. **Freeze identities:** use candidate ANVIL SHA `2c5eeb9e570b1e1162cbff98d29e0a978edeca92`; vendor *exact* upstream **tag v2.12.2 resolved to immutable commit SHA at dispatch**. Record the exact old/new `libsais.c`, `libsais.h`, `LICENSE` SHA-256, full compiler and flags, binary hashes, uname/CPU topology. Two isolated build trees, same ANVIL code, same Clang 18/Release `-O3`, no OpenMP in either; no implicit optimization or candidate-policy changes.
+2. **Fixed workloads:** decode **identical sha-pinned compressed cap-8 streams** produced by the frozen **old** encoder on Silesia and at least one non-BWT-routed negative control. Build two decoder variants differing *only* in libsais version. Keep existing BWT auxiliary sample indexes and `--bwt-subblock=8388608`. Compare real BWT-routed files with a Brotli-routed control so a seeming universal speedup cannot be attributed to just changing another codec path.
+3. **Correctness before timing:** SHA-256 of each decoded output must equal frozen original, with intermediate BWT block goldens. Include empty/minimal, malformed/truncated, forced decoder-visible IDs, and hostile BWT invalid-input checks. If changed source alters forward encoding, **separately** measure complete-wire bytes and reject any unacknowledged format/selection confound; a decode-only proof uses precisely the **same old-encoded bytes** on both arms.
+4. **Same-job statistics:** single-CPU affinity for both serial builds, symmetric warmups, random AB/BA interleave, ≥9 pairs, frozen `paired_bench.py` seed 41246, 20k bootstrap reps, A/A null CI containing 1.0, `timing_valid=true`, raw repetitions + actual subprocess argv. No cross-host absolute MB/s comparisons. Separate stage-internal LF time attribution from full ANVIL subprocess decode time.
+5. **Resource and compatibility gates:** measure peak RSS with separate processes, stripped **decoder-only** binary size plus linked runtime/dependency footprint, heap/stack including malformed input safety, full-wire identity and decode headers, and unchanged format backward compatibility. Honor the new upstream Apache-2.0 WITH LLVM-exception license by carrying exact upstream license/attribution—not just copying the C file.
+6. **Budget:** use a short bounded scout on representative BWT-routed `dickens` and `mr` plus Brotli-routed `mozilla`, and only if a genuine (CI-supported, Amdahl-feasible) signal exists promote to full frozen Silesia + enwik8 + structured/held-out verification. Do not repeat A48's 12-file x6 paired encode grid or expend hundreds of needless q11 recompressions; encode once and reuse frozen streams.
+
+**Acceptance for adoption:** a fully valid same-job paired end-to-end improvement demonstrably moves the **Brotli decode-time threshold** while not making any hard byte, correctness, peak-RSS, safety, compatibility or binary-size gate fail. Improvements that do not move the threshold remain interesting measured engineering evidence but **not a Pareto win**.
+
+### Phase O: separate OpenMP factorial, only if decision-relevant
+
+Do NOT mix this with Phase S and attribute a speedup to source version. On the same host/frozen BWT streams, compare **(old 2.10.4 serial, new 2.12.2 serial, new 2.12.2 OMP-enabled build's serial entrypoint, new 2.12.2 `libsais_unbwt_aux_omp` at 2 and 4 threads)**. Match affinity masks to requested thread count; record true core quota, CPU-time cost, worker stack/heap, `libgomp` size, binary size, output hashes, A/A null and paired CI. No `--cpu=0` pin for multicore arms. Do not infer that threaded LF walk is parallel merely because an OMP API was called: sample rate `r`, number of aux walk blocks and actual per-thread work must be recorded. If fewer walk blocks than threads, do not report that case as a clean scalability test.
+
+### Integrity, stopping, ownership
+
+- This is an **adoption-class** experiment, not a new algorithm/novelty claim. Research status before evidence: **VERIFY/TEST**. Risk execution status: **AWAIT_AUTHORIZATION** if a new workflow cannot be published through an approved channel. A documented permission denial is never permission to route through another app to evade it.
+- Run no workstation/homelab builds, benchmarks, fuzz or sweeps. No CI dispatch is authorized or performed by this document.
+- Claim ladder: upstream release note → unverified in ANVIL → source-identified same-job measurement → reproduced corpus + held-out all-axis validation. Never collapse those levels.
+- **Stop/park** on byte or correctness failure; performance null/noise; inadequate LF share by Amdahl; binary/RSS budget regression; unapproved workflow publication; or a result that cannot alter an architectural decision. Preserve all negative evidence.
+- **Revisit triggers:** permitted workflow publication, verified old/new source and license hashes, or a concrete new mechanism that changes the predicted bound. If a conventional version refresh makes the cost viable, postpone blocked-LF invention. If not, require a distinct mechanism and causal ablation before implementation.
