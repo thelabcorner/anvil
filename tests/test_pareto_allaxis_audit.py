@@ -19,6 +19,9 @@ def record(codec, wire, size, rss):
     return {
         "codec": codec, "complete_wire_bytes": wire,
         "decoder_distribution_bytes": size,
+        "code_commit": "2c5eeb9e570b1e1162cbff98d29e0a978edeca92",
+        "binary_sha256": ART,
+        "rss_evidence_sha256": ART,
         "decoder_footprint_includes_dependencies": True,
         "decoded_sha256": H,
         "peak_rss_samples_bytes": rss,
@@ -51,6 +54,8 @@ def valid_manifest():
             "input_sha256": H,
             "run_id": "44370017321",
             "source_commit": "2c5eeb9e570b1e1162cbff98d29e0a978edeca92",
+            "runner_fingerprint": "ubuntu-24.04-clang18-4cores-samejob",
+            "benchmark_tool_sha256": ART,
         },
         "candidate": record("anvil", 200, 10000, [500, 510, 520]),
         "required_references": ["brotli-q11", "xz-9e"],
@@ -138,7 +143,7 @@ class ParetoAllAxisTests(unittest.TestCase):
         def change(m):
             m["candidate"]["hard_gates"]["roundtrip"] = "fail"
         r = self.check(change)
-        self.assertEqual(r["per_reference"][0]["status"], "INCOMPLETE_OR_STATISTICALLY_INCONCLUSIVE")
+        self.assertEqual(r["per_reference"][0]["status"], "OBSERVED_REGRESSION_OR_HARD_FAIL")
 
     def test_required_reference_coverage(self):
         def change(m):
@@ -162,6 +167,24 @@ class ParetoAllAxisTests(unittest.TestCase):
     def test_malformed_input_rejected(self):
         def change(m):
             m["candidate"]["decoded_sha256"] = "bad"
+        r = self.check(change)
+        self.assertEqual(r["per_reference"][0]["status"], "OBSERVED_REGRESSION_OR_HARD_FAIL")
+
+    def test_missing_runner_identity_is_not_a_valid_claim(self):
+        def change(m):
+            del m["scope"]["runner_fingerprint"]
+        r = self.check(change)
+        self.assertEqual(r["per_reference"][0]["status"], "INCOMPLETE_OR_STATISTICALLY_INCONCLUSIVE")
+
+    def test_missing_rss_source_hash_is_incomplete(self):
+        def change(m):
+            del m["candidate"]["rss_evidence_sha256"]
+        r = self.check(change)
+        self.assertEqual(r["per_reference"][0]["status"], "INCOMPLETE_OR_STATISTICALLY_INCONCLUSIVE")
+
+    def test_fake_same_codec_identity_is_hard_fail(self):
+        def change(m):
+            m["candidate"]["codec"] = "brotli-q11"
         r = self.check(change)
         self.assertEqual(r["per_reference"][0]["status"], "OBSERVED_REGRESSION_OR_HARD_FAIL")
 
