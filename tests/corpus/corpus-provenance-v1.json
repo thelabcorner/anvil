@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "source_commit": "2c5eeb9e570b1e1162cbff98d29e0a978edeca92",
+  "purpose": "Known synthetic source lineage; not a statistical independence assertion",
+  "files": [
+    {
+      "path": "tests/corpus/generated.json",
+      "git_blob_sha1": "6d9fe60874ae6382ccc211ac7367af694591e2d1",
+      "generator_family": "smoke-corpus-generator-v1",
+      "generator_path": "tests/make_smoke_corpus.py",
+      "generator_git_blob_sha1": "d3009a6ad1eff1883bc7785419673daab38ea256",
+      "generator_note": "7,000 records; arithmetic and categorical derivations from index"
+    },
+    {
+      "path": "tests/corpus/generated.jsonl",
+      "git_blob_sha1": "1e0337271ac57ed6fc07bb93532275ace0a9f3bd",
+      "generator_family": "smoke-corpus-generator-v1",
+      "generator_path": "tests/make_smoke_corpus.py",
+      "generator_git_blob_sha1": "d3009a6ad1eff1883bc7785419673daab38ea256",
+      "generator_note": "12,000 records; same kind/score formulas; PRNG seed 424242"
+    },
+    {
+      "path": "tests/corpus/generated.sqlite",
+      "git_blob_sha1": "18f658e99323442963add99fa6ed25f42f022fae",
+      "generator_family": "smoke-corpus-generator-v1",
+      "generator_path": "tests/make_smoke_corpus.py",
+      "generator_git_blob_sha1": "d3009a6ad1eff1883bc7785419673daab38ea256",
+      "generator_note": "SQLite payload draws from the same 7,000 JSON rows"
+    },
+    {
+      "path": "tests/corpus/generated.repeat.jsonl",
+      "git_blob_sha1": "b595367a0ed1f81080ec81cd04bf59826cfb12cc",
+      "generator_family": "smoke-corpus-generator-v1",
+      "generator_path": "tests/make_smoke_corpus.py",
+      "generator_git_blob_sha1": "d3009a6ad1eff1883bc7785419673daab38ea256",
+      "generator_note": "Pure repetition control produced by same generator"
+    }
+  ]
+}
