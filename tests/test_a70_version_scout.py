@@ -140,7 +140,7 @@ class A70ScalarTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "noncanonical"):
             self._parse_synthetic_wire(malformed, 128)
 
-    def test_frozen_previous_run_fingerprint_is_enforced(self):
+    def test_frozen_previous_run_fingerprint_is_reported(self):
         # Synthetic scalar fixture: the real 3 expected digests come from
         # immutable A48 artifact 14480494484, not from this fake fixture.
         payload = b"ANVIL old source, fixed test-only wire"
@@ -150,11 +150,12 @@ class A70ScalarTests(unittest.TestCase):
             path.write_bytes(payload)
             with patch.dict(scout.FROZEN_A48_OLD_WIRE,
                             {"dickens": (len(payload), digest)}):
-                result = scout.verify_frozen_old_wire(path, "dickens")
+                result = scout.audit_frozen_old_wire(path, "dickens")
                 self.assertTrue(result["matches_byte_for_byte"])
+                self.assertEqual(result["cross_run_comparability"], "EXACT_HISTORICAL_REPLAY")
                 self.assertEqual(result["artifact_id"], 14480494484)
 
-    def test_changed_wire_same_size_fails_frozen_fingerprint(self):
+    def test_changed_wire_same_size_marks_historical_drift_not_decoder_h0(self):
         payload = b"wire-golden"
         digest = hashlib.sha256(payload).hexdigest()
         with tempfile.TemporaryDirectory() as td:
@@ -162,10 +163,12 @@ class A70ScalarTests(unittest.TestCase):
             path.write_bytes(b"wire-BROKEN")
             with patch.dict(scout.FROZEN_A48_OLD_WIRE,
                             {"dickens": (len(payload), digest)}):
-                with self.assertRaisesRegex(RuntimeError, "FROZEN_WIRE_DRIFT"):
-                    scout.verify_frozen_old_wire(path, "dickens")
+                result = scout.audit_frozen_old_wire(path, "dickens")
+                self.assertFalse(result["matches_byte_for_byte"])
+                self.assertEqual(result["cross_run_comparability"],
+                                 "DRIFT_DIAGNOSTIC_NO_CROSS_RUN_COMPARISON")
 
-    def test_changed_wire_length_fails_frozen_fingerprint(self):
+    def test_changed_wire_length_marks_historical_drift_not_decoder_h0(self):
         payload = b"wire-golden"
         digest = hashlib.sha256(payload).hexdigest()
         with tempfile.TemporaryDirectory() as td:
@@ -173,8 +176,18 @@ class A70ScalarTests(unittest.TestCase):
             path.write_bytes(payload + b"\x00")
             with patch.dict(scout.FROZEN_A48_OLD_WIRE,
                             {"mr": (len(payload), digest)}):
-                with self.assertRaisesRegex(RuntimeError, "FROZEN_WIRE_DRIFT"):
-                    scout.verify_frozen_old_wire(path, "mr")
+                result = scout.audit_frozen_old_wire(path, "mr")
+                self.assertFalse(result["matches_byte_for_byte"])
+                self.assertNotEqual(result["actual_bytes"], result["expected_bytes"])
+
+    def test_ratio_varint_cannot_cross_declared_payload_boundary(self):
+        # Ratio header is [transform=0, backend=2, xlen]. The lone 0x80
+        # is an UNTERMINATED xlen and must not consume another block's bytes.
+        head = b"ANV0\x02" + self._uvar(128 << 20) + self._uvar(128)
+        block = (self._uvar(128) + b"\x11" + self._uvar(3) +
+                 b"\x00" * 4 + bytes((0, 2, 0x80)))
+        with self.assertRaisesRegex(RuntimeError, "crosses declared payload boundary"):
+            self._parse_synthetic_wire(head + block, 128)
 
     @unittest.skipUnless(Path("/usr/bin/time").is_file(),
                          "GNU time unavailable in this scalar test environment")
