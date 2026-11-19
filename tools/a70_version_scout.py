@@ -15,6 +15,18 @@ import sys
 from pathlib import Path
 
 
+# Independent historical A48 artifact 14480494484, run 44380412243,
+# ZIP sha256 71b6b288b1a2d3f2ae0adf132287e0b1a790642e937ba9526018f8b678ea3eab
+# The frozen build used source 2c5eeb9e and the IDENTICAL exact 7 flags
+# supplied below. These are fingerprints of complete previous ANVIL files,
+# not fabricated payload hashes or a new performance claim.
+FROZEN_A48_OLD_WIRE = {
+    "dickens": (2636635, "e2f188e5dc5879d622bc71278cdbb40e68baae73515379353a0fe498c0cb670d"),
+    "mr": (2413023, "9cf875f7a51c910ba5772d31f7983400e8b89ee3d217f74bd1bc67101b5eed7c"),
+    "mozilla": (13806173, "175c68610e213bb7af3275b7ef5cd51f008add01e2865e9a44020dc1a452443c"),
+}
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -247,6 +259,19 @@ def run_scout(a: argparse.Namespace) -> dict:
              "--bwt-subblock=8388608", "--quiet"], timeout=600)
 
         wire = inspect_ratio_wire(packed, size)
+        # Independent, prior-run A48 artifact replay check. This protects
+        # against silently changing the frozen old encoder, its backend or
+        # library versions while claiming a libsais-only decoder comparison.
+        # Failure is a provenance mismatch, NOT a negative speed outcome.
+        expected_packed_size, expected_packed_sha = FROZEN_A48_OLD_WIRE[name]
+        actual_packed_sha = sha256(packed)
+        if packed.stat().st_size != expected_packed_size or actual_packed_sha != expected_packed_sha:
+            raise RuntimeError(
+                f"A70 FROZEN_WIRE_DRIFT {name}: old binary produced "
+                f"{packed.stat().st_size} bytes sha256={actual_packed_sha}, "
+                f"expected A48 {expected_packed_size} bytes sha256={expected_packed_sha}. "
+                f"No version-only measurement is admissible until provenance is explained."
+            )
         # Route provenance MUST precede any speed observation. A libsais
         # version-only test on a Brotli-routed file is a negative control,
         # never evidence that the inverse-BWT implementation got faster.
@@ -307,6 +332,11 @@ def run_scout(a: argparse.Namespace) -> dict:
             "packed_bytes": packed.stat().st_size, "packed_sha256": sha256(packed),
             "old_wire_backend": expected_backend,
             "old_wire_route_provenance": wire,
+            "frozen_a48_replay": {
+                "run_id": 44380412243, "artifact_id": 14480494484,
+                "expected_sha256": expected_packed_sha,
+                "matches_byte_for_byte": True,
+            },
             "old_decode_peak_rss_kib_one_shot": old_rss_kib,
             "new_decode_peak_rss_kib_one_shot": new_rss_kib,
             "rss_note": "one-shot per-process GNU time KiB outside paired clocks; NOT full RSS gate",
