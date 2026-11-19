@@ -197,6 +197,27 @@ def inspect_ratio_wire(path: Path, expected_source_bytes: int) -> dict:
         }
 
 
+def verify_frozen_old_wire(path: Path, name: str) -> dict:
+    if name not in FROZEN_A48_OLD_WIRE:
+        raise ValueError(f"no frozen A48 old-wire fingerprint for {name}")
+    expected_bytes, expected_sha = FROZEN_A48_OLD_WIRE[name]
+    actual_bytes, actual_sha = path.stat().st_size, sha256(path)
+    if actual_bytes != expected_bytes or actual_sha != expected_sha:
+        raise RuntimeError(
+            f"A70 FROZEN_WIRE_DRIFT {name}: old binary produced "
+            f"{actual_bytes} bytes sha256={actual_sha}, "
+            f"expected A48 {expected_bytes} bytes sha256={expected_sha}. "
+            f"No version-only measurement is admissible until provenance is explained."
+        )
+    return {
+        "run_id": 44380412243,
+        "artifact_id": 14480494484,
+        "expected_bytes": expected_bytes,
+        "expected_sha256": expected_sha,
+        "matches_byte_for_byte": True,
+    }
+
+
 def require_preregistered_route(wire: dict, name: str) -> str:
     expected_routes = {"dickens": "bwt", "mr": "bwt", "mozilla": "brotli"}
     if name not in expected_routes:
@@ -263,15 +284,7 @@ def run_scout(a: argparse.Namespace) -> dict:
         # against silently changing the frozen old encoder, its backend or
         # library versions while claiming a libsais-only decoder comparison.
         # Failure is a provenance mismatch, NOT a negative speed outcome.
-        expected_packed_size, expected_packed_sha = FROZEN_A48_OLD_WIRE[name]
-        actual_packed_sha = sha256(packed)
-        if packed.stat().st_size != expected_packed_size or actual_packed_sha != expected_packed_sha:
-            raise RuntimeError(
-                f"A70 FROZEN_WIRE_DRIFT {name}: old binary produced "
-                f"{packed.stat().st_size} bytes sha256={actual_packed_sha}, "
-                f"expected A48 {expected_packed_size} bytes sha256={expected_packed_sha}. "
-                f"No version-only measurement is admissible until provenance is explained."
-            )
+        replay_evidence = verify_frozen_old_wire(packed, name)
         # Route provenance MUST precede any speed observation. A libsais
         # version-only test on a Brotli-routed file is a negative control,
         # never evidence that the inverse-BWT implementation got faster.
@@ -332,11 +345,7 @@ def run_scout(a: argparse.Namespace) -> dict:
             "packed_bytes": packed.stat().st_size, "packed_sha256": sha256(packed),
             "old_wire_backend": expected_backend,
             "old_wire_route_provenance": wire,
-            "frozen_a48_replay": {
-                "run_id": 44380412243, "artifact_id": 14480494484,
-                "expected_sha256": expected_packed_sha,
-                "matches_byte_for_byte": True,
-            },
+            "frozen_a48_replay": replay_evidence,
             "old_decode_peak_rss_kib_one_shot": old_rss_kib,
             "new_decode_peak_rss_kib_one_shot": new_rss_kib,
             "rss_note": "one-shot per-process GNU time KiB outside paired clocks; NOT full RSS gate",
