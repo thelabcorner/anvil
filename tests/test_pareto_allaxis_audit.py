@@ -4,12 +4,17 @@ No compressor build, benchmark, fuzz or network. This gate is NOT frozen I9.
 """
 import copy
 import hashlib
+import json
+import io
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from pareto_allaxis_audit import compare
+from pareto_allaxis_audit import compare, main
 
 H = hashlib.sha256(b"source-data").hexdigest()
 ART = hashlib.sha256(b"raw-pair-evidence").hexdigest()
@@ -76,6 +81,30 @@ class ParetoAllAxisTests(unittest.TestCase):
         if change:
             change(m)
         return compare(m)
+
+    def cli_exit(self, manifest):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with patch.object(sys, "argv", ["audit", str(path)]):
+                with redirect_stdout(io.StringIO()):
+                    return main()
+
+    def test_cli_only_returns_zero_for_scoped_all_axis_win(self):
+        m = valid_manifest()
+        self.assertEqual(self.cli_exit(m), 0)
+        m["candidate"]["complete_wire_bytes"] = 9999
+        self.assertEqual(self.cli_exit(m), 1)
+
+    def test_cli_inconclusive_is_not_success(self):
+        m = valid_manifest()
+        m["paired"][0]["decode"]["ci95"] = [0.95, 1.05]
+        self.assertEqual(self.cli_exit(m), 1)
+
+    def test_cli_invalid_reference_contract_is_error(self):
+        m = valid_manifest()
+        m["required_references"].append("zstd-19")
+        self.assertEqual(self.cli_exit(m), 2)
 
     def test_genuine_observed_scope_dominance(self):
         r = self.check()
