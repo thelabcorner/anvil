@@ -91,6 +91,13 @@ jobs:
           } | tee "$OUT_DIR/provenance.txt"
           [ -z "$(git -C old status --porcelain)" ]
           [ -z "$(git -C candidate status --porcelain)" ]
+          # Causal isolation: forbid unacknowledged ANVIL/benchmark/build changes.
+          # The two checkouts may differ in draft workflow/tests/docs, but the
+          # compiled codec, build config, and frozen statistical tooling MUST match.
+          for f in src/anvil.cpp CMakeLists.txt tools/paired_bench.py tools/gha_fetch_corpus.py; do
+            cmp "old/$f" "candidate/$f" || { echo "NON-LIBSAIS DIFFERENCE: $f"; exit 1; }
+          done
+          echo "verified: identical ANVIL codec source, CMake, and benchmark tools"
 
       - name: Preflight A70 scalar orchestration tests before expensive builds
         run: |
@@ -153,3 +160,4 @@ jobs:
             ${{ env.OUT_DIR }}/results/*.json
             ${{ env.OUT_DIR }}/results/*.csv
             ${{ env.OUT_DIR }}/results/*-rss.txt
+            ${{ env.OUT_DIR }}/work/*/old.anv
