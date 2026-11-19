@@ -79,10 +79,14 @@ def check_input(scope: dict, candidate: dict, ref: dict,
             raise ValueError("invalid input SHA256")
         if positive_int(scope, "input_bytes") <= 0:
             raise ValueError("empty input")
-        if not str(scope["source_commit"]).strip():
-            raise ValueError("missing source commit")
-        if not str(scope["run_id"]).strip():
-            raise ValueError("missing same-job run ID")
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", str(scope["source_commit"])):
+            raise ValueError("source commit must be full 40-hex git SHA")
+        if not re.fullmatch(r"[0-9]+", str(scope["run_id"])):
+            raise ValueError("same-job GitHub Actions run ID missing")
+        if not str(scope["runner_fingerprint"]).strip():
+            raise ValueError("runner hardware class/fingerprint missing")
+        if not SHA256.fullmatch(str(scope["benchmark_tool_sha256"])):
+            raise ValueError("benchmark tool content SHA256 missing")
         if not str(scope["file"]).strip():
             raise ValueError("missing per-file scope")
     except (KeyError, ValueError, TypeError) as exc:
@@ -97,9 +101,21 @@ def check_input(scope: dict, candidate: dict, ref: dict,
             missing.append(f"{name}: missing required footprint {exc}")
         if obj.get("decoder_footprint_includes_dependencies") is not True:
             missing.append(f"{name}: decoder dependency/model assets not charged")
+        for artifact in ("binary_sha256", "rss_evidence_sha256"):
+            if not SHA256.fullmatch(str(obj.get(artifact, ""))):
+                missing.append(f"{name}: invalid or missing {artifact}")
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", str(obj.get("code_commit", ""))):
+            missing.append(f"{name}: code_commit must be full 40-hex SHA")
+        gates = obj.get("hard_gates")
+        if not isinstance(gates, dict):
+            missing.append(f"{name}: no hard-gate evidence object")
+            gates = {}
         for gate in PASS_GATES:
-            if obj.get("hard_gates", {}).get(gate) != "pass":
-                missing.append(f"{name}: hard gate '{gate}' not pass")
+            state = gates.get(gate)
+            if state == "fail":
+                hard.append(f"{name}: {gate} FAILED")
+            elif state != "pass":
+                missing.append(f"{name}: hard gate '{gate}' not yet verified")
     for feature in ("streaming", "random_access"):
         # Boolean capabilities measured over *same* input/format scope.
         c = candidate.get("capabilities", {}).get(feature)
@@ -110,6 +126,8 @@ def check_input(scope: dict, candidate: dict, ref: dict,
             hard.append(f"{feature}: candidate loses reference capability")
     if pair.get("reference") != ref.get("codec"):
         missing.append("paired reference identity differs from ref codec")
+    if candidate.get("codec") == ref.get("codec"):
+        hard.append("candidate and reference codec names must differ")
     return missing, hard
 
 
