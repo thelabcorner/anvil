@@ -84,3 +84,93 @@ All four historical streams consist of **one revision-2 block**, declared source
 **Scalar verification of staged files:** `python -m unittest discover -s tests -p test_a70_version_scout.py -v` in an isolated local scratch directory produced **20 tests discovered, 19 PASS, 1 Linux-only `/usr/bin/time` test SKIPPED**, exit 0. Nine new routing/malformed header cases, a malformed payload-boundary case, and three old-wire replay/diagnostic cases were included. One independently identified parser weakness—letting a ratio varint extend beyond its declared payload boundary—was repaired and tested. The scratch directory was deleted after inspection. This was **not** a codec build, LLVM/Clang check, dataset decompression, hosted GHA run or real performance measurement. Linux RSS and full old-wire regeneration still require the authorized manual-only hosted A70 workflow.
 
 **Disposition:** `PROCEED_WITH_GUARDS` for the source-only protocol hardening following an independent read-only reviewer challenge (no parser/source framing mismatch found; historical SHA hard-stop disproven as necessary); `AWAIT_AUTHORIZATION` for publishing the new workflow and dispatching a bounded GHA run. No universal Pareto claim follows from this three-file decoder-scout protocol.
+
+## Pre-outcome protocol correction — 26 November 2026
+
+The user explicitly authorized continuation through OXP's GitHub tooling and
+required **all CPU validation on GitHub Actions**, including unit and scalar
+tests. This supersedes the older source-only execution disposition above.
+Source editing and GitHub API operations are permitted locally. No tests,
+builds, codec execution, profiling or benchmark calculations are run locally.
+Real repository/tool permission failures remain binding; historical permission
+claims are not treated as a newly observed denial.
+
+This correction starts from reviewed draft PR #24 head
+`f40a8ac28d87e851b67664131a801bd357d16a44`. Live workflow/run inspection on
+26 November found no registered A70 workflow and no A70 run. No A70 performance
+outcome was observed before this correction. The existing I20 stage-decomposition
+workflow **is** registered, contrary to the stale session blocker, but its old
+whole-corpus profile is not this bounded scout.
+
+### Correction and independent acceptance gate
+
+The evaluator-owned acceptance cases are frozen in
+`A70-PROTOCOL-CORRECTION-ACCEPTANCE-20261126.md` before hosted execution.
+
+1. **Controlled outer-frame rejection.** Arbitrary nonzero exit is no longer a
+   pass. Both direct decoder processes must return exactly 1, emit the exact
+   pinned `anvil: truncated block payload` diagnostic (with at most its normal
+   terminal newline), and leave neither final output nor `.anvil-part` behind.
+   Dirty output paths are rejected before execution. Process output and failure
+   classification are archived before errors propagate. The fixture removes one
+   final byte from the verified old wire. This exercises the outer frame length
+   guard before libsais; it does not establish hostile-BWT or dependency safety.
+2. **Complete repetition contract.** A70 admits only 9 or 13 pairs at workflow,
+   CLI and callable boundaries. Nine remains the default. An interrupted session
+   is never resumed, pooled with another run, shortened, or bootstrapped as though
+   complete. No null control can be dropped to fit a resource budget.
+3. **Durable observations with the frozen estimator.** Keep
+   `tools/paired_bench.py` byte-for-byte unchanged, pinned SHA-256
+   `9a42bf80f6a35bbec61f191a40daf416652e1ee9c35fd7461c5de13755209b08`.
+   `a70_paired_capture.py` delegates its timed process and output-observation
+   calls. It writes/fsyncs command starts, returned elapsed values and verified
+   arm observations as separate events, outside the original subprocess timer.
+   It checks complete schedule/raw/summary coverage before declaring COMPLETE.
+   Reused journals, states, CSVs or summaries are refused. Each designated
+   decoded output is cleared before its next timed invocation, outside the
+   timer, so a successful process that writes nothing cannot reuse old bytes.
+   These outputs are distinct from the immutable packed input. Inter-invocation
+   journaling is present symmetrically; fake-clock parity establishes semantic
+   clock/statistic parity, not a claim of zero physical system overhead. Fresh
+   destination-file state is a deliberate observation-protocol revision applied
+   to both arms. New timing stands on its own same-job controls and is never
+   pooled with timing from an earlier observation protocol.
+4. **Incomplete evidence remains visible.** Persist source/phase progress and
+   each completed session. A current file is complete only after compatibility,
+   RSS, both nulls and the comparison. A failure record names the phase and retains
+   earlier complete files. Missing capture completion, including after SIGKILL,
+   means incomplete. Partial diagnostic timings do not receive a speed verdict.
+5. **Identity and bounded execution.** Workflow source and candidate source are
+   recorded separately. Checkout requires an explicit full candidate commit and
+   equality check. The workflow retains the old/new `cmp` checks for codec,
+   CMake, frozen statistical runner and corpus tooling. The default manual phase
+   is `protocol-only`; it cannot fall through into a codec build or scout. Review
+   its hosted evidence before a separate manual `scout` dispatch.
+
+### Unchanged scientific settings and resource limits
+
+The version-only source import, old encoder, three named files and route guards,
+same old wire on both decoder arms, serial Clang 18 Release flags, affinity rule,
+two symmetric warmups, seed 41246, paired log-ratio median, 20,000 bootstrap
+samples with seed `41246 ^ 0xA5A5A5A5`, practical epsilon 0.02, arm robust-CV 0.15,
+ambient settings 5 / 250000 / 0.10, and pre/post A/A controls are unchanged.
+Full CLI size and single-process RSS remain scoped scout diagnostics.
+
+The hosted job remains limited to 45 minutes. Preparation has an absolute
+900-second budget. Measurement has a maximum 1,200-second budget and an absolute
+cutoff 2,100 seconds after job start; its internal budget is 15 seconds shorter
+than the outer timeout. Each new paired session requires its complete frozen
+600-second cap plus cleanup reserve. Failure to admit a session is
+`NOT_STARTED_BUDGET`, not a reduced experiment. Process-group termination bounds
+cleanup and preserves logs. Upload has its own five-minute cap, inside the job
+reserve. An `always()` upload includes process diagnostics, JSONL journals and
+failure/progress state. Loss of the entire hosted runner still cannot guarantee
+artifact recovery.
+
+Passing this infrastructure gate establishes protocol behavior only. Passing
+the three-file scout establishes, at most, scoped same-job decode evidence.
+Mozilla remains a Brotli-route negative control; an apparent change there is a
+causal concern, not an inverse-BWT success. No scout label or green workflow
+establishes full dependency safety, all-axis Pareto dominance, held-out
+generalization, decoder-only distribution footprint or adoption readiness.
+Draft PRs #23–26 remain unmerged and historical evidence remains unchanged.

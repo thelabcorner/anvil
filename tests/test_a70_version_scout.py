@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+if os.environ.get("GITHUB_ACTIONS") != "true":
+    raise unittest.SkipTest("A70 orchestration tests execute only on GitHub Actions")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import a70_version_scout as scout
@@ -30,8 +34,13 @@ class A70ScalarTests(unittest.TestCase):
             run([sys.executable, "-c", "import sys; sys.exit(7)"])
 
     def test_expected_failure_is_distinguished(self):
-        run([sys.executable, "-c", "import sys;sys.exit(7)"],
+        run([sys.executable, "-c", "import sys;sys.exit(1)"],
             expect_failure=True)
+
+    def test_arbitrary_nonzero_is_not_the_controlled_decoder_rejection(self):
+        with self.assertRaises(RuntimeError):
+            run([sys.executable, "-c", "import sys;sys.exit(7)"],
+                expect_failure=True)
 
     def test_truncated_input_unexpected_success_is_hard_error(self):
         with self.assertRaises(RuntimeError):
@@ -40,23 +49,17 @@ class A70ScalarTests(unittest.TestCase):
     def test_selects_first_allowed_runner_cpu_not_literal_zero(self):
         source_hash = hashlib.sha256(b"source").hexdigest()
         captured = {}
-        def fake_run(argv, timeout=0):
+        def fake_run(argv, timeout=0, **kwargs):
+            from test_a70_capture_protocol import emit_complete_capture_fixture
             captured["argv"] = argv
-            with Path(argv[argv.index("--summary") + 1]).open("w", encoding="utf-8") as out:
-                json.dump({
-                    "observed_outputs": {
-                        "control": {"sha256": source_hash, "deterministic": True},
-                        "candidate": {"sha256": source_hash, "deterministic": True},
-                    },
-                    "pairs": [{} for _ in range(7)],
-                }, out)
+            emit_complete_capture_fixture(argv, source_hash)
         with tempfile.TemporaryDirectory() as td:
             out = Path(td)
             with patch.object(scout.os, "sched_getaffinity", return_value={4, 7},
                               create=True), patch.object(scout, "run", side_effect=fake_run):
                 result = scout.paired(
                     out, ["old"], ["new"], out / "old.out", out / "new.out",
-                    source_hash, "tiny-scalar", out, 7)
+                    source_hash, "tiny-scalar", out, 9)
         self.assertEqual(captured["argv"][captured["argv"].index("--cpu") + 1], "4")
         self.assertEqual(result["peer_affinity_preflight"]["selected_cpu"], 4)
 
